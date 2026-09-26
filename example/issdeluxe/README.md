@@ -212,6 +212,10 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   Direction = `((facing + 4) & $38) >> 3` for a 0–63 facing angle.
 * `iss/players/kits.json` — first/second kit palettes and head colour masks for
   all 43 teams.
+* `iss/teams.json` — all 43 squads: 20 players each with name and the raw
+  12-byte record (attributes, body type, face and hair styles), team ratings
+  and kit-clash codes. Team 0 is England, 1 Germany, 5 Ireland…; the country
+  names themselves are drawn from graphics.
 * `iss/stadiums/` — the 8 stadiums in day / evening / night: full renders
   (e.g. 2720 × 832 px), 16 × 16 metatile atlases with their maps (the game's
   own streaming format), tile sheets as index images and palettes.
@@ -279,6 +283,7 @@ Open work, in rough order of value for a port:
    stadium objects (goals, corner flags) drawn as sprites.
 2. Screen composition for `res26`–`res86` (VRAM base and shared UI tiles used
    by the front-end loaders) so their tilemaps render.
-3. Team, player and tactics tables in the `$020408–$03B09E` data block.
+3. Meaning of the eight player attribute bytes and the five team ratings;
+   formations (`$037E0E`) and tactics.
 4. Match engine naming: ball physics, player AI, referee, camera.
 5. Music bank format and sample boundaries inside the PCM bank.

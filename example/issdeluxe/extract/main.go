@@ -55,6 +55,11 @@ const (
 	grpMatchPal    = 17 // res17 entry 2: palette line 2 during a match
 	grpStadium0    = 7  // res07..res14: stadium sets
 	numStadiums    = 8
+	tblPlayerNames = 0x035916 // 43 pointers -> 20 x 8-character player names
+	tblPlayerData  = 0x038140 // 43 pointers -> 20 x 12-byte player records
+	tblTeamRatings = 0x03AB82 // 5 bytes per team
+	tblKitClash    = 0x0374AE // word per team: equal values force the away team's second kit
+	playersPerTeam = 20
 )
 
 var rom []byte
@@ -109,6 +114,7 @@ func main() {
 	exportMatchPalette(dir, kits)
 	exportAnimations(dir)
 	exportStadiums(filepath.Join(*out, "assets", "iss", "stadiums"))
+	exportTeams(filepath.Join(*out, "assets", "iss"))
 	writeScripts(*out)
 }
 
@@ -656,4 +662,66 @@ func drawMetatile(img *image.RGBA, ox, oy int, blocks []byte, b int, tiles []byt
 			}
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Teams
+// ---------------------------------------------------------------------------
+
+type playerOut struct {
+	Slot       int    `json:"slot"`
+	Name       string `json:"name"`
+	Attributes []int  `json:"attributes"` // record bytes 0-7 (object +$5A..+$61)
+	Body       int    `json:"body"`       // record byte 8 (object +$62)
+	Face       int    `json:"face"`       // record byte 9 (object +$63): head tiles (face-1)*$80
+	Hair       int    `json:"hair"`       // record byte 10 (object +$64): hair tiles hair*$260
+	Extra      int    `json:"extra"`      // record byte 11 (object +$65)
+	Record     string `json:"record"`     // raw 12 bytes
+}
+
+func exportTeams(dir string) {
+	type teamOut struct {
+		Team     int         `json:"team"`
+		Ratings  []int       `json:"ratings"`
+		KitClash int         `json:"kit_clash"`
+		Players  []playerOut `json:"players"`
+	}
+	var teams []teamOut
+	for t := 0; t < numTeams; t++ {
+		to := teamOut{Team: t, KitClash: int(be16(tblKitClash + uint32(2*t)))}
+		for i := 0; i < 5; i++ {
+			to.Ratings = append(to.Ratings, int(rom[tblTeamRatings+uint32(5*t+i)]))
+		}
+		names := be32(tblPlayerNames + uint32(4*t))
+		recs := be32(tblPlayerData + uint32(4*t))
+		for p := 0; p < playersPerTeam; p++ {
+			nb := rom[names+uint32(8*p) : names+uint32(8*p+8)]
+			name := make([]byte, 0, 8)
+			for _, c := range nb {
+				switch {
+				case c == '@':
+					name = append(name, ' ')
+				case c == '`':
+					name = append(name, '\'')
+				default:
+					name = append(name, c)
+				}
+			}
+			r := rom[recs+uint32(12*p) : recs+uint32(12*p+12)]
+			po := playerOut{Slot: p, Name: strings.TrimSpace(string(name)), Body: int(r[8]), Face: int(r[9]),
+				Hair: int(r[10]), Extra: int(r[11]), Record: fmt.Sprintf("% X", r)}
+			for i := 0; i < 8; i++ {
+				po.Attributes = append(po.Attributes, int(r[i]))
+			}
+			to.Players = append(to.Players, po)
+		}
+		teams = append(teams, to)
+	}
+	writeJSON(filepath.Join(dir, "teams.json"), map[string]any{
+		"description": "43 teams x 20 players. Names from $035916, records from $038140 (copied to player " +
+			"object +$5A..+$65), 5 team ratings from $03AB82. Attribute meanings are not decoded yet. " +
+			"Team names are drawn from graphics, so teams are identified by index (see kits.json for colours).",
+		"teams": teams,
+	})
+	fmt.Printf("teams: %d x %d players\n", len(teams), playersPerTeam)
 }

@@ -95,6 +95,10 @@ player_draw                 = $020BF0 ; Player draw callback: pick the frame fro
 tbl_player_anims            = $0210DE ; 54 actions -> 8 directions -> frame descriptor lists.\nDescriptor: +0 res00 entry*4, +2 tile offset, +4 tile bytes, +6 head, +8 kit, +A hair tile offsets,\n+C piece count-1, then 10-byte pieces: y, VDP size, attribute index, tile, x (right), x (left)
 tbl_sprite_attr_right       = $020F5E ; Sprite attribute words (palette line / flips) indexed by piece attribute byte, right-facing
 tbl_sprite_attr_left        = $02101E ; Same with horizontal flip toggled, used for left-facing directions
+tbl_player_names            = $035916 ; 43 pointers (one per team) to 20 x 8-character player names ('@' = space)
+tbl_player_data             = $038140 ; 43 pointers to 20 x 12-byte player records, copied to player object +$5A..+$65\n(8 attribute bytes, body type, face style, hair style, extra)
+tbl_team_ratings            = $03AB82 ; 5 rating bytes per team (copied to $183C / $18C4)
+tbl_kit_clash               = $0374AE ; Word per team: when home and away values match, the away team wears its second kit
 tbl_head_mask_home          = $037402 ; Per-team AND masks applied to head tiles (skin / hair colours), home team
 tbl_head_mask_away          = $037458 ; Same for the away team
 load_stadium_tiles          = $01D7BA ; Load stadium group 7 + g_stadium: tiles (entries 3, 4, night patch 5), metatile map (1)\nand table (2) into RAM, palette line 3 for g_time_of_day (6-8); create the corner-flag objects
