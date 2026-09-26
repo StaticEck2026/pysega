@@ -79,7 +79,10 @@ func main() {
 
 	o = text
 	o.Prefix, o.DataPrefix, o.SubDir = "boot", "boot_data", "boot"
-	segs = append(segs, res.Segments(bootStart, bootCodeEnd, o)...)
+	for _, s := range res.Segments(bootStart, bootCodeEnd, o) {
+		s.StructRegs = map[string]string{"a5": ""} // boot objects use another layout
+		segs = append(segs, s)
+	}
 	segs = append(segs, bootDataSegments()...)
 
 	segs = append(segs, soundDataSegments()...)
@@ -87,8 +90,10 @@ func main() {
 	o = text
 	o.Prefix, o.DataPrefix, o.SubDir = "sound", "sound_data", "sound"
 	for _, s := range res.Segments(soundStart, romEnd, o) {
-		// The sound driver points a6 at its own RAM block.
+		// The sound driver points a6 at its own RAM block and uses a5 for
+		// the VDP / channel data.
 		s.BaseRegs = map[string]types.HexInt{"a6": 0}
+		s.StructRegs = map[string]string{"a5": ""}
 		segs = append(segs, splitZ80(s)...)
 	}
 
@@ -486,6 +491,9 @@ func writeYAML(segs []types.Segment) string {
 				fmt.Fprintf(&b, "    base_regs: {%s: 0x%X}\n", k, uint32(v))
 			}
 		}
+		if v, ok := s.StructRegs["a5"]; ok {
+			fmt.Fprintf(&b, "    struct_regs: {a5: %q}\n", v)
+		}
 		if s.SampleRate != 0 {
 			fmt.Fprintf(&b, "    sample_rate: %d\n", s.SampleRate)
 		}
@@ -529,6 +537,43 @@ options:
   heuristics: false          # segment map comes from a control-flow trace
   base_regs:
     a6: 0xFF0000             # the game keeps its globals block in a6
+  struct_regs:
+    a5: obj                  # a5 is the current object in the main program
+
+# Object layout (players, ball, menu widgets and palette fades all share the
+# list header and callbacks; the other fields are those of pitch objects).
+structs:
+  obj:
+    - {offset: 0x00, name: obj_next, comment: "Next object in its list (-1 = end)"}
+    - {offset: 0x04, name: obj_prev, comment: "Previous object (-1 = head)"}
+    - {offset: 0x0E, name: obj_visible, comment: "Byte: 1 = on screen, $FF = culled (set by objects_draw)"}
+    - {offset: 0x10, name: obj_x, comment: "Word: pitch X"}
+    - {offset: 0x14, name: obj_y, comment: "Word: pitch Y, also the depth-sort key"}
+    - {offset: 0x18, name: obj_z, comment: "Word: height above the pitch"}
+    - {offset: 0x1C, name: obj_screen_x, comment: "Word: screen X = x + y/2 - hscroll"}
+    - {offset: 0x1E, name: obj_screen_y, comment: "Word: screen Y = y/2 - z - vscroll"}
+    - {offset: 0x28, name: obj_target_x, comment: "Word: point the object is steering to"}
+    - {offset: 0x2A, name: obj_target_y, comment: "Word"}
+    - {offset: 0x32, name: obj_attr, comment: "Word: offset into the sprite attribute tables (palette line)"}
+    - {offset: 0x34, name: obj_update, comment: "Long: update callback (-1 = none)"}
+    - {offset: 0x38, name: obj_think, comment: "Long: think / steering callback run before obj_update"}
+    - {offset: 0x3C, name: obj_travel, comment: "Long: remaining distance to the target (16.16)"}
+    - {offset: 0x44, name: obj_heading, comment: "Word: direction to the target (0-63)"}
+    - {offset: 0x4A, name: obj_team, comment: "Word: 0 = home, 1 = away"}
+    - {offset: 0x56, name: obj_slot, comment: "Byte: squad slot (0-19)"}
+    - {offset: 0x5A, name: obj_record, comment: "12 bytes: player record (tbl_player_data)"}
+    - {offset: 0x62, name: obj_body, comment: "Byte: body type (record byte 8)"}
+    - {offset: 0x63, name: obj_face, comment: "Byte: face style (1-based)"}
+    - {offset: 0x64, name: obj_hair, comment: "Byte: hair style"}
+    - {offset: 0x66, name: obj_draw, comment: "Long: draw callback (-1 = none)"}
+    - {offset: 0x6A, name: obj_action, comment: "Word: animation action (tbl_player_anims)"}
+    - {offset: 0x6C, name: obj_frame, comment: "Long: frame descriptor currently shown"}
+    - {offset: 0x70, name: obj_frame_next, comment: "Long: frame waiting for its tile DMA"}
+    - {offset: 0x74, name: obj_frame_dma, comment: "Long: DMA queue entry of the pending frame (-1 = none)"}
+    - {offset: 0x78, name: obj_vram, comment: "Word: VRAM address of the object's tile slot"}
+    - {offset: 0x7A, name: obj_anim_frame, comment: "Word: frame index within the action"}
+    - {offset: 0x7E, name: obj_speed, comment: "Long: speed (16.16 pixels per frame)"}
+    - {offset: 0x86, name: obj_facing, comment: "Word: facing angle 0-63 (0 = up the pitch, 16 = right)"}
 
 segments:
 `

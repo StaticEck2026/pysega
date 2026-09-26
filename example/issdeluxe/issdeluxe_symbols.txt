@@ -67,6 +67,19 @@ joypad_th_toggle            = $0011C4 ; Toggle the TH line of the port at a0 and
 joypad_th_handshake         = $0011F2 ; TH/TR handshake used by the multitap protocol (d7 = timeout)
 
 ; ═════════════════════════════════════════════════════════════════════════════
+; Maths and steering. Angles are 0-63: 0 = up the pitch (-Y), 16 = right (+X),
+; 32 = down, 48 = left. Speeds are 16.16 pixels per frame and come in
+; (NTSC, PAL) pairs, the PAL value being 1.2x the NTSC one.
+; ═════════════════════════════════════════════════════════════════════════════
+tbl_speed_ntsc_pal          = $00BBEE ; (NTSC, PAL) pairs of 16.16 speeds, indexed by g_is_pal
+direction_to                = $00BDAC ; d0 = angle 0-63 from object a5 to point (d0, d1): table-driven atan2
+tbl_atan_octants            = $00BEAE ; Angle results for direction_to, one block per quadrant
+tbl_direction_x             = $00BFCA ; 64 signed 8.8 X components of the unit vector for each angle;\nthe Y components follow 64 entries later (shaped for the oblique pitch)
+obj_steer_idle              = $010D7C ; Think callback: stand still, remember the current position as the target
+obj_steer_to_target         = $010D98 ; Think callback: turn towards obj_target_x/y until within 16 pixels
+obj_steer_ahead             = $010E02 ; Think callback: project the target obj_travel pixels ahead along obj_facing
+
+; ═════════════════════════════════════════════════════════════════════════════
 ; Object system (doubly linked lists; +0 next, +4 prev, +$34 update callback)
 ; ═════════════════════════════════════════════════════════════════════════════
 obj_alloc                   = $00C124 ; Take an object from the free list into the active list (a5 = object)

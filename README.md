@@ -24,6 +24,9 @@ Inspired by [ethteck/splat](https://github.com/ethteck/splat) and [nathancassano
 | `palette`  | `.bin` + `.png` + `.gpl` + `.json` | CRAM colours: swatch, GIMP palette, RGB + raw words |
 | `tilemap`  | `.bin` + `.json` + `.png` | VDP nametable; rendered when `tiles`, `palette` (segment names), `tile_base` and `width` are given |
 
+Per-segment overrides: `heuristics`, `base_regs` (value 0 cancels a global
+register) and `struct_regs` (empty string cancels).
+
 Tile graphics (`gfx`, `gfxcomp`) are written as **indexed PNGs**; set
 `palette: <palette segment>` and `palette_line: N` to colour them.
 
@@ -182,6 +185,13 @@ options:
   fill_gaps: true               # Add bin segments for ROM ranges no segment covers
   base_regs:                    # Address registers holding a constant base:
     a6: 0xFF0000                #   d16(a6) is printed as (symbol-$FF0000)(a6)
+  struct_regs:                  # Address registers pointing at a structure:
+    a5: obj                     #   d16(a5) is printed as field(a5)
+
+structs:                        # Structure layouts (written to include/structs.asm)
+  obj:
+    - {offset: 0x10, name: obj_x, comment: "pitch X"}
+    - {offset: 0x34, name: obj_update, comment: "update callback"}
 
 analysis:                       # Options for `sega2asm analyze -c`
   entries: [0x001234]           # Extra code entry points

@@ -74,7 +74,10 @@ type Disassembler struct {
 	// holds throughout the code (e.g. a6 = $FF0000 for a globals block).
 	// d16(An) operands are then printed as (label-base)(An) when a label
 	// exists at base+d16.
-	BaseRegs   map[uint16]uint32
+	BaseRegs map[uint16]uint32
+	// StructRegs maps an address register to structure field names by
+	// offset: d16(An) is printed as name(An) when the offset is named.
+	StructRegs map[uint16]map[int32]string
 	lastFlow   FlowKind
 	lastTarget uint32
 	hasTarget  bool
@@ -334,6 +337,11 @@ func (d *Disassembler) ea(mode, reg uint16, size int, allowed int) string {
 			d.addRef(addr, RefData, size)
 			if name, ok := d.lookup(addr); ok {
 				return fmt.Sprintf("(%s-$%X)(a%d)", name, base, reg)
+			}
+		}
+		if fields, ok := d.StructRegs[reg]; ok {
+			if name, ok := fields[int32(disp)]; ok {
+				return fmt.Sprintf("%s(a%d)", name, reg)
 			}
 		}
 		return fmt.Sprintf("%s(a%d)", signedHex(int32(disp)), reg)
@@ -1216,7 +1224,8 @@ type BlockOptions struct {
 	Labels     types.LabelMap    // labels for operands (hardware ports are added)
 	ImmLabels  types.LabelMap    // labels allowed for 32-bit immediates (nil = Labels)
 	BaseRegs   map[uint16]uint32 // constant address registers
-	Heuristics bool              // enable linear-sweep jump table / dead data heuristics
+	StructRegs map[uint16]map[int32]string
+	Heuristics bool // enable linear-sweep jump table / dead data heuristics
 }
 
 // DisassembleRange disassembles rom[start:end] (rom mapped at address 0).
@@ -1224,6 +1233,7 @@ func DisassembleRange(rom []byte, start, end uint32, o BlockOptions) []Result {
 	d := New(rom[:end], 0, o.Labels)
 	d.ImmLabels = o.ImmLabels
 	d.BaseRegs = o.BaseRegs
+	d.StructRegs = o.StructRegs
 	d.Pos = int(start)
 	var results []Result
 	for d.Remaining() >= 2 {

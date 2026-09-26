@@ -10,11 +10,21 @@ import (
 
 // Config is the root project configuration.
 type Config struct {
-	Name     string         `yaml:"name"`
-	SHA1     string         `yaml:"sha1"`
-	Options  ConfigOptions  `yaml:"options"`
-	Analysis AnalysisConfig `yaml:"analysis"`
-	Segments []Segment      `yaml:"segments"`
+	Name     string                   `yaml:"name"`
+	SHA1     string                   `yaml:"sha1"`
+	Options  ConfigOptions            `yaml:"options"`
+	Analysis AnalysisConfig           `yaml:"analysis"`
+	Structs  map[string][]StructField `yaml:"structs"`
+	Segments []Segment                `yaml:"segments"`
+}
+
+// StructField names one field of a structure addressed through a register
+// (see ConfigOptions.StructRegs). Offsets become equates in structs.asm and
+// d16(An) operands are printed as name(An).
+type StructField struct {
+	Offset  HexInt `yaml:"offset"`
+	Name    string `yaml:"name"`
+	Comment string `yaml:"comment"`
 }
 
 // AnalysisConfig steers the control-flow tracer used by "sega2asm analyze".
@@ -67,6 +77,9 @@ type ConfigOptions struct {
 	// FillGaps inserts bin segments for ROM ranges not covered by any
 	// segment so the rebuilt ROM is always complete (default true).
 	FillGaps *bool `yaml:"fill_gaps"`
+	// StructRegs maps an address register to a structure in Structs, e.g.
+	// {a5: obj}: d16(a5) operands are printed with the field names.
+	StructRegs map[string]string `yaml:"struct_regs"`
 }
 
 // Segment defines a single data segment in the ROM.
@@ -87,6 +100,7 @@ type Segment struct {
 	// m68k
 	Heuristics *bool             `yaml:"heuristics"`
 	BaseRegs   map[string]HexInt `yaml:"base_regs"`
+	StructRegs map[string]string `yaml:"struct_regs"` // "" cancels a global entry
 
 	// table: format long|word, relative to Base (default: segment start)
 	Format   string `yaml:"format"`
@@ -224,4 +238,30 @@ func (h *HexInt) UnmarshalYAML(value *yaml.Node) error {
 	}
 	*h = HexInt(n)
 	return nil
+}
+
+// SegmentStructRegs resolves the structure field names for each address
+// register used by seg (global struct_regs overridden per segment).
+func (c *Config) SegmentStructRegs(seg Segment) map[uint16]map[int32]string {
+	names := map[string]string{}
+	for k, v := range c.Options.StructRegs {
+		names[k] = v
+	}
+	for k, v := range seg.StructRegs {
+		names[k] = v
+	}
+	out := map[uint16]map[int32]string{}
+	for k, v := range names {
+		if v == "" || len(k) != 2 || (k[0] != 'a' && k[0] != 'A') || k[1] < '0' || k[1] > '7' {
+			continue
+		}
+		fields := map[int32]string{}
+		for _, f := range c.Structs[v] {
+			fields[int32(int16(uint16(f.Offset)))] = f.Name
+		}
+		if len(fields) > 0 {
+			out[uint16(k[1]-'0')] = fields
+		}
+	}
+	return out
 }

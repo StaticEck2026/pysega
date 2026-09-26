@@ -24,7 +24,8 @@ regenerate everything from your own copy of the ROM.
   target and every referenced data address, so code can be edited and
   reassembled without breaking references.
 * Every pointer and offset table written symbolically (`dc.l res07-res_directory`),
-  RAM globals written as `(g_next_state-$FF0000)(a6)`.
+  RAM globals written as `(g_next_state-$FF0000)(a6)` and object fields as
+  `obj_facing(a5)` (the `obj` layout is declared in the YAML `structs:` block).
 * The **Factor 5 resource archive** (87 groups, 478 entries, 900 KB) split
   entry by entry and typed: 354 tile sheets, 71 tilemaps, 82 palettes, all
   decompressed and rendered as indexed PNGs; palettes as `.gpl`/`.json`.
@@ -127,6 +128,14 @@ palette fades) is an object in a doubly linked list (`obj_alloc`, `obj_free`,
 | `+$34` | update callback (−1 = none) |
 | `+$38` | think / pre-update callback |
 | `+$66` | draw callback (−1 = none) |
+
+**Motion.** Angles are 0–63 (0 = up the pitch, 16 = right, clockwise);
+`direction_to` is a table-driven atan2 and `tbl_direction_x` holds the unit
+vectors (8.8 fixed point, shaped for the oblique view). Every speed is stored
+as an (NTSC, PAL) pair of 16.16 values with PAL = 1.2 × NTSC
+(`tbl_speed_ntsc_pal`), i.e. the game runs its logic once per video frame and
+compensates for 50 Hz — a port should run at a fixed 60 Hz tick and use the
+NTSC values.
 
 The pitch uses an **oblique projection** (`objects_draw`):
 `screen_x = x + y/2 − hscroll`, `screen_y = y/2 − z − vscroll`, with objects
