@@ -1,0 +1,167 @@
+; sega2asm symbols — International Superstar Soccer Deluxe (Europe)
+; SHA-1: CCC60352B43F8C3D536267DD05A8F2C0F3B73DF6
+;
+; Format: name = $ADDRESS ; comment
+; The comment is written above the label in the generated assembly
+; (use \n for line breaks). RAM variables are emitted as equates in
+; asm/include/variables.asm and used symbolically, e.g. (g_next_state-$FF0000)(a6).
+;
+; Naming: functions are snake_case, RAM globals g_*, ROM data tables tbl_* /
+; dat_*. Addresses without a curated name keep their sub_/loc_/dat_ names.
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Reset / boot
+; ═════════════════════════════════════════════════════════════════════════════
+reset                       = $000200 ; Reset vector: standard Sega TMSS / VDP / Z80 initialisation (ICD_BLK4)
+reset_init_table            = $00028E ; Register values, VDP register list and Z80 stub used by reset
+vblank_irq                  = $000312 ; Level 6 interrupt: calls the handler stored in g_vblank_handler
+hblank_irq                  = $000320 ; Level 4 interrupt: calls the handler stored in g_hblank_handler
+install_irq_vectors_unused  = $00032E ; Unreferenced: writes the IRQ vectors into low memory and unlocks TMSS
+main_init                   = $000358 ; Cold start: runs the four boot screens (Konami, Factor 5, ...) then warm starts
+warm_start                  = $0003B8 ; Re-entry point: boot module screen 1 decides between the game and the demo path
+main_loop_dispatch          = $000460 ; Jump to g_next_state (also remembered as g_current_state).\nEvery game state ends by setting g_next_state and jumping here.
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Sprite attribute buffer (64 hardware sprites, DMA'd to VRAM $1C00)
+; ═════════════════════════════════════════════════════════════════════════════
+sprites_init                = $00046A ; Clear the sprite buffer (link fields 1..64) and queue its DMA to VRAM $1C00
+sprites_end_frame           = $0004B4 ; Hide unused sprite slots, rewind the buffer and queue a priority DMA to VRAM $1C00
+sprite_alloc                = $0004F8 ; Return a1 = next free sprite slot (d1 = -1 when all 64 are used)
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Palette fades (implemented as objects; target palette g_palette_target,
+; working copy g_palette_current, step counter g_fade_step)
+; ═════════════════════════════════════════════════════════════════════════════
+fade_out_start              = $000514 ; Start a fade to black (object) if no fade is running; d0 = -1 when busy
+fade_out_step               = $000568 ; Fade object callback: darken g_palette_current one step per frame
+fade_in_start               = $0005DA ; Start a fade from black to g_palette_target
+fade_in_step                = $000618 ; Fade object callback: brighten towards g_palette_target
+fade_white_start            = $0006E4 ; Start a fade to white
+fade_white_step             = $00071A ; Fade object callback: brighten every colour towards white
+fade_white_back_step        = $000796 ; Fade object callback: from white back to g_palette_target
+
+; ═════════════════════════════════════════════════════════════════════════════
+; DMA queue (64 entries x 20 bytes at g_dma_queue, flushed during VBlank
+; with a per-frame budget of $1392 words)
+; ═════════════════════════════════════════════════════════════════════════════
+dma_queue_init              = $000846 ; Reset the DMA queue read / write pointers
+dma_queue_flush             = $00085C ; Execute queued DMA transfers until the frame budget is used up
+dma_queue_add               = $00092C ; Queue a VRAM DMA: d0 = auto-increment, d1 = length (bytes), d2 = source,\nd3 = VRAM destination, d4 = cost. Splits transfers crossing a 128 KB boundary.
+dma_queue_add_front         = $000B30 ; Like dma_queue_add but inserts in front of the queue (runs first)
+dma_queue_add_cram          = $000BD0 ; Queue a CRAM DMA (palette upload): d1 = length, d2 = source, d3 = CRAM address
+
+; ═════════════════════════════════════════════════════════════════════════════
+; System initialisation and VDP
+; ═════════════════════════════════════════════════════════════════════════════
+system_init                 = $000C6E ; Clear work RAM, VRAM and CRAM, validate the saved settings checksum and\nreset the options / team tables to their defaults
+settings_checksum           = $000D92 ; Recompute the checksum of the settings block at $FFFFF0 into $FFFFEE
+vdp_init_game               = $000DAE ; Install the default IRQ handlers and program the VDP for the game:\nH32 (256 px), 64x32 planes, plane A $2000, plane B $0000, window $1000,\nsprites $1C00, hscroll $1800, shadow/highlight enabled
+vblank_default              = $000E5C ; Default VBlank handler: tick the sound driver
+hblank_default              = $000E94 ; Default HBlank handler
+vdp_write_scroll            = $000E9E ; Write the plane A/B horizontal and vertical scroll values, then wait so the\nframe takes the same time on 50 and 60 Hz machines
+debug_color_red             = $000F0A ; Debug: set CRAM colour $20 (profiling bar colours)
+decompress_factor5          = $000F82 ; Unpack a Factor 5 "P1"/"P2"/"P3" stream: a0 = source, a1 = destination.\nOn return a1 points past the unpacked data.
+joypad_read_all             = $00102A ; Read both controller ports (with multitap support) into g_pad_type / g_pad_state
+joypad_read_port            = $00106C ; Identify and read the device on the port at a0 (3/6-button pad, multitap)
+joypad_th_toggle            = $0011C4 ; Toggle the TH line of the port at a0 and read the data register
+joypad_th_handshake         = $0011F2 ; TH/TR handshake used by the multitap protocol (d7 = timeout)
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Object system (doubly linked lists; +0 next, +4 prev, +$34 update callback)
+; ═════════════════════════════════════════════════════════════════════════════
+obj_alloc                   = $00C124 ; Take an object from the free list into the active list (a5 = object)
+obj_link_active             = $00C156 ; Insert object a5 at the head of the active list
+obj_free                    = $00C174 ; Unlink object a5 from the active list and return it to the free list
+objects_update              = $00C0CA ; Run every active object's think (+$38) and update (+$34) callbacks.\nWhile a fade is running only objects without a draw callback are updated.
+objects_draw                = $00C1DC ; Depth-sort the active list by +$14 (pitch Y) and call each draw callback (+$66).\nScreen position: x' = x + y/2 - hscroll, y' = y/2 - z - vscroll (oblique pitch projection).
+objects_draw_menu           = $00C2A4 ; Same as objects_draw for front-end screens
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Game states. Each state initialises the hardware and its resources, installs
+; a VBlank handler that runs the whole frame (the game logic runs inside the
+; VBlank interrupt), fades in, then waits until g_frame_state returns to 0
+; (fade-out finished) and jumps to g_next_state.
+; ═════════════════════════════════════════════════════════════════════════════
+state_menu                  = $01FF16 ; Front-end state: menu screens are built from objects
+state_menu_frame            = $01FF6E ; VBlank handler of state_menu
+state_screen                = $01FFF4 ; Full-screen presentation state (loads its screen with sub_01E294)
+state_screen_frame          = $02004C ; VBlank handler of state_screen
+state_match                 = $0200D2 ; Match state: loads stadium, teams and players, then plays the game
+state_match_frame           = $02014E ; VBlank handler of state_match: scroll, DMA, sound, pads, match logic, objects, sprites
+state_result                = $0201FE ; Post-match / presentation state
+state_result_frame          = $020274 ; VBlank handler of state_result
+load_stadium_tiles          = $01D7BA ; Load stadium resource group 7 + stadium number (8 stadium sets)
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Front-end text and tilemap helpers. They draw into the off-screen nametable
+; pointed to by $1762(a6) (64 cells wide, $80 bytes per row); coordinates are
+; given in pixels. Glyph tile = character - '-' ($2D) + font base tile.
+; ═════════════════════════════════════════════════════════════════════════════
+rect_highlight              = $01F076 ; Set the palette bit ($2000) of every cell in the rectangle d0..d1 x d2..d3
+rect_unhighlight            = $01F0DC ; Clear the palette bit of every cell in the rectangle
+text_draw_large             = $01F29E ; Draw the $FF-terminated string at a0 at (d0,d1) with the 8x16 font
+text_draw_small             = $01F358 ; Draw the $FF-terminated string at a0 at (d0,d1) with the 8x8 font
+rect_fill_tiles             = $01F38A ; Fill the rectangle d0..d1 x d2..d3 with consecutive tiles starting at d4 (column-major)
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Modules
+; ═════════════════════════════════════════════════════════════════════════════
+boot_main                   = $144318 ; Boot module entry: d0 = screen number (0-4). Runs one boot/logo screen.
+
+; Sound driver (68000 side). Public API = 16 bra.w entries; the driver's work
+; RAM is pointed to by g_sound_ram and addressed through a6.
+sound_init                  = $1FD954 ; Initialise the driver and upload the Z80 PCM program
+sound_play_music            = $1FD958 ; Start song d0 (d2/d3 = start parameters)
+sound_api_nop_1             = $1FD95C ; No operation
+sound_api_nop_2             = $1FD960 ; No operation
+sound_music_playing         = $1FD964 ; Z clear while music is playing
+sound_music_stop            = $1FD968 ; Stop the current song
+sound_play_sfx              = $1FD96C ; Play sound effect d0 (the most called routine in the game)
+sound_reset                 = $1FD970 ; Silence every channel and reset the driver state
+sound_play_pcm              = $1FD974 ; Play the PCM sample at a1 through the Z80 driver
+sound_api_nop_3             = $1FD978 ; No operation
+sound_api_nop_4             = $1FD97C ; No operation
+sound_api_nop_5             = $1FD980 ; No operation
+sound_api_nop_6             = $1FD984 ; No operation
+sound_api_nop_7             = $1FD988 ; No operation
+sound_update                = $1FD98C ; Per-frame tick (called from every VBlank handler)
+sound_play_music_ext        = $1FD990 ; Start song d0 in the alternate mode used by the menus
+z80_driver                  = $1FDC06 ; Z80 PCM playback program (248 bytes), copied to Z80 RAM $0000
+
+; ═════════════════════════════════════════════════════════════════════════════
+; RAM — globals block addressed through a6 = $FF0000
+; ═════════════════════════════════════════════════════════════════════════════
+g_vblank_handler            = $00FF0000 ; Long: routine called by the VBlank interrupt
+g_hblank_handler            = $00FF0004 ; Long: routine called by the HBlank interrupt
+g_sound_ram                 = $00FF0008 ; Long: base of the sound driver's work RAM ($FF31A8)
+g_sound_disabled            = $00FF000C ; Word: negative while the sound driver must not be ticked
+g_vblank_busy               = $00FF000E ; Word: re-entrancy guard for the VBlank handler
+g_vdp_mode2                 = $00FF0010 ; Word: shadow of VDP register 1 (mode register 2)
+g_frame_state               = $00FF0012 ; Word: 0 = normal, 1 = palette fade running, 2 = fade finished
+g_current_state             = $00FF0018 ; Long: game state routine currently running
+g_next_state                = $00FF001C ; Long: game state routine to run next (see main_loop_dispatch)
+g_is_pal                    = $00FF0020 ; Word: 1 on 50 Hz (PAL) consoles
+g_pad_type                  = $00FF0022 ; 8 words: device type per controller (multitap aware)
+g_pad_state                 = $00FF0032 ; 8 words: buttons held per controller
+g_frame_counter             = $00FF0042 ; Word: incremented every frame while g_frame_state == 2
+g_dma_pending               = $00FF0046 ; Word: total cost of the queued DMA transfers
+g_dma_read                  = $00FF0048 ; Long: DMA queue read pointer
+g_dma_write                 = $00FF004C ; Long: DMA queue write pointer
+g_dma_queue                 = $00FF0050 ; 64 x 20-byte DMA requests (up to $FF0550)
+g_sprite_ptr                = $00FF0550 ; Long: next free entry in g_sprite_buffer
+g_sprite_count              = $00FF0554 ; Word: sprites used this frame
+g_sprite_buffer             = $00FF0556 ; 64 x 8-byte VDP sprite attribute entries
+g_palette_target            = $00FF0756 ; 64 CRAM words: palette being faded towards
+g_palette_current           = $00FF07D6 ; 64 CRAM words: palette uploaded to CRAM every frame
+g_fade_step                 = $00FF0856 ; Word: fade progress (0..$18 / $30)
+g_plane_b_hscroll           = $00FF0858 ; Word: plane B horizontal scroll (negated when written)
+g_plane_b_vscroll           = $00FF085C ; Word: plane B vertical scroll
+g_plane_a_hscroll           = $00FF0864 ; Word: plane A horizontal scroll (negated when written)
+g_plane_a_vscroll           = $00FF0868 ; Word: plane A vertical scroll
+g_text_nametable            = $00FF1762 ; Long: off-screen nametable the text helpers draw into
+g_obj_free_list             = $00FF096E ; Long: head of the free object list (-1 = empty)
+g_obj_active_list           = $00FF0972 ; Long: head of the active object list (-1 = empty)
+g_unpack_buffer             = $00FF3E12 ; Long: destination buffer for decompress_factor5 when loading resources
+g_unpack_vram               = $00FF3E16 ; Word: VRAM address the next unpacked resource is uploaded to
+g_settings_checksum         = $00FFFFEE ; Word: checksum of the 8 settings words that follow
+g_settings                  = $00FFFFF0 ; 8 words: options kept across resets

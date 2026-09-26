@@ -73,12 +73,11 @@ func processM68K(ctx *Context) (*Result, error) {
 	labelHits := 0
 	var results []m68k.Result
 	for _, it := range items {
-		if name, ok := labels.Get(it.Addr); ok {
+		if def := labels.Def(it.Addr); def != "" {
 			if labels.Kind[it.Addr] == types.LabelUser {
 				labelHits++
 			}
-			ctx.Logv("  [label] %s = $%06X", name, it.Addr)
-			sb.WriteString("\n" + name + ":\n")
+			sb.WriteString("\n" + def)
 		}
 		if it.Hint != nil {
 			h := *it.Hint

@@ -1,6 +1,9 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // LabelKind ranks where a label name came from; lower values win.
 type LabelKind int
@@ -24,11 +27,13 @@ type Labels struct {
 	ByName map[string]uint32
 	// Imm is the subset of ByAddr that may replace 32-bit immediates.
 	Imm LabelMap
+	// Comments holds documentation for labels (from the symbols file).
+	Comments map[uint32]string
 }
 
 // NewLabels returns an empty label table.
 func NewLabels() *Labels {
-	return &Labels{ByAddr: LabelMap{}, Kind: map[uint32]LabelKind{}, ByName: map[string]uint32{}, Imm: LabelMap{}}
+	return &Labels{ByAddr: LabelMap{}, Kind: map[uint32]LabelKind{}, ByName: map[string]uint32{}, Imm: LabelMap{}, Comments: map[uint32]string{}}
 }
 
 // Set assigns name to addr unless a higher-priority label already exists or
@@ -67,4 +72,22 @@ func (l *Labels) OrHex(addr uint32) string {
 		return n
 	}
 	return fmt.Sprintf("$%06X", addr)
+}
+
+// Def returns the text that defines the label at addr: an optional comment
+// block followed by "name:". It returns "" when addr has no label.
+func (l *Labels) Def(addr uint32) string {
+	n, ok := l.Get(addr)
+	if !ok {
+		return ""
+	}
+	c := l.Comments[addr]
+	if c == "" {
+		return n + ":\n"
+	}
+	out := ""
+	for _, line := range strings.Split(c, "\\n") {
+		out += "; " + strings.TrimSpace(line) + "\n"
+	}
+	return out + n + ":\n"
 }

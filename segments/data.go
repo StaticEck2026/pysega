@@ -47,9 +47,7 @@ func processData(ctx *Context) (*Result, error) {
 		sb.WriteString("; " + ctx.Seg.Description + "\n")
 	}
 	sb.WriteString(fmt.Sprintf("\n\torg\t$%06X\n", start))
-	if name, ok := ctx.Labels.Get(start); ok {
-		sb.WriteString(name + ":\n")
-	}
+	sb.WriteString(ctx.Labels.Def(start))
 	code.WriteData(&sb, ctx.ROM.Data, start, end, unit, ctx.Labels, strs)
 	return &Result{Includes: []Include{{Path: outPath}}}, os.WriteFile(outPath, []byte(sb.String()), 0644)
 }

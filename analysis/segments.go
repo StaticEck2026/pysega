@@ -162,6 +162,13 @@ func (r *Result) guessType(a, b uint32, o SegOptions) string {
 				ptrs = false
 				break
 			}
+			// Every entry must point at something the trace knows about.
+			_, isEntry := r.Entries[v]
+			_, isRef := r.Xrefs[v]
+			if !isEntry && !isRef {
+				ptrs = false
+				break
+			}
 		}
 		if ptrs {
 			return "ptr_table"

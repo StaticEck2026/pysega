@@ -92,16 +92,12 @@ func processTable(ctx *Context) (*Result, error) {
 		sb.WriteString("; " + seg.Description + "\n")
 	}
 	sb.WriteString(fmt.Sprintf("\n\torg\t$%06X\n\n", start))
-	if name, ok := ctx.Labels.Get(start); ok {
-		sb.WriteString(name + ":\n")
-	}
+	sb.WriteString(ctx.Labels.Def(start))
 	hits := 0
 	a := start
 	for ; a+n <= end; a += n {
 		if a != start {
-			if name, ok := ctx.Labels.Get(a); ok {
-				sb.WriteString(name + ":\n")
-			}
+			sb.WriteString(ctx.Labels.Def(a))
 		}
 		t := tableTarget(rom, seg, a)
 		tn, ok := ctx.Labels.Get(t)

@@ -230,9 +230,7 @@ func WriteData(sb *strings.Builder, rom []byte, start, end uint32, unit int, lab
 			}
 		}
 		if a != start {
-			if n, ok := labels.Get(a); ok {
-				sb.WriteString(n + ":\n")
-			}
+			sb.WriteString(labels.Def(a))
 		}
 		chunk := rom[a:stop]
 		if unit > 1 && a&1 != 0 && !strs {

@@ -101,7 +101,9 @@ func CollectLabels(cfg *types.Config, rom *types.ROM, syms *types.SymbolTable, w
 				continue
 			}
 		}
-		l.Set(s.Addr, s.Name, types.LabelUser)
+		if l.Set(s.Addr, s.Name, types.LabelUser) && s.Comment != "" {
+			l.Comments[s.Addr] = s.Comment
+		}
 	}
 	// 2. Hint labels.
 	for _, seg := range cfg.Segments {
