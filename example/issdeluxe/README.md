@@ -212,6 +212,22 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   Direction = `((facing + 4) & $38) >> 3` for a 0–63 facing angle.
 * `iss/players/kits.json` — first/second kit palettes and head colour masks for
   all 43 teams.
+* `iss/stadiums/` — the 8 stadiums in day / evening / night: full renders
+  (e.g. 2720 × 832 px), 16 × 16 metatile atlases with their maps (the game's
+  own streaming format), tile sheets as index images and palettes.
+* `iss/*.gd` — `ISSPitch` (a `TileMapLayer` building any stadium),
+  `ISSPlayerSprite` (animated player with kit swapping through the palette
+  shader), `ISSProjection` (pitch ↔ map coordinates) and `iss/iss_demo.tscn`,
+  a runnable demo: open the project in Godot 4.3+, open the scene and press F6
+  (arrows scroll, +/− change stadium, T the time of day).
+
+**Stadium format.** Each stadium group (`res07`–`res14`) holds a metatile map
+(`width, height` in 16 × 16 metatiles, then one word per metatile), a metatile
+table (four nametable words per metatile, tile numbers relative to the
+stadium's first VRAM tile), 256 + 663 tiles, an 18-tile evening/night patch
+(tiles 238–255) and one palette line per time of day. `camera_update` streams
+rows and columns of cells into plane B as the camera moves
+(`pitch_draw_row` / `pitch_draw_column`).
 
 Suggested mapping of the original systems:
 
@@ -255,10 +271,12 @@ must sit on instruction, hint or segment boundaries; `sega2asm` warns otherwise.
 Done: full code/data separation, bit-exact rebuild, all compressed data decoded,
 archive typed, core engine documented (boot, states, frame loop, objects, DMA,
 sprites, fades, pads, text, sound API, resource loading), player animation
-system decoded and exported (frames, animation tables, kits for 43 teams).
+system decoded and exported (frames, animation tables, kits for 43 teams),
+stadium format decoded and all 8 stadiums exported with a Godot builder.
 
 Open work, in rough order of value for a port:
-1. Other sprite sets (ball, referee, keepers' special heads, crowd, UI).
+1. Other sprite sets (ball, referee, keepers' special heads, UI) and the
+   stadium objects (goals, corner flags) drawn as sprites.
 2. Screen composition for `res26`–`res86` (VRAM base and shared UI tiles used
    by the front-end loaders) so their tilemaps render.
 3. Team, player and tactics tables in the `$020408–$03B09E` data block.

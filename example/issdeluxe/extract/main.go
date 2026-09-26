@@ -11,19 +11,26 @@
 //	players/kits.json      first/second kit palettes and head masks, 43 teams
 //	players/palette_match.pal.png  representative match palette (home kit on
 //	                       line 0, away kit on line 1, skin line 2, shadow 3)
+//	stadiums/*             8 stadiums x day/evening/night: full renders,
+//	                       16x16 metatile atlases, maps, palettes, tile sheets
+//
+// and GDScript classes plus a demo scene into <godot>/iss.
 //
 //	go run ./example/issdeluxe/extract -rom <rom> -out example/issdeluxe/out/godot
 package main
 
 import (
+	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"image"
 	"image/color"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"sega2asm/compress"
 	"sega2asm/types"
@@ -45,10 +52,17 @@ const (
 	entHair        = 9  // hair tiles, $260 bytes per style (raw)
 	entKitPalette1 = 12 // 16 colours per team, first kit
 	entKitPalette2 = 13 // 16 colours per team, second kit
-	grpMatchPal    = 17 // res17 entry 2: palette lines 2-3 during a match
+	grpMatchPal    = 17 // res17 entry 2: palette line 2 during a match
+	grpStadium0    = 7  // res07..res14: stadium sets
+	numStadiums    = 8
 )
 
 var rom []byte
+
+// Godot scripts and the demo scene copied into <out>/iss.
+//
+//go:embed godot
+var godotFiles embed.FS
 
 func be16(a uint32) uint32 { return uint32(rom[a])<<8 | uint32(rom[a+1]) }
 func be32(a uint32) uint32 { return be16(a)<<16 | be16(a+2) }
@@ -94,6 +108,27 @@ func main() {
 	kits := exportKits(dir)
 	exportMatchPalette(dir, kits)
 	exportAnimations(dir)
+	exportStadiums(filepath.Join(*out, "assets", "iss", "stadiums"))
+	writeScripts(*out)
+}
+
+// writeScripts copies the embedded GDScript classes and demo scene.
+func writeScripts(out string) {
+	must(fs.WalkDir(godotFiles, "godot", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := godotFiles.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		t := filepath.Join(out, filepath.FromSlash(strings.TrimPrefix(p, "godot/")))
+		if err := os.MkdirAll(filepath.Dir(t), 0755); err != nil {
+			return err
+		}
+		return os.WriteFile(t, b, 0644)
+	}))
+	fmt.Println("scripts: iss/ (ISSPitch, ISSPlayerSprite, ISSProjection, iss_demo.tscn)")
 }
 
 // ---------------------------------------------------------------------------
@@ -449,5 +484,176 @@ func writeJSON(p string, v any) {
 	}
 	if err := os.WriteFile(p, b, 0644); err != nil {
 		fail(err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Stadiums
+// ---------------------------------------------------------------------------
+
+// Stadium group entries (see load_stadium_tiles / the pitch scroller):
+//
+//	1  map: width, height (in 16x16 metatiles), then width*height metatile words
+//	2  metatile table: 4 nametable words per metatile (TL, TR, BL, BR),
+//	   tile numbers relative to the stadium's first VRAM tile
+//	3  tiles loaded at the stadium's VRAM base, 4 tiles loaded after them
+//	5  18 tiles replacing tiles 238-255 for evening / night
+//	6  palette line 3 for day, 7 evening, 8 night
+func exportStadiums(dir string) {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		fail(err)
+	}
+	type stadiumOut struct {
+		Index      int      `json:"index"`
+		Group      int      `json:"group"`
+		Width      int      `json:"width_metatiles"`
+		Height     int      `json:"height_metatiles"`
+		Metatiles  int      `json:"metatile_count"`
+		Map        string   `json:"map"`
+		Renders    []string `json:"renders"`
+		Atlases    []string `json:"metatile_atlases"`
+		Palettes   []string `json:"palettes"`
+		TileSheets []string `json:"tile_sheets"`
+	}
+	var all []stadiumOut
+	for st := 0; st < numStadiums; st++ {
+		g := grpStadium0 + st
+		m := unpack(entry(g, 1))
+		blocks := unpack(entry(g, 2))
+		base := append(unpack(entry(g, 3)), unpack(entry(g, 4))...)
+		w, h := int(be16s(m, 0)), int(be16s(m, 2))
+		nb := len(blocks) / 8
+		so := stadiumOut{Index: st, Group: g, Width: w, Height: h, Metatiles: nb}
+
+		cells := make([]int, w*h)
+		for i := range cells {
+			cells[i] = int(be16s(m, 4+2*i))
+		}
+		mp := filepath.Join(dir, fmt.Sprintf("stadium%d_map.json", st))
+		writeJSON(mp, map[string]any{
+			"stadium": st, "width": w, "height": h, "metatile_size": 16,
+			"metatiles": cells,
+			"format":    "row-major metatile indices; metatile i = cells i*4..i*4+3 of stadiumN_metatiles.json",
+		})
+		so.Map = resPath(mp)
+		var mt []int
+		for i := 0; i < nb*4; i++ {
+			mt = append(mt, int(be16s(blocks, 2*i)))
+		}
+		writeJSON(filepath.Join(dir, fmt.Sprintf("stadium%d_metatiles.json", st)), map[string]any{
+			"stadium": st, "count": nb, "words": mt,
+			"format": "4 VDP nametable words per 16x16 metatile (top-left, top-right, bottom-left, bottom-right); " +
+				"tile numbers are relative to the stadium tile sheet",
+		})
+
+		for tod, name := range []string{"day", "evening", "night"} {
+			tiles := append([]byte(nil), base...)
+			if tod > 0 {
+				patch := unpack(entry(g, 5))
+				copy(tiles[0x1DC0:], patch)
+			}
+			pal := unpack(entry(g, 6+tod))
+			line := make([]color.RGBA, 16)
+			for i := range line {
+				line[i] = types.MDColor(uint16(be16s(pal, 2*i)))
+			}
+			// Palette texture (16x4, the pitch only uses line 3).
+			pimg := image.NewRGBA(image.Rect(0, 0, 16, 4))
+			for i, c := range line {
+				pimg.SetRGBA(i, 3, c)
+			}
+			pp := filepath.Join(dir, fmt.Sprintf("stadium%d_%s.pal.png", st, name))
+			must(types.WritePNG(pp, pimg))
+			so.Palettes = append(so.Palettes, resPath(pp))
+			if tod <= 1 { // day and evening/night tiles differ; evening == night
+				idx, _ := types.TileSheet(tiles, 32, types.GrayPalette(16), false)
+				tp := filepath.Join(dir, fmt.Sprintf("stadium%d_%s_tiles.png", st, map[bool]string{true: "day", false: "night"}[tod == 0]))
+				must(types.WritePNG(tp, grayIndex(idx)))
+				so.TileSheets = append(so.TileSheets, resPath(tp))
+			}
+			// Metatile atlas (32 metatiles per row) and full render.
+			full := make([]color.RGBA, 64)
+			copy(full[48:], line)
+			atlas := image.NewRGBA(image.Rect(0, 0, 32*16, ((nb+31)/32)*16))
+			for b := 0; b < nb; b++ {
+				drawMetatile(atlas, (b%32)*16, (b/32)*16, blocks, b, tiles, full)
+			}
+			ap := filepath.Join(dir, fmt.Sprintf("stadium%d_%s_metatiles.png", st, name))
+			must(types.WritePNG(ap, atlas))
+			so.Atlases = append(so.Atlases, resPath(ap))
+			img := image.NewRGBA(image.Rect(0, 0, w*16, h*16))
+			for i, b := range cells {
+				drawMetatile(img, (i%w)*16, (i/w)*16, blocks, b, tiles, full)
+			}
+			rp := filepath.Join(dir, fmt.Sprintf("stadium%d_%s.png", st, name))
+			must(types.WritePNG(rp, img))
+			so.Renders = append(so.Renders, resPath(rp))
+		}
+		all = append(all, so)
+	}
+	writeJSON(filepath.Join(dir, "stadiums.json"), map[string]any{
+		"description": "Stadium maps built from 16x16 metatiles. Renders and metatile atlases are pre-coloured " +
+			"(day, evening, night); tile sheets are index images (colour 0-15) for use with md_indexed.gdshader.",
+		"stadiums": all,
+	})
+	fmt.Printf("stadiums: %d x 3 times of day\n", len(all))
+}
+
+func be16s(b []byte, o int) uint32 { return uint32(b[o])<<8 | uint32(b[o+1]) }
+
+func resPath(p string) string {
+	i := strings.Index(filepath.ToSlash(p), "/assets/")
+	return "res:/" + filepath.ToSlash(p)[i:]
+}
+
+func must(err error) {
+	if err != nil {
+		fail(err)
+	}
+}
+
+// grayIndex converts a paletted image to a greyscale index image.
+func grayIndex(p *image.Paletted) *image.Gray {
+	g := image.NewGray(p.Rect)
+	for i, v := range p.Pix {
+		g.Pix[i] = v
+	}
+	return g
+}
+
+// drawMetatile draws metatile b at (ox,oy) using a 64-colour palette.
+func drawMetatile(img *image.RGBA, ox, oy int, blocks []byte, b int, tiles []byte, pal []color.RGBA) {
+	if b*8+8 > len(blocks) {
+		return
+	}
+	for q := 0; q < 4; q++ {
+		w := be16s(blocks, b*8+2*q)
+		t := int(w & 0x7FF)
+		if t*32+32 > len(tiles) {
+			continue
+		}
+		line := int(w>>13) & 3
+		hf, vf := w&0x800 != 0, w&0x1000 != 0
+		cx, cy := ox+(q&1)*8, oy+(q>>1)*8
+		for y := 0; y < 8; y++ {
+			for x := 0; x < 8; x++ {
+				v := tiles[t*32+y*4+x/2]
+				if x&1 == 0 {
+					v >>= 4
+				}
+				v &= 15
+				if v == 0 {
+					continue
+				}
+				px, py := x, y
+				if hf {
+					px = 7 - x
+				}
+				if vf {
+					py = 7 - y
+				}
+				img.SetRGBA(cx+px, cy+py, pal[line*16+int(v)])
+			}
+		}
 	}
 }

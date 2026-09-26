@@ -97,7 +97,10 @@ tbl_sprite_attr_right       = $020F5E ; Sprite attribute words (palette line / f
 tbl_sprite_attr_left        = $02101E ; Same with horizontal flip toggled, used for left-facing directions
 tbl_head_mask_home          = $037402 ; Per-team AND masks applied to head tiles (skin / hair colours), home team
 tbl_head_mask_away          = $037458 ; Same for the away team
-load_stadium_tiles          = $01D7BA ; Load stadium resource group 7 + stadium number (8 stadium sets)
+load_stadium_tiles          = $01D7BA ; Load stadium group 7 + g_stadium: tiles (entries 3, 4, night patch 5), metatile map (1)\nand table (2) into RAM, palette line 3 for g_time_of_day (6-8); create the corner-flag objects
+camera_update               = $01DBBE ; Per-frame camera: ease towards g_camera_focus, clamp to the pitch and stream\nnew metatile rows / columns into plane B
+pitch_draw_row              = $01DD88 ; Draw pitch cell row d7 starting at cell column d6 into plane B (via the DMA queue)
+pitch_draw_column           = $01DE54 ; Draw pitch cell column d6 starting at cell row d7 into plane B
 
 ; ═════════════════════════════════════════════════════════════════════════════
 ; Front-end text and tilemap helpers. They draw into the off-screen nametable
@@ -165,6 +168,22 @@ g_plane_b_hscroll           = $00FF0858 ; Word: plane B horizontal scroll (negat
 g_plane_b_vscroll           = $00FF085C ; Word: plane B vertical scroll
 g_plane_a_hscroll           = $00FF0864 ; Word: plane A horizontal scroll (negated when written)
 g_plane_a_vscroll           = $00FF0868 ; Word: plane A vertical scroll
+g_stadium_vram              = $00FF0874 ; Word: VRAM address of the stadium's first tile
+g_pitch_map                 = $00FF0908 ; Long: unpacked metatile map (width, height, then metatile indices)
+g_pitch_metatiles           = $00FF090C ; Long: unpacked metatile table (4 nametable words each)
+g_camera_x                  = $00FF0910 ; Long: camera X on the pitch (16.16 fixed point)
+g_camera_y                  = $00FF0914 ; Long: camera Y on the pitch (16.16)
+g_camera_lead_x             = $00FF091C ; Long: camera lead in X, eased towards 0
+g_camera_lead_y             = $00FF0920 ; Long: camera lead in Y
+g_camera_target             = $00FF0924 ; Long: object the camera currently follows
+g_camera_focus              = $00FF0928 ; Long: object the camera should follow (ball / player)
+g_pitch_left                = $00FF092C ; Word: pitch bounds used for the camera and corner flags
+g_pitch_right               = $00FF092E ; Word
+g_pitch_top                 = $00FF0930 ; Word
+g_pitch_bottom              = $00FF0932 ; Word
+g_pitch_middle_x            = $00FF0934 ; Word: halfway line X
+g_stadium                   = $00FF162C ; Word: stadium 0-7
+g_time_of_day               = $00FF162E ; Word: 0 day, 1 evening, 2 night
 g_team_home                 = $00FF163E ; Word: home team (0-42)
 g_team_away                 = $00FF1640 ; Word: away team (0-42)
 g_kit_home                  = $00FF1646 ; Word: home kit (0 = first, 1 = second, 2 = edited)
