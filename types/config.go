@@ -58,6 +58,15 @@ type ConfigOptions struct {
 	HeaderOutput  bool   `yaml:"header_output"`
 	IncBin        bool   `yaml:"incbin"`
 	NoSuggestions bool   `yaml:"no_suggestions"`
+	// Heuristics enables the linear-sweep jump-table / dead-data heuristics
+	// for m68k segments (default true). Disable it for traced segment maps.
+	Heuristics *bool `yaml:"heuristics"`
+	// BaseRegs declares address registers that hold a constant base address
+	// in all m68k segments, e.g. {a6: 0xFF0000}. Segment values override.
+	BaseRegs map[string]HexInt `yaml:"base_regs"`
+	// FillGaps inserts bin segments for ROM ranges not covered by any
+	// segment so the rebuilt ROM is always complete (default true).
+	FillGaps *bool `yaml:"fill_gaps"`
 }
 
 // Segment defines a single data segment in the ROM.
@@ -74,6 +83,55 @@ type Segment struct {
 	Encoding    string `yaml:"encoding"`
 	Z80Org      HexInt `yaml:"z80_org"`
 	Hints       []Hint `yaml:"hints"`
+
+	// m68k
+	Heuristics *bool             `yaml:"heuristics"`
+	BaseRegs   map[string]HexInt `yaml:"base_regs"`
+
+	// table: format long|word, relative to Base (default: segment start)
+	Format   string `yaml:"format"`
+	Relative bool   `yaml:"relative"`
+	Signed   bool   `yaml:"signed"`
+	Base     HexInt `yaml:"base"`
+
+	// gfx / tilemap / palette rendering
+	Palette     string `yaml:"palette"`      // name of a palette segment used to colour PNGs
+	PaletteLine int    `yaml:"palette_line"` // default palette line for gfx sheets
+	Tiles       string `yaml:"tiles"`        // tilemap: name of the tile segment
+	TileBase    int    `yaml:"tile_base"`    // tilemap: VRAM tile index of the first tile
+	Width       int    `yaml:"width"`        // tilemap width in cells / gfx sheet tiles per row
+	Description string `yaml:"description"`  // free-form note copied into outputs
+}
+
+// HeuristicsEnabled reports whether linear-sweep heuristics apply to seg.
+func (c *Config) HeuristicsEnabled(seg Segment) bool {
+	if seg.Heuristics != nil {
+		return *seg.Heuristics
+	}
+	if c.Options.Heuristics != nil {
+		return *c.Options.Heuristics
+	}
+	return true
+}
+
+// SegmentBaseRegs merges the global and per-segment base registers.
+func (c *Config) SegmentBaseRegs(seg Segment) map[uint16]uint32 {
+	out := map[uint16]uint32{}
+	add := func(m map[string]HexInt) {
+		for k, v := range m {
+			if len(k) == 2 && (k[0] == 'a' || k[0] == 'A') && k[1] >= '0' && k[1] <= '7' {
+				out[uint16(k[1]-'0')] = uint32(v)
+			}
+		}
+	}
+	add(c.Options.BaseRegs)
+	add(seg.BaseRegs)
+	for k, v := range out {
+		if v == 0 { // "a6: 0" in a segment cancels a global base register
+			delete(out, k)
+		}
+	}
+	return out
 }
 
 // Hint provides inline disassembly information for a segment.

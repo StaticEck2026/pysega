@@ -365,6 +365,9 @@ func (t *Tracer) noteRefs(r *m68k.Result) {
 				}
 			}
 		case m68k.RefEffAddr, m68k.RefImm:
+			if ref.Kind == m68k.RefImm && ref.Addr < 0x10000 && dataRegDest(r.Text) {
+				continue // counters and constants, not pointers
+			}
 			if t.inROM(ref.Addr) && ref.Addr&1 == 0 {
 				t.ptrCands[ref.Addr] = true
 			}
@@ -1045,4 +1048,15 @@ func (t *Tracer) prevInsn(a uint32) *m68k.Result {
 		}
 	}
 	return nil
+}
+
+// dataRegDest reports whether the last operand of an instruction is a data
+// register.
+func dataRegDest(text string) bool {
+	i := strings.LastIndexByte(text, ',')
+	if i < 0 {
+		return false
+	}
+	op := strings.TrimSpace(text[i+1:])
+	return len(op) == 2 && op[0] == 'd' && op[1] >= '0' && op[1] <= '7'
 }

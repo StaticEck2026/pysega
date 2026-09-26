@@ -66,6 +66,15 @@ type Result struct {
 // Disassembler holds state needed for a disassembly pass.
 type Disassembler struct {
 	disasm.Cursor
+	// ImmLabels, when non-nil, restricts which labels may replace 32-bit
+	// immediate operands (constants that merely coincide with a label
+	// address should stay numeric). nil means "use Labels".
+	ImmLabels types.LabelMap
+	// BaseRegs maps an address register number to the constant address it
+	// holds throughout the code (e.g. a6 = $FF0000 for a globals block).
+	// d16(An) operands are then printed as (label-base)(An) when a label
+	// exists at base+d16.
+	BaseRegs   map[uint16]uint32
 	lastFlow   FlowKind
 	lastTarget uint32
 	hasTarget  bool
@@ -74,6 +83,8 @@ type Disassembler struct {
 	bad        bool
 	noncanon   bool // valid on a 68000 but not re-assemblable as written
 	opPC       uint32
+	immSym     string // symbolised 32-bit immediate in the current insn
+	immVal     uint32
 }
 
 // New creates a Disassembler over data starting at baseAddr.
@@ -106,6 +117,7 @@ func (d *Disassembler) Next() Result {
 	d.bad = false
 	d.noncanon = false
 	d.opPC = startPC
+	d.immSym = ""
 
 	text := d.decode()
 	ok := !d.bad && text != ""
@@ -122,6 +134,11 @@ func (d *Disassembler) Next() Result {
 	}
 
 	text = applyImmStrLiterals(text)
+	if d.immSym != "" && d.immVal < 0x10000 && dataRegDest(text) {
+		// Small values loaded into data registers are counters and
+		// constants far more often than pointers.
+		text = strings.Replace(text, d.immSym, "#"+hexN(d.immVal, 4), 1)
+	}
 	mn := strings.TrimSpace(text)
 	if i := strings.IndexAny(mn, "\t ."); i >= 0 {
 		mn = mn[:i]
@@ -312,6 +329,13 @@ func (d *Disassembler) ea(mode, reg uint16, size int, allowed int) string {
 		return fmt.Sprintf("-(a%d)", reg)
 	case eaDisp:
 		disp := int16(d.word())
+		if base, ok := d.BaseRegs[reg]; ok {
+			addr := base + uint32(int32(disp))
+			d.addRef(addr, RefData, size)
+			if name, ok := d.lookup(addr); ok {
+				return fmt.Sprintf("(%s-$%X)(a%d)", name, base, reg)
+			}
+		}
 		return fmt.Sprintf("%s(a%d)", signedHex(int32(disp)), reg)
 	case eaIdx:
 		ext := d.word()
@@ -328,6 +352,10 @@ func (d *Disassembler) ea(mode, reg uint16, size int, allowed int) string {
 			return fmt.Sprintf("(%s).w", name)
 		}
 		if addr&0x80000000 != 0 {
+			// RAM symbols are often defined with 24-bit addresses.
+			if name, ok := d.lookup(addr & 0x00FFFFFF); ok {
+				return fmt.Sprintf("(%s|$FFFF0000).w", name)
+			}
 			return fmt.Sprintf("($%08X).w", addr)
 		}
 		return fmt.Sprintf("($%06X).w", addr)
@@ -336,6 +364,11 @@ func (d *Disassembler) ea(mode, reg uint16, size int, allowed int) string {
 		d.addRef(addr, RefData, size)
 		if name, ok := d.lookup(addr); ok {
 			return fmt.Sprintf("(%s).l", name)
+		}
+		if addr >= 0x00FF8000 && addr <= 0x00FFFFFF {
+			if name, ok := d.lookup(addr | 0xFF000000); ok {
+				return fmt.Sprintf("(%s&$FFFFFF).l", name)
+			}
 		}
 		if addr > 0x00FFFFFF {
 			return fmt.Sprintf("($%08X).l", addr)
@@ -370,7 +403,12 @@ func (d *Disassembler) ea(mode, reg uint16, size int, allowed int) string {
 		case 4:
 			v := d.long()
 			d.addRef(v, RefImm, 4)
-			if name, ok := d.lookup(v); ok && v >= 0x200 {
+			imm := d.ImmLabels
+			if imm == nil {
+				imm = d.Labels
+			}
+			if name, ok := imm[v]; ok && v >= 0x200 {
+				d.immSym, d.immVal = "#"+name, v
 				return "#" + name
 			}
 			return "#" + hexN(v, 4)
@@ -1062,6 +1100,16 @@ func (d *Disassembler) decodeShift(op uint16) string {
 	return fmt.Sprintf("\t%s%s.%s\t%s,d%d", shiftNames[kind], dir, sz, count, op&7)
 }
 
+// dataRegDest reports whether the last operand of text is a data register.
+func dataRegDest(text string) bool {
+	i := strings.LastIndexByte(text, ',')
+	if i < 0 {
+		return false
+	}
+	op := strings.TrimSpace(text[i+1:])
+	return len(op) == 2 && op[0] == 'd' && op[1] >= '0' && op[1] <= '7'
+}
+
 // ---------------------------------------------------------------------------
 // Assembler support macros
 // ---------------------------------------------------------------------------
@@ -1146,6 +1194,39 @@ func DisassembleBlockOpts(data []byte, baseAddr, start, end uint32, labels types
 	if heuristics {
 		results = detectJumpTables(results, segData, segBase, d.Labels)
 		results = convertDeadDataToDCW(results, segData, segBase)
+	}
+	return results
+}
+
+// BlockOptions configures DisassembleRange.
+type BlockOptions struct {
+	Labels     types.LabelMap    // labels for operands (hardware ports are added)
+	ImmLabels  types.LabelMap    // labels allowed for 32-bit immediates (nil = Labels)
+	BaseRegs   map[uint16]uint32 // constant address registers
+	Heuristics bool              // enable linear-sweep jump table / dead data heuristics
+}
+
+// DisassembleRange disassembles rom[start:end] (rom mapped at address 0).
+func DisassembleRange(rom []byte, start, end uint32, o BlockOptions) []Result {
+	d := New(rom[:end], 0, o.Labels)
+	d.ImmLabels = o.ImmLabels
+	d.BaseRegs = o.BaseRegs
+	d.Pos = int(start)
+	var results []Result
+	for d.Remaining() >= 2 {
+		results = append(results, d.Next())
+	}
+	if d.Remaining() == 1 {
+		results = append(results, Result{BaseResult: disasm.BaseResult{
+			Addr:  d.PC(),
+			Bytes: []byte{rom[d.Pos]},
+			Text:  fmt.Sprintf("\tdc.b\t$%02X", rom[d.Pos]),
+		}})
+	}
+	if o.Heuristics && len(results) > 0 {
+		seg := rom[start:end]
+		results = detectJumpTables(results, seg, start, d.Labels)
+		results = convertDeadDataToDCW(results, seg, start)
 	}
 	return results
 }

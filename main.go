@@ -85,6 +85,7 @@ func newRootCmd() *cobra.Command {
 
 	cmd.AddCommand(newDetectCmd())
 	cmd.AddCommand(newAnalyzeCmd())
+	cmd.AddCommand(newVerifyCmd())
 
 	return cmd
 }
@@ -152,6 +153,29 @@ func newAnalyzeCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&configFile, "config", "c", "", "Configuration YAML (uses its analysis: block)")
 	cmd.Flags().StringVarP(&reportFile, "report", "r", "", "Write the report to this file instead of stdout")
+	return cmd
+}
+
+func newVerifyCmd() *cobra.Command {
+	var assembler string
+	cmd := &cobra.Command{
+		Use:   "verify <config.yaml>",
+		Short: "Assemble the split project and compare the result with the original ROM",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+			cfg, err := types.LoadConfig(args[0])
+			if err != nil {
+				return err
+			}
+			return splitter.Verify(cfg, assembler)
+		},
+	}
+	def := os.Getenv("CLOWNASSEMBLER")
+	if def == "" {
+		def = "clownassembler"
+	}
+	cmd.Flags().StringVarP(&assembler, "assembler", "a", def, "clownassembler executable ($CLOWNASSEMBLER)")
 	return cmd
 }
 
