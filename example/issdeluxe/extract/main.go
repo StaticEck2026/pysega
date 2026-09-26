@@ -11,7 +11,7 @@
 //	players/kits.json      first/second kit palettes and head masks, 43 teams
 //	players/palette_match.pal.png  representative match palette (home kit on
 //	                       line 0, away kit on line 1, skin line 2, shadow 3)
-//	stadiums/*             8 stadiums x day/evening/night: full renders,
+//	stadiums/*             8 stadiums x fine/rain/snow weather: full renders,
 //	                       16x16 metatile atlases, maps, palettes, tile sheets
 //
 // and GDScript classes plus a demo scene into <godot>/iss.
@@ -503,8 +503,8 @@ func writeJSON(p string, v any) {
 //	2  metatile table: 4 nametable words per metatile (TL, TR, BL, BR),
 //	   tile numbers relative to the stadium's first VRAM tile
 //	3  tiles loaded at the stadium's VRAM base, 4 tiles loaded after them
-//	5  18 tiles replacing tiles 238-255 for evening / night
-//	6  palette line 3 for day, 7 evening, 8 night
+//	5  18 tiles replacing tiles 238-255 in rain and snow
+//	6  palette line 3 for fine weather, 7 rain, 8 snow
 func exportStadiums(dir string) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		fail(err)
@@ -552,7 +552,7 @@ func exportStadiums(dir string) {
 				"tile numbers are relative to the stadium tile sheet",
 		})
 
-		for tod, name := range []string{"day", "evening", "night"} {
+		for tod, name := range []string{"fine", "rain", "snow"} {
 			tiles := append([]byte(nil), base...)
 			if tod > 0 {
 				patch := unpack(entry(g, 5))
@@ -571,9 +571,9 @@ func exportStadiums(dir string) {
 			pp := filepath.Join(dir, fmt.Sprintf("stadium%d_%s.pal.png", st, name))
 			must(types.WritePNG(pp, pimg))
 			so.Palettes = append(so.Palettes, resPath(pp))
-			if tod <= 1 { // day and evening/night tiles differ; evening == night
+			if tod <= 1 { // fine uses the base tiles; rain and snow share the patched tiles
 				idx, _ := types.TileSheet(tiles, 32, types.GrayPalette(16), false)
-				tp := filepath.Join(dir, fmt.Sprintf("stadium%d_%s_tiles.png", st, map[bool]string{true: "day", false: "night"}[tod == 0]))
+				tp := filepath.Join(dir, fmt.Sprintf("stadium%d_%s_tiles.png", st, map[bool]string{true: "fine", false: "wet"}[tod == 0]))
 				must(types.WritePNG(tp, grayIndex(idx)))
 				so.TileSheets = append(so.TileSheets, resPath(tp))
 			}
@@ -599,10 +599,10 @@ func exportStadiums(dir string) {
 	}
 	writeJSON(filepath.Join(dir, "stadiums.json"), map[string]any{
 		"description": "Stadium maps built from 16x16 metatiles. Renders and metatile atlases are pre-coloured " +
-			"(day, evening, night); tile sheets are index images (colour 0-15) for use with md_indexed.gdshader.",
+			"per weather (fine, rain, snow); tile sheets are index images (colour 0-15) for use with md_indexed.gdshader.",
 		"stadiums": all,
 	})
-	fmt.Printf("stadiums: %d x 3 times of day\n", len(all))
+	fmt.Printf("stadiums: %d x 3 weathers\n", len(all))
 }
 
 func be16s(b []byte, o int) uint32 { return uint32(b[o])<<8 | uint32(b[o+1]) }

@@ -75,6 +75,12 @@ tbl_speed_ntsc_pal          = $00BBEE ; (NTSC, PAL) pairs of 16.16 speeds, index
 direction_to                = $00BDAC ; d0 = angle 0-63 from object a5 to point (d0, d1): table-driven atan2
 tbl_atan_octants            = $00BEAE ; Angle results for direction_to, one block per quadrant
 tbl_direction_x             = $00BFCA ; 64 signed 8.8 X components of the unit vector for each angle;\nthe Y components follow 64 entries later (shaped for the oblique pitch)
+ball_update                 = $009FA8 ; Ball on the ground or bouncing: gravity, bounce (vz = -vz/2, SFX 88), rolling friction\n(speed -= speed >> tbl_ball_friction[g_weather]), then move by the velocity from obj_heading
+ball_update_lob             = $00A0CA ; Ball in a lofted pass: rise/fall until obj_distance is used up
+ball_update_high            = $00A134 ; Ball after a high kick (stronger gravity)
+tbl_ball_bounce_damp        = $00BD36 ; Per weather: speed lost on a bounce is speed >> value
+tbl_ball_friction           = $00BD3C ; Per weather: rolling friction shift
+velocity_from_heading       = $00BFA0 ; Set obj_vel_x / obj_vel_y from obj_speed and angle d5 (tbl_direction_x)
 obj_steer_idle              = $010D7C ; Think callback: stand still, remember the current position as the target
 obj_steer_to_target         = $010D98 ; Think callback: turn towards obj_target_x/y until within 16 pixels
 obj_steer_ahead             = $010E02 ; Think callback: project the target obj_travel pixels ahead along obj_facing
@@ -114,7 +120,7 @@ tbl_team_ratings            = $03AB82 ; 5 rating bytes per team (copied to $183C
 tbl_kit_clash               = $0374AE ; Word per team: when home and away values match, the away team wears its second kit
 tbl_head_mask_home          = $037402 ; Per-team AND masks applied to head tiles (skin / hair colours), home team
 tbl_head_mask_away          = $037458 ; Same for the away team
-load_stadium_tiles          = $01D7BA ; Load stadium group 7 + g_stadium: tiles (entries 3, 4, night patch 5), metatile map (1)\nand table (2) into RAM, palette line 3 for g_time_of_day (6-8); create the corner-flag objects
+load_stadium_tiles          = $01D7BA ; Load stadium group 7 + g_stadium: tiles (entries 3, 4, rain/snow patch 5), metatile map (1)\nand table (2) into RAM, palette line 3 for g_weather (6-8); create the corner-flag objects
 camera_update               = $01DBBE ; Per-frame camera: ease towards g_camera_focus, clamp to the pitch and stream\nnew metatile rows / columns into plane B
 pitch_draw_row              = $01DD88 ; Draw pitch cell row d7 starting at cell column d6 into plane B (via the DMA queue)
 pitch_draw_column           = $01DE54 ; Draw pitch cell column d6 starting at cell row d7 into plane B
@@ -200,7 +206,9 @@ g_pitch_top                 = $00FF0930 ; Word
 g_pitch_bottom              = $00FF0932 ; Word
 g_pitch_middle_x            = $00FF0934 ; Word: halfway line X
 g_stadium                   = $00FF162C ; Word: stadium 0-7
-g_time_of_day               = $00FF162E ; Word: 0 day, 1 evening, 2 night
+g_weather                   = $00FF162E ; Word: 0 fine, 1 rain, 2 snow (pitch palette, tile patch and ball friction)
+g_ball                      = $00FF19C0 ; Ball object
+g_match_phase               = $00FF181C ; Word: match phase ($0E = ball in play, ...)
 g_team_home                 = $00FF163E ; Word: home team (0-42)
 g_team_away                 = $00FF1640 ; Word: away team (0-42)
 g_kit_home                  = $00FF1646 ; Word: home kit (0 = first, 1 = second, 2 = edited)

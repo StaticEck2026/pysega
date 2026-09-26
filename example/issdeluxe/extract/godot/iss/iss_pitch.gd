@@ -5,7 +5,7 @@ extends TileMapLayer
 ## (assets/iss/stadiums), matching the game's pitch scroller ($01DD88).
 
 const DIR := "res://assets/iss/stadiums/"
-const TIMES := ["day", "evening", "night"]
+const WEATHERS := ["fine", "rain", "snow"]
 
 @export_range(0, 7) var stadium: int = 0:
 	set(value):
@@ -13,9 +13,9 @@ const TIMES := ["day", "evening", "night"]
 		if is_inside_tree():
 			rebuild()
 
-@export_enum("Day", "Evening", "Night") var time_of_day: int = 0:
+@export_enum("Fine", "Rain", "Snow") var weather: int = 0:
 	set(value):
-		time_of_day = value
+		weather = value
 		if is_inside_tree():
 			rebuild()
 
@@ -26,7 +26,7 @@ func _ready() -> void:
 
 func rebuild() -> void:
 	clear()
-	var atlas: Texture2D = load(DIR + "stadium%d_%s_metatiles.png" % [stadium, TIMES[time_of_day]])
+	var atlas: Texture2D = load(DIR + "stadium%d_%s_metatiles.png" % [stadium, WEATHERS[weather]])
 	var doc = JSON.parse_string(FileAccess.get_file_as_string(DIR + "stadium%d_map.json" % stadium))
 	if atlas == null or doc == null:
 		push_warning("ISSPitch: run the ISS extractor first")

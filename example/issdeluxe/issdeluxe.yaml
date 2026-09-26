@@ -36,6 +36,8 @@ structs:
     - {offset: 0x18, name: obj_z, comment: "Word: height above the pitch"}
     - {offset: 0x1C, name: obj_screen_x, comment: "Word: screen X = x + y/2 - hscroll"}
     - {offset: 0x1E, name: obj_screen_y, comment: "Word: screen Y = y/2 - z - vscroll"}
+    - {offset: 0x20, name: obj_vel_x, comment: "Long: X velocity (16.16), from velocity_from_heading"}
+    - {offset: 0x24, name: obj_vel_y, comment: "Long: Y velocity (16.16), subtracted from obj_y"}
     - {offset: 0x28, name: obj_target_x, comment: "Word: point the object is steering to"}
     - {offset: 0x2A, name: obj_target_y, comment: "Word"}
     - {offset: 0x32, name: obj_attr, comment: "Word: offset into the sprite attribute tables (palette line)"}
@@ -57,7 +59,9 @@ structs:
     - {offset: 0x78, name: obj_vram, comment: "Word: VRAM address of the object's tile slot"}
     - {offset: 0x7A, name: obj_anim_frame, comment: "Word: frame index within the action"}
     - {offset: 0x7E, name: obj_speed, comment: "Long: speed (16.16 pixels per frame)"}
+    - {offset: 0x82, name: obj_vel_z, comment: "Long: vertical velocity (16.16), ball"}
     - {offset: 0x86, name: obj_facing, comment: "Word: facing angle 0-63 (0 = up the pitch, 16 = right)"}
+    - {offset: 0x8A, name: obj_distance, comment: "Long: distance left in a lofted pass (16.16)"}
 
 segments:
 

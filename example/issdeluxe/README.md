@@ -129,6 +129,14 @@ palette fades) is an object in a doubly linked list (`obj_alloc`, `obj_free`,
 | `+$38` | think / pre-update callback |
 | `+$66` | draw callback (−1 = none) |
 
+**Ball.** `ball_update` integrates height with gravity (`vz -= $1400` per
+frame NTSC, `$1CCC` PAL — the square of the 1.2 ratio, since it is an
+acceleration), bounces with `vz = -vz/2` (sound effect 88, speed loses
+`speed >> tbl_ball_bounce_damp[weather]`), rolls with friction
+`speed -= speed >> tbl_ball_friction[weather]` and moves along `obj_heading`
+(`velocity_from_heading`). Lofted passes and high kicks have their own update
+routines (`ball_update_lob`, `ball_update_high`).
+
 **Motion.** Angles are 0–63 (0 = up the pitch, 16 = right, clockwise);
 `direction_to` is a table-driven atan2 and `tbl_direction_x` holds the unit
 vectors (8.8 fixed point, shaped for the oblique view). Every speed is stored
@@ -225,20 +233,21 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   12-byte record (attributes, body type, face and hair styles), team ratings
   and kit-clash codes. Team 0 is England, 1 Germany, 5 Ireland…; the country
   names themselves are drawn from graphics.
-* `iss/stadiums/` — the 8 stadiums in day / evening / night: full renders
+* `iss/stadiums/` — the 8 stadiums in fine / rain / snow weather: full renders
   (e.g. 2720 × 832 px), 16 × 16 metatile atlases with their maps (the game's
   own streaming format), tile sheets as index images and palettes.
 * `iss/*.gd` — `ISSPitch` (a `TileMapLayer` building any stadium),
   `ISSPlayerSprite` (animated player with kit swapping through the palette
   shader), `ISSProjection` (pitch ↔ map coordinates) and `iss/iss_demo.tscn`,
   a runnable demo: open the project in Godot 4.3+, open the scene and press F6
-  (arrows scroll, +/− change stadium, T the time of day).
+  (arrows scroll, +/− change stadium, W the weather).
 
 **Stadium format.** Each stadium group (`res07`–`res14`) holds a metatile map
 (`width, height` in 16 × 16 metatiles, then one word per metatile), a metatile
 table (four nametable words per metatile, tile numbers relative to the
-stadium's first VRAM tile), 256 + 663 tiles, an 18-tile evening/night patch
-(tiles 238–255) and one palette line per time of day. `camera_update` streams
+stadium's first VRAM tile), 256 + 663 tiles, an 18-tile rain/snow patch
+(tiles 238–255) and one palette line per weather (`g_weather`: fine, rain,
+snow — the weather also changes ball friction). `camera_update` streams
 rows and columns of cells into plane B as the camera moves
 (`pitch_draw_row` / `pitch_draw_column`).
 

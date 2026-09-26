@@ -1,7 +1,7 @@
 extends Node2D
 ## Demo of the exported ISS Deluxe assets: a stadium and players running in
 ## all directions with alternating kits. Arrow keys scroll, +/- change the
-## stadium, T changes the time of day.
+## stadium, W changes the weather.
 
 const SPEED := 60.0
 
@@ -45,5 +45,5 @@ func _unhandled_input(event: InputEvent) -> void:
 				_pitch.stadium = (_pitch.stadium + 1) % 8
 			KEY_MINUS, KEY_KP_SUBTRACT:
 				_pitch.stadium = (_pitch.stadium + 7) % 8
-			KEY_T:
-				_pitch.time_of_day = (_pitch.time_of_day + 1) % 3
+			KEY_W:
+				_pitch.weather = (_pitch.weather + 1) % 3
