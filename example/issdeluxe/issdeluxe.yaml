@@ -30,6 +30,8 @@ structs:
   obj:
     - {offset: 0x00, name: obj_next, comment: "Next object in its list (-1 = end)"}
     - {offset: 0x04, name: obj_prev, comment: "Previous object (-1 = head)"}
+    - {offset: 0x08, name: obj_owner, comment: "Long: ball: player in possession (-1 = loose)"}
+    - {offset: 0x0C, name: obj_state, comment: "Byte: ball: possession state ($FF = loose)"}
     - {offset: 0x0E, name: obj_visible, comment: "Byte: 1 = on screen, $FF = culled (set by objects_draw)"}
     - {offset: 0x10, name: obj_x, comment: "Word: pitch X"}
     - {offset: 0x14, name: obj_y, comment: "Word: pitch Y, also the depth-sort key"}
@@ -62,6 +64,12 @@ structs:
     - {offset: 0x82, name: obj_vel_z, comment: "Long: vertical velocity (16.16), ball"}
     - {offset: 0x86, name: obj_facing, comment: "Word: facing angle 0-63 (0 = up the pitch, 16 = right)"}
     - {offset: 0x8A, name: obj_distance, comment: "Long: distance left in a lofted pass (16.16)"}
+
+# Objects at fixed RAM addresses: fields print as (g_ball+obj_speed-$FF0000)(a6).
+instances:
+  - {name: g_ball, addr: 0xFF19C0, struct: obj}
+  - {name: g_team_home_players, addr: 0xFF1B6A, struct: obj, count: 20, stride: 0x8E}
+  - {name: g_team_away_players, addr: 0xFF2682, struct: obj, count: 20, stride: 0x8E}
 
 segments:
 

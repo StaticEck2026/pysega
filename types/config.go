@@ -15,7 +15,21 @@ type Config struct {
 	Options  ConfigOptions            `yaml:"options"`
 	Analysis AnalysisConfig           `yaml:"analysis"`
 	Structs  map[string][]StructField `yaml:"structs"`
-	Segments []Segment                `yaml:"segments"`
+	// Instances are structures (or arrays of structures) at fixed addresses,
+	// typically in RAM. Operands inside them are printed as
+	// base+index*stride+field, e.g. (g_ball+obj_speed-$FF0000)(a6).
+	Instances []StructInstance `yaml:"instances"`
+	Segments  []Segment        `yaml:"segments"`
+}
+
+// StructInstance declares Count structures of type Struct at Addr, Stride
+// bytes apart. Name must also be defined (symbols file) at Addr.
+type StructInstance struct {
+	Name   string `yaml:"name"`
+	Addr   HexInt `yaml:"addr"`
+	Struct string `yaml:"struct"`
+	Count  int    `yaml:"count"`
+	Stride HexInt `yaml:"stride"`
 }
 
 // StructField names one field of a structure addressed through a register
@@ -264,4 +278,61 @@ func (c *Config) SegmentStructRegs(seg Segment) map[uint16]map[int32]string {
 		}
 	}
 	return out
+}
+
+// InstanceTable resolves the configured struct instances for the decoder.
+func (c *Config) InstanceTable() []InstanceInfo {
+	var out []InstanceInfo
+	for _, in := range c.Instances {
+		fields := map[int32]string{}
+		for _, f := range c.Structs[in.Struct] {
+			fields[int32(int16(uint16(f.Offset)))] = f.Name
+		}
+		n := in.Count
+		if n <= 0 {
+			n = 1
+		}
+		stride := uint32(in.Stride)
+		if stride == 0 {
+			max := int32(0)
+			for off := range fields {
+				if off >= max {
+					max = off + 4
+				}
+			}
+			stride = uint32(max)
+		}
+		out = append(out, InstanceInfo{Name: in.Name, Base: uint32(in.Addr), Count: n, Stride: stride, Fields: fields})
+	}
+	return out
+}
+
+// InstanceInfo is a resolved StructInstance.
+type InstanceInfo struct {
+	Name   string
+	Base   uint32
+	Count  int
+	Stride uint32
+	Fields map[int32]string
+}
+
+// Resolve returns "name+field" (or "name+$idx*stride+field") for addr when it
+// is the start of a named field of one of the instances.
+func ResolveInstance(ins []InstanceInfo, addr uint32) (string, bool) {
+	for _, in := range ins {
+		if addr < in.Base || addr >= in.Base+uint32(in.Count)*in.Stride {
+			continue
+		}
+		rel := addr - in.Base
+		idx, off := rel/in.Stride, int32(rel%in.Stride)
+		f, ok := in.Fields[off]
+		if !ok {
+			return "", false
+		}
+		if idx == 0 {
+			return in.Name + "+" + f, true
+		}
+		return fmt.Sprintf("%s+$%X+%s", in.Name, idx*in.Stride, f), true
+	}
+	return "", false
 }

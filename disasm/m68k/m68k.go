@@ -78,6 +78,8 @@ type Disassembler struct {
 	// StructRegs maps an address register to structure field names by
 	// offset: d16(An) is printed as name(An) when the offset is named.
 	StructRegs map[uint16]map[int32]string
+	// Instances are structures at fixed addresses (see types.StructInstance).
+	Instances  []types.InstanceInfo
 	lastFlow   FlowKind
 	lastTarget uint32
 	hasTarget  bool
@@ -295,6 +297,11 @@ func (d *Disassembler) lookup(addr uint32) (string, bool) {
 	if name, ok := d.Labels[addr]; ok {
 		return name, true
 	}
+	if len(d.Instances) > 0 {
+		if name, ok := types.ResolveInstance(d.Instances, addr); ok {
+			return name, true
+		}
+	}
 	return "", false
 }
 
@@ -362,7 +369,7 @@ func (d *Disassembler) ea(mode, reg uint16, size int, allowed int) string {
 		if addr&0x80000000 != 0 {
 			// RAM symbols are often defined with 24-bit addresses.
 			if name, ok := d.lookup(addr & 0x00FFFFFF); ok {
-				return fmt.Sprintf("(%s|$FFFF0000).w", name)
+				return fmt.Sprintf("((%s)|$FFFF0000).w", name)
 			}
 			return fmt.Sprintf("($%08X).w", addr)
 		}
@@ -375,7 +382,7 @@ func (d *Disassembler) ea(mode, reg uint16, size int, allowed int) string {
 		}
 		if addr >= 0x00FF8000 && addr <= 0x00FFFFFF {
 			if name, ok := d.lookup(addr | 0xFF000000); ok {
-				return fmt.Sprintf("(%s&$FFFFFF).l", name)
+				return fmt.Sprintf("((%s)&$FFFFFF).l", name)
 			}
 		}
 		if addr > 0x00FFFFFF {
@@ -1225,6 +1232,7 @@ type BlockOptions struct {
 	ImmLabels  types.LabelMap    // labels allowed for 32-bit immediates (nil = Labels)
 	BaseRegs   map[uint16]uint32 // constant address registers
 	StructRegs map[uint16]map[int32]string
+	Instances  []types.InstanceInfo
 	Heuristics bool // enable linear-sweep jump table / dead data heuristics
 }
 
@@ -1234,6 +1242,7 @@ func DisassembleRange(rom []byte, start, end uint32, o BlockOptions) []Result {
 	d.ImmLabels = o.ImmLabels
 	d.BaseRegs = o.BaseRegs
 	d.StructRegs = o.StructRegs
+	d.Instances = o.Instances
 	d.Pos = int(start)
 	var results []Result
 	for d.Remaining() >= 2 {

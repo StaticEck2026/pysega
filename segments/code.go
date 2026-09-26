@@ -36,7 +36,9 @@ func processM68K(ctx *Context) (*Result, error) {
 	heur := true
 	var baseRegs map[uint16]uint32
 	var structRegs map[uint16]map[int32]string
+	var instances []types.InstanceInfo
 	if ctx.Config != nil {
+		instances = ctx.Config.InstanceTable()
 		heur = ctx.Config.HeuristicsEnabled(seg)
 		baseRegs = ctx.Config.SegmentBaseRegs(seg)
 		structRegs = ctx.Config.SegmentStructRegs(seg)
@@ -48,6 +50,7 @@ func processM68K(ctx *Context) (*Result, error) {
 		ImmLabels:  labels.Imm,
 		BaseRegs:   baseRegs,
 		StructRegs: structRegs,
+		Instances:  instances,
 		Heuristics: heur,
 	})
 

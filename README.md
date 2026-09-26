@@ -193,6 +193,10 @@ structs:                        # Structure layouts (written to include/structs.
     - {offset: 0x10, name: obj_x, comment: "pitch X"}
     - {offset: 0x34, name: obj_update, comment: "update callback"}
 
+instances:                      # Structures at fixed addresses (name defined in the symbols file)
+  - {name: g_ball, addr: 0xFF19C0, struct: obj}              # (g_ball+obj_x-$FF0000)(a6)
+  - {name: g_players, addr: 0xFF1B6A, struct: obj, count: 20, stride: 0x8E}
+
 analysis:                       # Options for `sega2asm analyze -c`
   entries: [0x001234]           # Extra code entry points
   noreturn: [0x002000]          # Subroutines that never return
