@@ -329,10 +329,14 @@ func ResolveInstance(ins []InstanceInfo, addr uint32) (string, bool) {
 		if !ok {
 			return "", false
 		}
-		if idx == 0 {
-			return in.Name + "+" + f, true
+		elem := in.Name
+		if idx > 0 {
+			elem = fmt.Sprintf("%s+$%X", in.Name, idx*in.Stride)
 		}
-		return fmt.Sprintf("%s+$%X+%s", in.Name, idx*in.Stride, f), true
+		if off == 0 {
+			return elem, true // start of an element: no field suffix
+		}
+		return elem + "+" + f, true
 	}
 	return "", false
 }
