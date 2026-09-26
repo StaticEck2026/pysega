@@ -195,6 +195,24 @@ ends a string (`issdeluxe.tbl`).
 * `md/md_asset_browser.tscn` (main scene) — browse all assets with their ROM
   addresses.
 
+Then run the game-specific extractor, which adds `assets/iss/`:
+
+```bash
+go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
+```
+
+* `iss/players/frames/f_XXXXXX_{r,l}.png` — all 611 player animation frames
+  (right- and left-facing), assembled exactly like the game's sprite code does
+  (body tiles from `res00`, head, hair and kit tiles, ground shadow). Pixels are
+  CRAM indices `line*16 + colour`: body on line 0 (home kit), heads/skin on
+  line 2, shadow on line 3. Draw them with `md_indexed.gdshader` and
+  `palette_match.pal.png`, or swap line 0 for any team's kit from `kits.json`.
+* `iss/players/animations.json` — 54 actions × 8 directions → frame lists,
+  with each frame's origin and hardware sprite pieces (`$0210DE` table).
+  Direction = `((facing + 4) & $38) >> 3` for a 0–63 facing angle.
+* `iss/players/kits.json` — first/second kit palettes and head colour masks for
+  all 43 teams.
+
 Suggested mapping of the original systems:
 
 | Mega Drive | Godot |
@@ -236,10 +254,11 @@ must sit on instruction, hint or segment boundaries; `sega2asm` warns otherwise.
 
 Done: full code/data separation, bit-exact rebuild, all compressed data decoded,
 archive typed, core engine documented (boot, states, frame loop, objects, DMA,
-sprites, fades, pads, text, sound API, resource loading).
+sprites, fades, pads, text, sound API, resource loading), player animation
+system decoded and exported (frames, animation tables, kits for 43 teams).
 
 Open work, in rough order of value for a port:
-1. Sprite mapping / animation tables (assemble `res00` player frames).
+1. Other sprite sets (ball, referee, keepers' special heads, crowd, UI).
 2. Screen composition for `res26`–`res86` (VRAM base and shared UI tiles used
    by the front-end loaders) so their tilemaps render.
 3. Team, player and tactics tables in the `$020408–$03B09E` data block.

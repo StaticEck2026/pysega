@@ -365,8 +365,11 @@ func (t *Tracer) noteRefs(r *m68k.Result) {
 				}
 			}
 		case m68k.RefEffAddr, m68k.RefImm:
-			if ref.Kind == m68k.RefImm && ref.Addr < 0x10000 && dataRegDest(r.Text) {
-				continue // counters and constants, not pointers
+			if ref.Kind == m68k.RefImm && ref.Addr < 0x10000 {
+				mn := r.Mnemonic
+				if !((mn == "move" || mn == "movea") && !dataRegDest(r.Text) || mn == "cmpi") {
+					continue // counters, sizes and offsets, not pointers
+				}
 			}
 			if t.inROM(ref.Addr) && ref.Addr&1 == 0 {
 				t.ptrCands[ref.Addr] = true

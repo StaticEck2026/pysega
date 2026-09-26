@@ -134,14 +134,14 @@ func (d *Disassembler) Next() Result {
 	}
 
 	text = applyImmStrLiterals(text)
-	if d.immSym != "" && d.immVal < 0x10000 && dataRegDest(text) {
-		// Small values loaded into data registers are counters and
-		// constants far more often than pointers.
-		text = strings.Replace(text, d.immSym, "#"+hexN(d.immVal, 4), 1)
-	}
 	mn := strings.TrimSpace(text)
 	if i := strings.IndexAny(mn, "\t ."); i >= 0 {
 		mn = mn[:i]
+	}
+	if d.immSym != "" && d.immVal < 0x10000 && !pointerImmContext(mn, text) {
+		// Small values are counters, sizes and offsets far more often than
+		// pointers unless they are stored somewhere by a move or compared.
+		text = strings.Replace(text, d.immSym, "#"+hexN(d.immVal, 8), 1)
 	}
 	if d.noncanon {
 		// The instruction executes fine on a 68000 but an assembler would
@@ -1098,6 +1098,19 @@ func (d *Disassembler) decodeShift(op uint16) string {
 		count = fmt.Sprintf("#%d", cnt)
 	}
 	return fmt.Sprintf("\t%s%s.%s\t%s,d%d", shiftNames[kind], dir, sz, count, op&7)
+}
+
+// pointerImmContext reports whether a 32-bit immediate below $10000 is
+// plausibly a code/data pointer: stored by move/movea (not into a data
+// register) or compared with cmpi.
+func pointerImmContext(mn, text string) bool {
+	switch mn {
+	case "move", "movea":
+		return !dataRegDest(text)
+	case "cmpi":
+		return true
+	}
+	return false
 }
 
 // dataRegDest reports whether the last operand of text is a data register.

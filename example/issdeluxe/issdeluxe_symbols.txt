@@ -90,6 +90,13 @@ state_match                 = $0200D2 ; Match state: loads stadium, teams and pl
 state_match_frame           = $02014E ; VBlank handler of state_match: scroll, DMA, sound, pads, match logic, objects, sprites
 state_result                = $0201FE ; Post-match / presentation state
 state_result_frame          = $020274 ; VBlank handler of state_result
+player_init_sprite          = $020BD4 ; Give player object a5 its draw routine and an empty animation state
+player_draw                 = $020BF0 ; Player draw callback: pick the frame from tbl_player_anims[action $6A][direction][frame $7A],\nDMA its body/head/hair/kit tiles into the player's VRAM slot ($78) and emit its sprite pieces
+tbl_player_anims            = $0210DE ; 54 actions -> 8 directions -> frame descriptor lists.\nDescriptor: +0 res00 entry*4, +2 tile offset, +4 tile bytes, +6 head, +8 kit, +A hair tile offsets,\n+C piece count-1, then 10-byte pieces: y, VDP size, attribute index, tile, x (right), x (left)
+tbl_sprite_attr_right       = $020F5E ; Sprite attribute words (palette line / flips) indexed by piece attribute byte, right-facing
+tbl_sprite_attr_left        = $02101E ; Same with horizontal flip toggled, used for left-facing directions
+tbl_head_mask_home          = $037402 ; Per-team AND masks applied to head tiles (skin / hair colours), home team
+tbl_head_mask_away          = $037458 ; Same for the away team
 load_stadium_tiles          = $01D7BA ; Load stadium resource group 7 + stadium number (8 stadium sets)
 
 ; ═════════════════════════════════════════════════════════════════════════════
@@ -158,6 +165,19 @@ g_plane_b_hscroll           = $00FF0858 ; Word: plane B horizontal scroll (negat
 g_plane_b_vscroll           = $00FF085C ; Word: plane B vertical scroll
 g_plane_a_hscroll           = $00FF0864 ; Word: plane A horizontal scroll (negated when written)
 g_plane_a_vscroll           = $00FF0868 ; Word: plane A vertical scroll
+g_team_home                 = $00FF163E ; Word: home team (0-42)
+g_team_away                 = $00FF1640 ; Word: away team (0-42)
+g_kit_home                  = $00FF1646 ; Word: home kit (0 = first, 1 = second, 2 = edited)
+g_kit_away                  = $00FF1648 ; Word: away kit
+g_player_tiles              = $00FF1810 ; Long: pointer to resource group res00 (player body tiles)
+g_kit_tiles_home            = $00FF181E ; Long: home team kit tiles (7 per team, unpacked)
+g_head_tiles_home           = $00FF1822 ; Long: head tiles recoloured with the home team's mask
+g_hair_tiles_home           = $00FF1826 ; Long: hair tiles (ROM)
+g_kit_tiles_away            = $00FF18A6 ; Long: away team kit tiles
+g_head_tiles_away           = $00FF18AA ; Long: head tiles for the away team
+g_hair_tiles_away           = $00FF18AE ; Long: hair tiles (ROM)
+g_team_home_players         = $00FF1B6A ; 11 player objects ($8E bytes each), home team
+g_team_away_players         = $00FF2682 ; 11 player objects, away team
 g_text_nametable            = $00FF1762 ; Long: off-screen nametable the text helpers draw into
 g_obj_free_list             = $00FF096E ; Long: head of the free object list (-1 = empty)
 g_obj_active_list           = $00FF0972 ; Long: head of the active object list (-1 = empty)
