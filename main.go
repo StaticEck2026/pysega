@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"sega2asm/analysis"
 	_ "sega2asm/compress"
 	"sega2asm/splitter"
 	"sega2asm/types"
@@ -83,6 +84,7 @@ func newRootCmd() *cobra.Command {
 	cmd.SetVersionTemplate("sega2asm v{{.Version}}\n")
 
 	cmd.AddCommand(newDetectCmd())
+	cmd.AddCommand(newAnalyzeCmd())
 
 	return cmd
 }
@@ -108,6 +110,49 @@ func newDetectCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newAnalyzeCmd() *cobra.Command {
+	var configFile, reportFile string
+	cmd := &cobra.Command{
+		Use:   "analyze <rom>",
+		Short: "Trace 68000 control flow and report code / data regions",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+			r, err := types.LoadROM(args[0])
+			if err != nil {
+				return err
+			}
+			var opts analysis.Options
+			opts.Orphans = true
+			if configFile != "" {
+				cfg, err := types.LoadConfig(configFile)
+				if err != nil {
+					return err
+				}
+				opts = analysis.OptionsFromConfig(cfg.Analysis)
+			}
+			res := analysis.Trace(r.Data, opts)
+			out := os.Stdout
+			if reportFile != "" {
+				f, err := os.Create(reportFile)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				out = f
+			}
+			res.WriteReport(out)
+			code, data, unk := res.Stats()
+			fmt.Fprintf(os.Stderr, "code=%d data=%d unknown=%d functions=%d tables=%d indirect=%d conflicts=%d\n",
+				code, data, unk, len(res.Entries), len(res.Tables), len(res.Indirect), len(res.Conflicts))
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&configFile, "config", "c", "", "Configuration YAML (uses its analysis: block)")
+	cmd.Flags().StringVarP(&reportFile, "report", "r", "", "Write the report to this file instead of stdout")
+	return cmd
 }
 
 func main() {

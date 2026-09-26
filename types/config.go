@@ -10,10 +10,35 @@ import (
 
 // Config is the root project configuration.
 type Config struct {
-	Name     string          `yaml:"name"`
-	SHA1     string          `yaml:"sha1"`
-	Options  ConfigOptions   `yaml:"options"`
-	Segments []Segment       `yaml:"segments"`
+	Name     string         `yaml:"name"`
+	SHA1     string         `yaml:"sha1"`
+	Options  ConfigOptions  `yaml:"options"`
+	Analysis AnalysisConfig `yaml:"analysis"`
+	Segments []Segment      `yaml:"segments"`
+}
+
+// AnalysisConfig steers the control-flow tracer used by "sega2asm analyze".
+type AnalysisConfig struct {
+	Entries  []HexInt        `yaml:"entries"`  // extra code entry points
+	NoReturn []HexInt        `yaml:"noreturn"` // subroutines that never return
+	CodeEnd  HexInt          `yaml:"code_end"` // no code at or above this address
+	Orphans  *bool           `yaml:"orphans"`  // recover unreferenced functions (default true)
+	Data     []AnalysisRange `yaml:"data"`     // forced data ranges
+	Tables   []AnalysisTable `yaml:"tables"`   // manual jump / pointer tables
+}
+
+// AnalysisRange is a half-open [start, end) address range.
+type AnalysisRange struct {
+	Start HexInt `yaml:"start"`
+	End   HexInt `yaml:"end"`
+}
+
+// AnalysisTable describes a jump or pointer table the tracer cannot infer.
+type AnalysisTable struct {
+	Addr  HexInt `yaml:"addr"`
+	Type  string `yaml:"type"` // long | word_rel | branch
+	Count int    `yaml:"count"`
+	Base  HexInt `yaml:"base"` // word_rel base address
 }
 
 // ConfigOptions contains global paths and settings for the split operation.
