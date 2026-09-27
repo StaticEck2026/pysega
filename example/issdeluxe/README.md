@@ -402,6 +402,13 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   cells), the 42 team flags and name plates, score / clock digits, the
   radar background and, per stadium, the pitch → radar pixel mapping and the
   dot colours (`hud.json` gives every item's cells).
+* `iss/screens/` — the 57 front-end screens (menus, options, league and cup
+  tables, mode title cards, game over, password), each a backdrop group
+  under the screen's own group as the loader at `$01EB38` stacks them.
+  They are rendered without the run-time menu cursors and sprites, and
+  screen $39 is only approximate (its backdrop group 25 changes with the
+  weather and renders as a flat green block). `screens.json` lists screen
+  number → groups.
 * `iss/*.gd` — `ISSPitch` (a `TileMapLayer` building any stadium),
   `ISSWeather` (the animated overlay), `ISSFlags` (the six flags), `ISSHud`
   (flags, names, score, clock and a live radar), `ISSPlayerSprite` (animated player with
@@ -488,8 +495,8 @@ Open work, in rough order of value for a port:
 1. The remaining small sprites in `$02D4B2`–`$02D7DA` (ball marker, the
    flickering object of the state_result scene) and the HUD's banner text
    (`banner_draw` font).
-2. Screen composition for `res26`–`res86` (VRAM base and shared UI tiles used
-   by the front-end loaders) so their tilemaps render.
+2. The front-end logic itself: which object drives each menu screen, the
+   cursor sprites and how menu choices map to settings.
 3. Meaning of the eight player attribute bytes and the five team ratings;
    formations (`$037E0E`) and tactics.
 4. Match engine, remaining: the individual goalkeeper states, strategy

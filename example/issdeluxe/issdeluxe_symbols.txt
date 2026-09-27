@@ -413,3 +413,5 @@ tbl_radar_dots              = $01BB90 ; 6 x 16 bytes: home, away, flagged, contr
 tbl_radar_maps              = $01BBF0 ; Per stadium: column table (bitmap offset, pixel X per 16 pitch pixels), row table
 tbl_hud_digits              = $01CD00 ; 10 digits x (top, bottom) window cells, 8x16 pixels
 tbl_hud_time_up             = $01CD50 ; 4 x (top, bottom) cells shown instead of the clock at time up
+g_screen                    = $00FF175C ; Word: front-end screen number (group 27 + screen; backdrop group 23/24/25/26)
+screen_load                 = $01EB38 ; Load front-end screen g_screen: backdrop tiles, map (plane A) and palette lines 2-3,\nthe screen's tiles after them, its map as g_text_nametable (priority toggled) and palette lines 0-1

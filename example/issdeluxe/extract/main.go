@@ -22,6 +22,7 @@
 //	                       animation state, and their timing
 //	hud/                   match HUD: window, team flags and names, digits,
 //	                       radar background and per-stadium radar mapping
+//	screens/               the front-end screens (backdrop + screen layer)
 //
 // and GDScript classes plus a demo scene into <godot>/iss.
 //
@@ -129,6 +130,7 @@ func main() {
 	exportStadiums(filepath.Join(*out, "assets", "iss", "stadiums"))
 	exportWeather(filepath.Join(*out, "assets", "iss", "weather"))
 	exportHUD(filepath.Join(*out, "assets", "iss", "hud"))
+	exportScreens(filepath.Join(*out, "assets", "iss", "screens"))
 	exportTeams(filepath.Join(*out, "assets", "iss"))
 	writeScripts(*out)
 }
