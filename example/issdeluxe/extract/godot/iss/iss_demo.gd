@@ -12,6 +12,7 @@ const BALL_SPEED := 1.5
 var _pitch := ISSPitch.new()
 var _weather := ISSWeather.new()
 var _flags := ISSFlags.new()
+var _hud := ISSHud.new()
 var _camera := Camera2D.new()
 var _players: Array[ISSPlayerSprite] = []
 var _pitch_pos: Array[Vector2] = []
@@ -28,6 +29,12 @@ func _ready() -> void:
 	_weather.z_index = 4000 # plane A is high priority: above the players
 	add_child(_weather)
 	add_child(_flags)
+	var layer := CanvasLayer.new()
+	_hud.scale = Vector2(3, 3)
+	_hud.home_team = 0
+	_hud.away_team = 1
+	layer.add_child(_hud)
+	add_child(layer)
 	_camera.position = Vector2(size) / 2.0
 	_camera.zoom = Vector2(3, 3)
 	add_child(_camera)
@@ -78,6 +85,12 @@ func _process(delta: float) -> void:
 		_ball.spin += BALL_SPEED / 4.0 if _ball.height == 0.0 else 0.125
 	_ball.position = ISSProjection.to_map(_ball_pos)
 	_ball.z_index = int(_ball_pos.y)
+	# HUD: clock and radar.
+	_hud.clock_seconds = maxf(0.0, _hud.clock_seconds - delta)
+	var dots: Array = [[_ball_pos, "ball"]]
+	for i in _players.size():
+		dots.append([_pitch_pos[i], "home" if _players[i].team % 2 == 0 else "away"])
+	_hud.set_radar(dots)
 	var move := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
 	_camera.position += move * 300.0 * delta
 
@@ -89,10 +102,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				_pitch.stadium = (_pitch.stadium + 1) % 8
 				_weather.stadium = _pitch.stadium
 				_flags.stadium = _pitch.stadium
+				_hud.set_stadium(_pitch.stadium)
 			KEY_MINUS, KEY_KP_SUBTRACT:
 				_pitch.stadium = (_pitch.stadium + 7) % 8
 				_weather.stadium = _pitch.stadium
 				_flags.stadium = _pitch.stadium
+				_hud.set_stadium(_pitch.stadium)
 			KEY_W:
 				_pitch.weather = (_pitch.weather + 1) % 3
 				_weather.weather = _pitch.weather

@@ -375,10 +375,11 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   Direction = `((facing + 4) & $38) >> 3` for a 0–63 facing angle.
 * `iss/players/kits.json` — first/second kit palettes and head colour masks for
   all 43 teams.
-* `iss/teams.json` — all 43 squads: 20 players each with name and the raw
+* `iss/teams.json` — all 43 squads with the team name (read off the name
+  plate graphics: 0 England, 1 Germany … 41 All Amer.Star, 42 the practice
+  side), flag and name plate images, 20 players each with name and the raw
   12-byte record (attributes, body type, face and hair styles), team ratings
-  and kit-clash codes. Team 0 is England, 1 Germany, 5 Ireland…; the country
-  names themselves are drawn from graphics.
+  and kit-clash codes.
 * `iss/ball/` — the ball (`tbl_ball_anims`): 5 actions × 8 directions, each
   frame as a ball image (right / left) and a shadow image.
 * `iss/npc/` — every non-player character drawn by `npc_draw`: referee and
@@ -397,8 +398,13 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
 * `iss/weather/` — the plane A snow and rain overlays: one 512 × 256 index
   image per animation state (32 for snow at 8 frames each, 16 for rain at one
   frame each), tiled over the stadium from its origin.
+* `iss/hud/` — the match HUD: the window plane (`window.png`, 32 × 32
+  cells), the 42 team flags and name plates, score / clock digits, the
+  radar background and, per stadium, the pitch → radar pixel mapping and the
+  dot colours (`hud.json` gives every item's cells).
 * `iss/*.gd` — `ISSPitch` (a `TileMapLayer` building any stadium),
-  `ISSWeather` (the animated overlay), `ISSFlags` (the six flags), `ISSPlayerSprite` (animated player with
+  `ISSWeather` (the animated overlay), `ISSFlags` (the six flags), `ISSHud`
+  (flags, names, score, clock and a live radar), `ISSPlayerSprite` (animated player with
   kit swapping through the palette shader), `ISSBallSprite` (ball and shadow,
   size from the height), `ISSNPCSprite` (officials with kit variants, medics,
   dog), `ISSProjection` (pitch ↔ map coordinates, heading vectors) and
@@ -480,8 +486,8 @@ restart scripts, statistics and commentary.
 
 Open work, in rough order of value for a port:
 1. The remaining small sprites in `$02D4B2`–`$02D7DA` (ball marker, the
-   flickering object of the state_result scene) and the HUD (window plane,
-   res16 entry 3; radar and score panels).
+   flickering object of the state_result scene) and the HUD's banner text
+   (`banner_draw` font).
 2. Screen composition for `res26`–`res86` (VRAM base and shared UI tiles used
    by the front-end loaders) so their tilemaps render.
 3. Meaning of the eight player attribute bytes and the five team ratings;

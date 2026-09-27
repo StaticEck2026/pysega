@@ -20,6 +20,8 @@
 //	                       16x16 metatile atlases, maps, palettes, tile sheets
 //	weather/               plane A snow and rain overlays, one image per
 //	                       animation state, and their timing
+//	hud/                   match HUD: window, team flags and names, digits,
+//	                       radar background and per-stadium radar mapping
 //
 // and GDScript classes plus a demo scene into <godot>/iss.
 //
@@ -126,6 +128,7 @@ func main() {
 	exportFlags(filepath.Join(*out, "assets", "iss", "flags"))
 	exportStadiums(filepath.Join(*out, "assets", "iss", "stadiums"))
 	exportWeather(filepath.Join(*out, "assets", "iss", "weather"))
+	exportHUD(filepath.Join(*out, "assets", "iss", "hud"))
 	exportTeams(filepath.Join(*out, "assets", "iss"))
 	writeScripts(*out)
 }
@@ -146,7 +149,7 @@ func writeScripts(out string) {
 		}
 		return os.WriteFile(t, b, 0644)
 	}))
-	fmt.Println("scripts: iss/ (ISSPitch, ISSWeather, ISSFlags, ISSPlayerSprite, ISSBallSprite, ISSNPCSprite, ISSProjection, iss_demo.tscn)")
+	fmt.Println("scripts: iss/ (ISSPitch, ISSWeather, ISSFlags, ISSHud, ISSPlayerSprite, ISSBallSprite, ISSNPCSprite, ISSProjection, iss_demo.tscn)")
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +308,17 @@ func exportAnimations(dir string) {
 		"frames":  fm,
 	})
 	fmt.Printf("players: %d actions, %d unique frames\n", len(outActions), len(frames))
+}
+
+// teamNames transcribes the team name plates (res06 entry 0); team 42 is
+// the practice side of the training modes and has no plate.
+var teamNames = []string{
+	"England", "Germany", "Italy", "Wales", "Scotland", "N.Ireland", "France", "Holland", "Norway",
+	"Spain", "Ireland", "Portugal", "Sweden", "Czech Rep.", "Denmark", "Austria", "Belgium", "Poland",
+	"Romania", "Russia", "Bulgaria", "Swiss", "Croatia", "Greece", "Japan", "Turkey", "S.Korea",
+	"Nigeria", "Cameroon", "Morocco", "Brazil", "Argentina", "Columbia", "Mexico", "U.S.A",
+	"Uruguay", "All Star", "Eurostar A", "Eurostar B", "Asian Star", "African Star",
+	"All Amer.Star", "Practice",
 }
 
 // playerActionNames labels obj_action values (tbl_player_anims), from the
@@ -739,14 +753,21 @@ type playerOut struct {
 
 func exportTeams(dir string) {
 	type teamOut struct {
-		Team     int         `json:"team"`
-		Ratings  []int       `json:"ratings"`
-		KitClash int         `json:"kit_clash"`
-		Players  []playerOut `json:"players"`
+		Team      int         `json:"team"`
+		Name      string      `json:"name"`
+		Flag      string      `json:"flag,omitempty"`
+		NamePlate string      `json:"name_plate,omitempty"`
+		Ratings   []int       `json:"ratings"`
+		KitClash  int         `json:"kit_clash"`
+		Players   []playerOut `json:"players"`
 	}
 	var teams []teamOut
 	for t := 0; t < numTeams; t++ {
-		to := teamOut{Team: t, KitClash: int(be16(tblKitClash + uint32(2*t)))}
+		to := teamOut{Team: t, Name: teamNames[t], KitClash: int(be16(tblKitClash + uint32(2*t)))}
+		if t < hudTeams {
+			to.Flag = fmt.Sprintf("res://assets/iss/hud/flags/flag_%02d.png", t)
+			to.NamePlate = fmt.Sprintf("res://assets/iss/hud/names/name_%02d.png", t)
+		}
 		for i := 0; i < 5; i++ {
 			to.Ratings = append(to.Ratings, int(rom[tblTeamRatings+uint32(5*t+i)]))
 		}
@@ -778,7 +799,8 @@ func exportTeams(dir string) {
 	writeJSON(filepath.Join(dir, "teams.json"), map[string]any{
 		"description": "43 teams x 20 players. Names from $035916, records from $038140 (copied to player " +
 			"object +$5A..+$65), 5 team ratings from $03AB82. Attribute meanings are not decoded yet. " +
-			"Team names are drawn from graphics, so teams are identified by index (see kits.json for colours).",
+			"Team names are graphics in the ROM (name_plate, res06 entry 0); the name strings here were read off them. " +
+			"Team 42 is the practice side used by the training modes.",
 		"teams": teams,
 	})
 	fmt.Printf("teams: %d x %d players\n", len(teams), playersPerTeam)

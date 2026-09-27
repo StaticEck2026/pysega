@@ -29,6 +29,7 @@ func _init() -> void:
 	var stadiums = _json("res://assets/iss/stadiums/stadiums.json")
 	var teams = _json("res://assets/iss/teams.json")
 	var flags = _json("res://assets/iss/flags/flags.json")
+	var hud = _json("res://assets/iss/hud/hud.json")
 	if _failures > 0:
 		quit(1)
 		return
@@ -38,7 +39,9 @@ func _init() -> void:
 	_check(stadiums["stadiums"].size() == 8, "8 stadiums")
 	_check(stadiums["stadiums"][0]["pitch_bounds"]["right"] == 1920, "stadium 0 pitch bounds")
 	_check(flags["actions"].size() == 2 and flags["actions"][0].size() == 4, "flag frames")
-	_check(teams != null, "teams")
+	_check(teams != null and teams["teams"][0]["name"] == "England", "team names")
+	_check(hud["radar"]["mapping"].size() == 8, "radar mapping per stadium")
+	_check(ResourceLoader.exists("res://assets/iss/hud/flags/flag_41.png"), "team flags")
 	var counts := [32, 0, 16]
 	for w in 3:
 		_check(weather["weathers"][w]["frames"].size() == counts[w], "weather %d frame count" % w)

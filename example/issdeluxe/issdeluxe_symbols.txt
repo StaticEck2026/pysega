@@ -386,3 +386,30 @@ tbl_kick_lofted             = $00B986 ; Per power: speed and vertical speed (16.
 tbl_kick_rising             = $00BA16 ; Per power: 2-4 px per frame, rising 1.5-3.5
 tbl_kick_drive              = $00BC1E ; 6 px per frame, rising 1
 tbl_kick_pass               = $00BC2E ; 3.5 px per frame, rising 1
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Match HUD (window plane): res16 entry 3 map over the overlay tiles, palette
+; line 2 colours 8-15 from res16 entry 9. Team flags (res06 entry 2) and names
+; (res06 entry 0) go to overlay tiles 72-93; the radar is a 10x7-tile bitmap in
+; tiles 2-71, redrawn in steps by the g_radar_step chain.
+; ═════════════════════════════════════════════════════════════════════════════
+g_hud_map                   = $00FF0946 ; Long: RAM copy of the window map (from row 1), uploaded after changes
+g_radar_bitmap              = $00FF094A ; Long: radar tile bitmap (the clean copy follows at +$8C0)
+g_hud_clock_fn              = $00FF094E ; Long: HUD routine run by hud_update (hud_draw_clock)
+g_radar_step                = $00FF0952 ; Long: next step of the radar chain, run by hud_update
+g_radar_col_table           = $00FF095A ; Long: this stadium's radar column table (tbl_radar_maps)
+g_radar_row_table           = $00FF095E ; Long: this stadium's radar row table
+hud_draw_clock              = $01C7A4 ; Draw the clock (M:SS, digits from tbl_hud_digits) at window row 1 column 27,\nor tbl_hud_time_up when it has run out; half marker at column 25
+radar_clear                 = $01B7EC ; Radar step: restore the clean bitmap (first half)
+radar_clear_2               = $01B816 ; Radar step: second half
+radar_plot_home             = $01B844 ; Radar step: plot the home players (2x2 dots, colour $D; $C when obj +$F is set)
+radar_plot_away             = $01B888 ; Radar step: plot the away players (colour $A)
+radar_plot_controlled_home  = $01B8CC ; Radar step: 4x4 markers for the home team's controlled players
+radar_plot_controlled_away  = $01B902 ; Radar step: the same for the away team
+radar_plot_ball             = $01B938 ; Radar step: ball marker, then upload the first half
+radar_upload                = $01B97C ; Radar step: upload the second half, restart the chain
+radar_plot                  = $01BAD0 ; Plot pattern a3 for object a5: column = table[(x - left) / 16], row = table[(y - top) / 16]
+tbl_radar_dots              = $01BB90 ; 6 x 16 bytes: home, away, flagged, controlled home / away, ball patterns
+tbl_radar_maps              = $01BBF0 ; Per stadium: column table (bitmap offset, pixel X per 16 pitch pixels), row table
+tbl_hud_digits              = $01CD00 ; 10 digits x (top, bottom) window cells, 8x16 pixels
+tbl_hud_time_up             = $01CD50 ; 4 x (top, bottom) cells shown instead of the clock at time up
