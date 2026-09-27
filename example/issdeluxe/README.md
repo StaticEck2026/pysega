@@ -315,9 +315,38 @@ area). Outfield players use `player_ai`:
 4. otherwise go to the formation position: X = `tm_lines[obj_role]` +
    `obj_form_x` × 8 (+ $80 for roles flagged to join attacks when the team
    has the ball), Y = pitch centre + `obj_form_y` × 8 (× 10 in possession).
-   Defenders (role 0) stay out of the opponents' penalty area, forwards
-   (role 2) out of their own, and nobody runs past the opponents' last
-   defender (`tm_back`) minus 32 px.
+   Roles are 0 attack, 1 midfield, 2 defence, 3 goalkeeper. Defenders
+   keep $180 px from their own goal line and forwards from the opponents'
+   (unless their line is already beyond that), and nobody runs past the
+   opponents' last defender (`tm_back`) minus 32 px.
+
+With the ball the AI (`ai_carrier`) holds it for up to 12 AI turns,
+dribbling straight at goal or toward the near wing, then passes (`ai_pass`,
+or `ai_long_ball` ahead of the front player); challenged from the front it
+passes or sidesteps (`ai_sidestep`); in the opponents' zone it runs at goal
+and shoots (`ai_shoot`) when central, else crosses or passes. Each choice is
+weighted by the team's five ratings (`tbl_team_ratings`), which are masks:
+the choice is made when `g_random & mask` is 0, so with chance
+1 / (mask + 1). Rating 0: pass rather than dribble when challenged; 1:
+unused; 2: pulse dash while sidestepping; 3: run straight at goal rather
+than toward the wing; 4: long ball rather than a short pass.
+
+**Player records** (`tbl_player_data`, 12 bytes, copied to object
++$5A): bytes 0–8 are the edit screen's attributes in its order, 0–9 each:
+speed (top speed from `tbl_speed_max`), dash (acceleration,
+`tbl_dash_accel`), shot power, curl, intelligence, balance, jump, dribble
+and stamina (frames per energy point, `tbl_stamina_drain`; energy below 2
+lowers the speed used). Byte 9 is the shirt number, which also picks the
+player's head graphic; byte 10 the hair graphic; byte 11 the position
+(0 forward, 1 midfielder, 2 defender, 3 goalkeeper, 4 and 5 rarer
+attacking and defensive types that only differ through
+`tbl_position_bonus`).
+
+**Formations.** 16 (`tbl_formations`, names at `str_formation_names`):
+4-5-1, 4-4-2, 4-3-3, 4-2-4, 3-5-2, 3-4-3, 3-3-4, 3-2-5, 2-5-3, 2-4-4, 2-3-5,
+5-4-1, 5-3-2, 5-2-3, 1-5-4, 1-4-5. Each is 11 × (form_x, form_y, role) in
+squad order; every team has its own tuned copy of its default formation
+(`tbl_team_formations`).
 
 `tbl_team_strategies` holds the eight in-match strategies (`tm_strategy`):
 0 all-out attack, 1 push along centre, 2 push along wings, 3 counter attack,
@@ -473,9 +502,11 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   all 43 teams.
 * `iss/teams.json` — all 43 squads with the team name (read off the name
   plate graphics: 0 England, 1 Germany … 41 All Amer.Star, 42 the practice
-  side), flag and name plate images, 20 players each with name and the raw
-  12-byte record (attributes, body type, face and hair styles), team ratings
-  and kit-clash codes.
+  side), flag and name plate images, default formation and layout, AI
+  ratings and kit-clash codes; 20 players each with name, the nine named
+  attributes, shirt number, hair, position and the raw record; and the
+  attribute tables (top speed, acceleration, stamina drain, position bonus).
+  `iss/formations.json` has the 16 formations with their kick-off layouts.
 * `iss/ball/` — the ball (`tbl_ball_anims`): 5 actions × 8 directions, each
   frame as a ball image (right / left) and a shadow image.
 * `iss/npc/` — every non-player character drawn by `npc_draw`: referee and
@@ -614,9 +645,9 @@ Open work, in rough order of value for a port:
 2. The front-end logic in detail: the object behind each remaining menu
    screen, the cursor sprites, the options and how the password bits map to
    the competition state.
-3. Which player record bytes hold the nine attributes of the edit screen
-   ($0E: speed, dash, shot power, curl skill, intelligence, balance, jump,
-   dribble, stamina) and the five team ratings; formations (`$037E0E`).
+3. The exact effects of curl, intelligence, balance and dribble (bytes 4,
+   5 and 7 are read by the tackle, foul and ball-control code; no read of
+   byte 3 was found yet).
 4. Match engine, remaining: the individual goalkeeper states, the
    shoot-out's own logic, the camera.
 5. Sound: the note and pattern encoding in full (to convert songs to MIDI

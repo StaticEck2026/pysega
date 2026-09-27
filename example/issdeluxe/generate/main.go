@@ -608,16 +608,19 @@ structs:
     - {offset: 0x44, name: obj_heading, comment: "Word: direction to the target (0-63)"}
     - {offset: 0x48, name: obj_input, comment: "Word: this frame's input: d-pad (bits 0-3), pass $10, lofted $20, dash $40, shoot $100, switch $200 - copied from the control slot for humans, written by the AI otherwise"}
     - {offset: 0x4A, name: obj_team, comment: "Word: 0 = home, 1 = away; ball: team that touched it last"}
-    - {offset: 0x51, name: obj_role, comment: "Byte: formation role 0 defence, 1 midfield, 2 attack, 3 goalkeeper; bit 7: joins attacks"}
+    - {offset: 0x51, name: obj_role, comment: "Byte: formation role 0 attack, 1 midfield, 2 defence, 3 goalkeeper (tbl_formations); bit 7: joins attacks"}
     - {offset: 0x52, name: obj_form_x, comment: "Byte: signed X offset from the role's line (x8 pixels)"}
     - {offset: 0x53, name: obj_form_y, comment: "Byte: signed Y offset from the pitch centre (x8 defending, x10 attacking)"}
     - {offset: 0x54, name: obj_mark, comment: "Byte: index of the opponent to man-mark (negative = none)"}
     - {offset: 0x55, name: obj_off_pitch, comment: "Byte: non-zero when the player takes no part (sent off / not playing)"}
     - {offset: 0x56, name: obj_slot, comment: "Byte: squad slot (0-19)"}
-    - {offset: 0x5A, name: obj_record, comment: "12 bytes: player record (tbl_player_data)"}
-    - {offset: 0x62, name: obj_body, comment: "Byte: body type (record byte 8)"}
-    - {offset: 0x63, name: obj_face, comment: "Byte: face style (1-based)"}
-    - {offset: 0x64, name: obj_hair, comment: "Byte: hair style"}
+    - {offset: 0x57, name: obj_energy, comment: "Byte: energy; loses a point every tbl_stamina_drain[stamina] frames of running and when fouled; below 2 it lowers the speed attribute"}
+    - {offset: 0x58, name: obj_energy_timer, comment: "Word: frames until the next energy point is lost"}
+    - {offset: 0x5A, name: obj_record, comment: "12 bytes: player record (tbl_player_data): speed, dash, shot power, curl, intelligence, balance, jump, dribble, stamina, number, hair, position"}
+    - {offset: 0x62, name: obj_stamina, comment: "Byte: stamina (record byte 8): frames per energy point from tbl_stamina_drain"}
+    - {offset: 0x63, name: obj_number, comment: "Byte: shirt number 1-20 (record byte 9): also picks the head graphic, (number-1)*$C0 into the team's head tiles"}
+    - {offset: 0x64, name: obj_hair, comment: "Byte: hair graphic (record byte 10): hair*$280 into the team's hair tiles"}
+    - {offset: 0x65, name: obj_position, comment: "Byte: position (record byte 11): 0 forward, 1 midfielder, 2 defender, 3 goalkeeper, 4 / 5 rarer attacking / defensive types (tbl_position_bonus)"}
     - {offset: 0x66, name: obj_draw, comment: "Long: draw callback (-1 = none)"}
     - {offset: 0x6A, name: obj_action, comment: "Word: animation action (tbl_player_anims)"}
     - {offset: 0x6C, name: obj_frame, comment: "Long: frame descriptor currently shown"}
@@ -638,8 +641,8 @@ structs:
     - {offset: 0x1E, name: tm_ratings, comment: "5 bytes: tbl_team_ratings"}
     - {offset: 0x24, name: tm_strategy, comment: "Word: strategy being applied (-1 = none): 0 all out attack, 1 push along centre, 2 push along wings, 3 counter attack, 4 all out defence, 5 press up, 6 zone press, 7 offside trap"}
     - {offset: 0x26, name: tm_strategy_run, comment: "Word: run started by strategy 1 or 2"}
-    - {offset: 0x36, name: tm_lines, comment: "3 words: X of the defence, midfield and attack lines (indexed by obj_role)"}
-    - {offset: 0x5C, name: tm_formation, comment: "Word: formation (tbl_kickoff_positions index)"}
+    - {offset: 0x36, name: tm_lines, comment: "3 words: X of the attack, midfield and defence lines (indexed by obj_role)"}
+    - {offset: 0x5C, name: tm_formation, comment: "Word: formation 0-15 (tbl_formations: 4-5-1, 4-4-2, 4-3-3, 4-2-4, 3-5-2, 3-4-3, 3-3-4, 3-2-5, 2-5-3, 2-4-4, 2-3-5, 5-4-1, 5-3-2, 5-2-3, 1-5-4, 1-4-5)"}
     - {offset: 0x64, name: tm_nearest, comment: "Long: player nearest to the ball's landing point"}
     - {offset: 0x68, name: tm_second, comment: "Long: second nearest player"}
     - {offset: 0x6C, name: tm_front, comment: "Long: most advanced player (offside checks)"}

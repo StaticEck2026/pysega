@@ -116,8 +116,8 @@ tbl_player_anims            = $0210DE ; 54 actions -> 8 directions -> frame desc
 tbl_sprite_attr_right       = $020F5E ; Sprite attribute words (palette line / flips) indexed by piece attribute byte, right-facing
 tbl_sprite_attr_left        = $02101E ; Same with horizontal flip toggled, used for left-facing directions
 tbl_player_names            = $035916 ; 43 pointers (one per team) to 20 x 8-character player names ('@' = space)
-tbl_player_data             = $038140 ; 43 pointers to 20 x 12-byte player records, copied to player object +$5A..+$65\n(8 attribute bytes, body type, face style, hair style, extra)
-tbl_team_ratings            = $03AB82 ; 5 rating bytes per team (copied to $183C / $18C4)
+tbl_player_data             = $038140 ; 43 pointers to 20 x 12-byte player records, copied to player object +$5A..+$65:\n0 speed, 1 dash, 2 shot power, 3 curl, 4 intelligence, 5 balance, 6 jump, 7 dribble, 8 stamina (0-9, the edit\nscreen's order), 9 shirt number / head, 10 hair, 11 position (0 FW, 1 MF, 2 DF, 3 GK, 4 / 5 rarer types)
+tbl_team_ratings            = $03AB82 ; 5 AI tendency masks per team (tm_ratings); a decision is taken when g_random & mask = 0,\nso with chance 1 / (mask + 1): 0 pass rather than dribble when challenged, 1 unused, 2 pulse dash in the\nsidestep, 3 run straight at goal rather than toward the wing, 4 long ball rather than a short pass
 tbl_kit_clash               = $0374AE ; Word per team: when home and away values match, the away team wears its second kit
 tbl_head_mask_home          = $037402 ; Per-team AND masks applied to head tiles (skin / hair colours), home team
 tbl_head_mask_away          = $037458 ; Same for the away team
@@ -394,8 +394,9 @@ ball_think_out              = $011108 ; Ball out of play: keep rolling until the
 ; keeper_ai. The expensive decisions run only in the player's g_ai_slot frame.
 ; A player's home position is the X of its role's line (tm_lines) plus
 ; obj_form_x * 8, and the pitch centre plus obj_form_y * 8 (x10 when its team
-; has the ball); roles 0 (defence) and 2 (attack) stay out of the far and own
-; penalty areas, and attackers stop 32 px short of the opponents' last defender.
+; has the ball); defenders (role 2) keep $180 px from their own goal line and
+; forwards (role 0) from the opponents' unless their line is already beyond it,
+; and nobody goes past the opponents' last defender minus 32 px.
 ; ═════════════════════════════════════════════════════════════════════════════
 player_ai                   = $00CBBA ; Outfield think: chase a loose ball when nearest, press the carrier when nearest or\nsecond nearest, man-mark obj_mark, else move to the formation position
 player_ai_chase_ball        = $00D0BE ; Run to where the ball will land
@@ -511,3 +512,25 @@ goal_target_draw            = $02D692 ; 7 pieces from res04 entry 18, every othe
 flag_fans_draw              = $02D786 ; Presentation scene figures (13, positions at $03B6FC): two body variants and 3-frame waving\nflags, with the home and away flags streamed from res06 entry 2
 particle_draw               = $02D8F2 ; Small animated sprites (7 actions: streak, three 3-frame bursts, two 2-frame spins, a\nflicker): rain streaks and splashes (res04 entry 12) and snowflakes (entry 11) in bad weather; confetti (entry 13)\nand a sparkle above the referee (entry 14) in presentation scenes
 
+; ═════════════════════════════════════════════════════════════════════════════
+; Players, formations and the AI with the ball
+; ═════════════════════════════════════════════════════════════════════════════
+tbl_speed_max               = $03AC6A ; 10 x (NTSC, PAL) longs: top running speed (16.16 px/frame) for speed + min(0, energy - 2)
+tbl_dash_accel              = $03ACBA ; 10 x (NTSC, PAL) longs: acceleration per frame by the dash attribute
+tbl_position_bonus          = $03ADE2 ; Byte per position: +2 forward, +1 midfielder / type 4, 0 otherwise; added to shot power\nand to the foul contest
+tbl_stamina_drain           = $014E1C ; Word per stamina 0-9: frames of running per energy point (768 ... 2304)
+tbl_shirt_digits            = $01CD68 ; Two digit tiles per shirt number
+tbl_team_formations         = $037504 ; 43 pointers: the team's default formation and its 11 x (form_x, form_y, role)
+tbl_formations              = $0375B0 ; 16 pointers: formation index, then 11 x (form_x, form_y, role) in squad order
+str_formation_names         = $03F130 ; $FF-terminated names of the 16 formations: 4-5-1, 4-4-2, 4-3-3, 4-2-4, 3-5-2, 3-4-3,\n3-3-4, 3-2-5, 2-5-3, 2-4-4, 2-3-5, 5-4-1, 5-3-2, 5-2-3, 1-5-4, 1-4-5
+ai_carrier_start            = $00D7B0 ; AI gets the ball: hold it for up to 12 AI turns
+ai_carrier_aim              = $00D7B6 ; Pick the dribble heading: straight at goal with chance 1 / (rating 3 + 1), else toward\nthe near wing
+ai_carrier                  = $00D82E ; AI with the ball: dribble; when the hold time ends pass (a long ball with chance\n1 / (rating 4 + 1)); challenged from the front, pass (chance 1 / (rating 0 + 1)) or sidestep; in the\nopponents' zone run at goal (ai_attack_run)
+ai_attack_run               = $00D9EC ; Run at the opponents' goal
+ai_attack_run_update        = $00DA2A ; Near the goal: shoot when within $100 of the centre line, else pass
+ai_sidestep                 = $00DB38 ; Dribble sideways round the covering defender (dash pulsed with chance 1 / (rating 2 + 1))
+ai_shoot                    = $00DC18 ; Shoot at goal (shoot button, power held for a random 0-15 AI turns)
+ai_cross                    = $00DC90 ; Lofted pass toward the goal area
+ai_long_ball                = $00DD1A ; Lofted pass ahead of the team's front player (tm_front; tm_second in some cases),\nleading him by 8 x his velocity
+kicker_claim                = $013546 ; Make a5 its team's kicker ($938 / $93C) and detach the team's controlled player
+ai_pass                     = $00DDC4 ; Short pass

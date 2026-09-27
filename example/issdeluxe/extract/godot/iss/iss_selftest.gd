@@ -42,6 +42,10 @@ func _init() -> void:
 	_check(stadiums["stadiums"][0]["pitch_bounds"]["right"] == 1920, "stadium 0 pitch bounds")
 	_check(flags["actions"].size() == 2 and flags["actions"][0].size() == 4, "flag frames")
 	_check(teams != null and teams["teams"][0]["name"] == "England", "team names")
+	_check(teams["teams"][0]["players"][9]["attributes"]["speed"] == 7 \
+		and teams["teams"][0]["players"][0]["position"] == "goalkeeper", "player records")
+	var formations = _json("res://assets/iss/formations.json")
+	_check(formations["formations"].size() == 16 and formations["formations"][1]["name"] == "4-4-2", "formations")
 	_check(hud["radar"]["mapping"].size() == 8, "radar mapping per stadium")
 	_check(ResourceLoader.exists("res://assets/iss/hud/flags/flag_41.png"), "team flags")
 	_check(hud["strategy_names"].size() == 8 \

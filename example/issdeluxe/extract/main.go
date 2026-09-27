@@ -745,25 +745,65 @@ func drawMetatile(img *image.RGBA, ox, oy int, blocks []byte, b int, tiles []byt
 // ---------------------------------------------------------------------------
 
 type playerOut struct {
-	Slot       int    `json:"slot"`
-	Name       string `json:"name"`
-	Attributes []int  `json:"attributes"` // record bytes 0-7 (object +$5A..+$61)
-	Body       int    `json:"body"`       // record byte 8 (object +$62)
-	Face       int    `json:"face"`       // record byte 9 (object +$63): head tiles (face-1)*$80
-	Hair       int    `json:"hair"`       // record byte 10 (object +$64): hair tiles hair*$260
-	Extra      int    `json:"extra"`      // record byte 11 (object +$65)
-	Record     string `json:"record"`     // raw 12 bytes
+	Slot       int            `json:"slot"`
+	Name       string         `json:"name"`
+	Attributes map[string]int `json:"attributes"` // record bytes 0-8 (object +$5A..+$62), 0-9
+	Number     int            `json:"number"`     // byte 9: shirt number, also the head graphic (number-1)
+	Hair       int            `json:"hair"`       // byte 10: hair graphic
+	Position   string         `json:"position"`   // byte 11
+	Record     string         `json:"record"`     // raw 12 bytes
 }
+
+// attributeNames are record bytes 0-8, in the order of the edit screen ($0E).
+var attributeNames = []string{"speed", "dash", "shot_power", "curl", "intelligence", "balance", "jump", "dribble", "stamina"}
+
+var positionNames = []string{"forward", "midfielder", "defender", "goalkeeper", "attacking type 4", "defensive type 5"}
+
+// formationNames are str_formation_names ($03F130).
+var formationNames = []string{"4-5-1", "4-4-2", "4-3-3", "4-2-4", "3-5-2", "3-4-3", "3-3-4", "3-2-5",
+	"2-5-3", "2-4-4", "2-3-5", "5-4-1", "5-3-2", "5-2-3", "1-5-4", "1-4-5"}
+
+var roleNames = []string{"attack", "midfield", "defence", "goalkeeper"}
+
+const (
+	tblTeamFormations   = 0x037504
+	tblFormations       = 0x0375B0
+	tblKickoffPositions = 0x037E0E
+	tblSpeedMax         = 0x03AC6A
+	tblDashAccel        = 0x03ACBA
+	tblPositionBonus    = 0x03ADE2
+	tblStaminaDrain     = 0x014E1C
+)
+
+type formationSlot struct {
+	FormX int    `json:"form_x"` // x8 px from the role's line, toward the opponents' goal
+	FormY int    `json:"form_y"` // x8 px from the pitch centre (x10 while the team has the ball)
+	Role  string `json:"role"`
+}
+
+// formationLayout reads a formation index byte and 11 (form_x, form_y, role).
+func formationLayout(a uint32) (int, []formationSlot) {
+	var out []formationSlot
+	for k := uint32(0); k < 11; k++ {
+		b := a + 1 + 3*k
+		out = append(out, formationSlot{FormX: int(int8(rom[b])), FormY: int(int8(rom[b+1])), Role: roleNames[rom[b+2]&3]})
+	}
+	return int(rom[a]), out
+}
+
+func fixed16(v uint32) float64 { return float64(v) / 65536 }
 
 func exportTeams(dir string) {
 	type teamOut struct {
-		Team      int         `json:"team"`
-		Name      string      `json:"name"`
-		Flag      string      `json:"flag,omitempty"`
-		NamePlate string      `json:"name_plate,omitempty"`
-		Ratings   []int       `json:"ratings"`
-		KitClash  int         `json:"kit_clash"`
-		Players   []playerOut `json:"players"`
+		Team      int             `json:"team"`
+		Name      string          `json:"name"`
+		Flag      string          `json:"flag,omitempty"`
+		NamePlate string          `json:"name_plate,omitempty"`
+		Ratings   []int           `json:"ratings"`
+		KitClash  int             `json:"kit_clash"`
+		Formation int             `json:"formation"`
+		Layout    []formationSlot `json:"layout"`
+		Players   []playerOut     `json:"players"`
 	}
 	var teams []teamOut
 	for t := 0; t < numTeams; t++ {
@@ -775,6 +815,7 @@ func exportTeams(dir string) {
 		for i := 0; i < 5; i++ {
 			to.Ratings = append(to.Ratings, int(rom[tblTeamRatings+uint32(5*t+i)]))
 		}
+		to.Formation, to.Layout = formationLayout(be32(tblTeamFormations + uint32(4*t)))
 		names := be32(tblPlayerNames + uint32(4*t))
 		recs := be32(tblPlayerData + uint32(4*t))
 		for p := 0; p < playersPerTeam; p++ {
@@ -791,21 +832,77 @@ func exportTeams(dir string) {
 				}
 			}
 			r := rom[recs+uint32(12*p) : recs+uint32(12*p+12)]
-			po := playerOut{Slot: p, Name: strings.TrimSpace(string(name)), Body: int(r[8]), Face: int(r[9]),
-				Hair: int(r[10]), Extra: int(r[11]), Record: fmt.Sprintf("% X", r)}
-			for i := 0; i < 8; i++ {
-				po.Attributes = append(po.Attributes, int(r[i]))
+			po := playerOut{Slot: p, Name: strings.TrimSpace(string(name)), Attributes: map[string]int{},
+				Number: int(r[9]), Hair: int(r[10]), Record: fmt.Sprintf("% X", r)}
+			for i, n := range attributeNames {
+				po.Attributes[n] = int(r[i])
+			}
+			if int(r[11]) < len(positionNames) {
+				po.Position = positionNames[r[11]]
 			}
 			to.Players = append(to.Players, po)
 		}
 		teams = append(teams, to)
 	}
+
+	type formationOut struct {
+		ID      int             `json:"id"`
+		Name    string          `json:"name"`
+		Layout  []formationSlot `json:"layout"`
+		Kickoff [][2]int        `json:"kickoff"`
+	}
+	var formations []formationOut
+	for f := range formationNames {
+		_, layout := formationLayout(be32(tblFormations + uint32(4*f)))
+		fo := formationOut{ID: f, Name: formationNames[f], Layout: layout}
+		for k := uint32(0); k < 10; k++ {
+			b := uint32(tblKickoffPositions+20*f) + 2*k
+			fo.Kickoff = append(fo.Kickoff, [2]int{int(int8(rom[b])), int(int8(rom[b+1]))})
+		}
+		formations = append(formations, fo)
+	}
+	pair := func(a uint32, n int) [][2]float64 {
+		var out [][2]float64
+		for i := 0; i < n; i++ {
+			out = append(out, [2]float64{fixed16(be32(a + uint32(8*i))), fixed16(be32(a + uint32(8*i) + 4))})
+		}
+		return out
+	}
+	var drain, bonus []int
+	for i := uint32(0); i < 10; i++ {
+		drain = append(drain, int(be16(tblStaminaDrain+2*i)))
+	}
+	for i := uint32(0); i < 6; i++ {
+		bonus = append(bonus, int(int8(rom[tblPositionBonus+i])))
+	}
+
 	writeJSON(filepath.Join(dir, "teams.json"), map[string]any{
-		"description": "43 teams x 20 players. Names from $035916, records from $038140 (copied to player " +
-			"object +$5A..+$65), 5 team ratings from $03AB82. Attribute meanings are not decoded yet. " +
-			"Team names are graphics in the ROM (name_plate, res06 entry 0); the name strings here were read off them. " +
+		"description": "43 teams x 20 players. Names from $035916, records from $038140 (copied to player object " +
+			"+$5A..+$65): attributes 0-9 in the edit screen's order, shirt number (also the head graphic), hair graphic, " +
+			"position. Ratings are AI tendency masks (tbl_team_ratings): a choice is made when random & mask = 0, i.e. " +
+			"with chance 1 / (mask + 1): 0 pass rather than dribble when challenged, 1 unused, 2 pulse dash while " +
+			"sidestepping, 3 run straight at goal rather than toward the wing, 4 long ball rather than a short pass. " +
+			"formation / layout: the team's own version of formations.json[formation] (11 players in squad slot order). " +
+			"Team names are graphics in the ROM (name_plate, res06 entry 0); the strings here were read off them. " +
 			"Team 42 is the practice side used by the training modes.",
+		"attribute_tables": map[string]any{
+			"speed_max":      pair(tblSpeedMax, 10),
+			"speed_max_note": "px/frame (NTSC, PAL) indexed by speed + min(0, energy - 2)",
+			"dash_accel":     pair(tblDashAccel, 10),
+			"dash_note":      "px/frame added per frame while accelerating (NTSC, PAL), indexed by dash",
+			"stamina_drain":  drain,
+			"stamina_note":   "frames of running per energy point, indexed by stamina",
+			"position_bonus": bonus,
+			"bonus_note":     "added to shot power and the foul contest, indexed by position",
+		},
 		"teams": teams,
 	})
-	fmt.Printf("teams: %d x %d players\n", len(teams), playersPerTeam)
+	writeJSON(filepath.Join(dir, "formations.json"), map[string]any{
+		"description": "The 16 formations (tbl_formations, names from $03F130). layout: 11 players in squad slot order; " +
+			"home position = the role's line X (tm_lines) + form_x * 8 toward the opponents' goal, pitch centre Y + " +
+			"form_y * 8 (x10 while the team has the ball). kickoff: (dx, dy) of the 10 outfield players from the " +
+			"centre spot (tbl_kickoff_positions, x16 px; negative dx is toward the own goal).",
+		"formations": formations,
+	})
+	fmt.Printf("teams: %d x %d players, %d formations\n", len(teams), playersPerTeam, len(formations))
 }
