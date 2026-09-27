@@ -339,3 +339,45 @@ func setLine(img *image.RGBA, line int, words []uint16) {
 		img.SetRGBA(i, line, types.MDColor(w))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Corner and halfway flags
+// ---------------------------------------------------------------------------
+
+const (
+	tblFlagAnims = 0x02D56A // flag_draw: [action][frame] -> count-1, pieces
+	entFlagTiles = 16       // res04: stadium sprite tiles (flags)
+)
+
+// exportFlags renders the six pitch flags drawn by flag_draw ($02D50C).
+// load_stadium_tiles places them at the pitch corners and at both ends of
+// the halfway line (tbl_pitch_bounds); flag_animate steps the 4 frames
+// every 6 video frames.
+func exportFlags(dir string) {
+	must(os.MkdirAll(dir, 0755))
+	tiles := unpack(entry(grpMisc, entFlagTiles))
+	var actions [][]*render
+	for a := uint32(0); a < 2; a++ {
+		ap := be32(tblFlagAnims + 4*a)
+		var frames []*render
+		for i := uint32(0); i < 4; i++ {
+			f := be32(ap + 4*i)
+			n := int(be16(f)) + 1
+			var ps []piece
+			for k := 0; k < n; k++ {
+				ps = append(ps, tablePiece(f+2+uint32(10*k), false, 0, 0))
+			}
+			frames = append(frames, drawPieces(ps, tiles, filepath.Join(dir, fmt.Sprintf("flag_%d_%d.png", a, i))))
+		}
+		actions = append(actions, frames)
+	}
+	writeJSON(filepath.Join(dir, "flags.json"), map[string]any{
+		"description": "Corner and halfway flags: actions[action][frame], 4 frames advanced every 6 video frames " +
+			"(action 0 during a match). Placed at (left, top), (middle, top), (right, top), (middle, bottom), " +
+			"(left, bottom), (right, bottom) of the stadium's pitch_bounds, middle = (left + right) / 2. " +
+			"CRAM-index images: pole and shadow on line 3 (colour 15 = shadow), cloth on line 2.",
+		"frame_ticks": 6,
+		"actions":     actions,
+	})
+	fmt.Printf("flags: %d actions x 4 frames\n", len(actions))
+}

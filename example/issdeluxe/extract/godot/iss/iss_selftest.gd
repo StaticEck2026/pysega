@@ -28,6 +28,7 @@ func _init() -> void:
 	var weather = _json("res://assets/iss/weather/weather.json")
 	var stadiums = _json("res://assets/iss/stadiums/stadiums.json")
 	var teams = _json("res://assets/iss/teams.json")
+	var flags = _json("res://assets/iss/flags/flags.json")
 	if _failures > 0:
 		quit(1)
 		return
@@ -35,6 +36,8 @@ func _init() -> void:
 	_check(ball["actions"].size() == 5, "5 ball actions")
 	_check(npc["actions"].size() == 21 and npc["action_names"].size() == 21, "21 named NPC actions")
 	_check(stadiums["stadiums"].size() == 8, "8 stadiums")
+	_check(stadiums["stadiums"][0]["pitch_bounds"]["right"] == 1920, "stadium 0 pitch bounds")
+	_check(flags["actions"].size() == 2 and flags["actions"][0].size() == 4, "flag frames")
 	_check(teams != null, "teams")
 	var counts := [32, 0, 16]
 	for w in 3:

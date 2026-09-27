@@ -262,15 +262,19 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   medics, the stretcher and the dog that runs on the pitch (it can steal the
   linesman's flag). 21 named actions × 8 directions, 178 frames, plus the four
   officials' kit variants (`kits.json`).
+* `iss/flags/` — the waving corner and halfway flags (4 frames, 6 video
+  frames each) and where they stand.
 * `iss/stadiums/` — the 8 stadiums in snow / fine / rain weather (`g_weather`
   0–2): full renders (e.g. 2720 × 832 px, transparent pixels filled with the
   backdrop colour), 16 × 16 metatile atlases with their maps (the game's own
-  streaming format), tile sheets as index images and palettes.
+  streaming format), tile sheets as index images, palettes and the pitch
+  bounds in pitch coordinates (`tbl_pitch_bounds`: left, right, top, bottom;
+  the touchlines and goal lines).
 * `iss/weather/` — the plane A snow and rain overlays: one 512 × 256 index
   image per animation state (32 for snow at 8 frames each, 16 for rain at one
   frame each), tiled over the stadium from its origin.
 * `iss/*.gd` — `ISSPitch` (a `TileMapLayer` building any stadium),
-  `ISSWeather` (the animated overlay), `ISSPlayerSprite` (animated player with
+  `ISSWeather` (the animated overlay), `ISSFlags` (the six flags), `ISSPlayerSprite` (animated player with
   kit swapping through the palette shader), `ISSBallSprite` (ball and shadow,
   size from the height), `ISSNPCSprite` (officials with kit variants, medics,
   dog), `ISSProjection` (pitch ↔ map coordinates, heading vectors) and
@@ -341,14 +345,16 @@ Done: full code/data separation, bit-exact rebuild, all compressed data decoded,
 archive typed, core engine documented (boot, states, frame loop, objects, DMA,
 sprites, fades, pads, text, sound API, resource loading), player animation
 system decoded and exported (frames, animation tables, kits for 43 teams),
-ball and non-player characters (officials, medics, stretcher, dog) exported,
+ball, non-player characters (officials, medics, stretcher, dog) and pitch
+flags exported,
 stadium format decoded and all 8 stadiums exported with a Godot builder,
 weather (palettes, tile patch, animated plane A overlay) and the match's
 shadow/highlight and backdrop rules reproduced in Godot.
 
 Open work, in rough order of value for a port:
-1. The stadium objects drawn as sprites (goals, corner flags: `sub_02D50C`)
-   and the HUD (window plane, res16 entry 3; radar and score panels).
+1. The remaining small sprites in `$02D4B2`–`$02D7DA` (ball marker, the
+   flickering object of the state_result scene) and the HUD (window plane,
+   res16 entry 3; radar and score panels).
 2. Screen composition for `res26`–`res86` (VRAM base and shared UI tiles used
    by the front-end loaders) so their tilemaps render.
 3. Meaning of the eight player attribute bytes and the five team ratings;

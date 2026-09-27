@@ -128,12 +128,15 @@ npc_init_sprite             = $033018 ; Install npc_draw and npc_null_frame on o
 npc_draw                    = $033034 ; NPC draw callback: tbl_npc_anims[action][direction][frame]; takes a VRAM slot from\ng_npc_vram_slots, DMAs the body tiles from res03 and, for flags and cards, 4 tiles of res04 entry 6\n(group + obj_anim_frame & 3) into slot tile 18; left-facing frames set h-flip on every piece
 tbl_npc_anims               = $033244 ; 21 actions (0-4 officials, 5-7 linesman flag, 8-9 cards, 10 whistle, 11-12 medic,\n13 stretcher, 14-20 dog) -> 8 directions -> frames. Descriptor: +0 res03 entry*4, +2 offset, +4 bytes,\n+6 extra tile group or -1, +8 piece count-1, then 10-byte pieces (y, size, tile word, x right, x left)
 npc_null_frame              = $0358B8 ; Empty frame of an NPC without a VRAM slot
+flag_draw                   = $02D50C ; Corner / halfway flag draw callback: tbl_flag_anims[action][frame], pieces\n(y, size, tile word, x, unused); tiles res04 entry 16 loaded by load_stadium_tiles
+tbl_flag_anims              = $02D56A ; 2 actions x 4 frames: count - 1, then 10-byte pieces (pole, cloth, shadow)
 load_stadium_tiles          = $01D7BA ; Load stadium group 7 + g_stadium: tiles (entries 3, 4; patch 5 replaces the snow clumps unless g_weather = 0), metatile map (1)\nand table (2) into RAM, palette line 3 for g_weather (6-8); create the corner-flag objects
 camera_update               = $01DBBE ; Per-frame camera: ease towards g_camera_focus, clamp to the pitch and stream\nnew metatile rows / columns into plane B
 pitch_draw_row              = $01DD88 ; Draw pitch cell row d7 starting at cell column d6 into plane B (via the DMA queue)
 pitch_draw_column           = $01DE54 ; Draw pitch cell column d6 starting at cell row d7 into plane B
+flag_animate                = $01179C ; Corner / halfway flag update: action 0, frame + 1 every 6 frames (4 frames)
 match_create_objects        = $015A1A ; Match objects: pitch bounds for g_stadium (tbl_pitch_bounds), the ball (res04 entry 0\ntiles), the officials' kit (res04 entry 38, variant g_officials_kit or 3) into palette line 2\ncolours 0-7, the referee and the linesman
-tbl_pitch_bounds            = $016E62 ; Per stadium: left, top, right, bottom (words, pitch coordinates)
+tbl_pitch_bounds            = $016E62 ; Per stadium: left, right, top, bottom (signed words, pitch coordinates)
 ball_init_large             = $019BCE ; state_result: create the ball with the 16x16 tile set (res04 entry 1) and ball_update_large
 match_init_hud              = $01ACCA ; Install the HUD HBlank chain, load the overlay / HUD tiles (res16 entry 5 at\ng_overlay_vram), the weather overlay map (res16 entry g_weather) into plane A with priority set on\nevery cell (so the pitch is never shadowed) and the HUD map (res16 entry 3) into the window plane
 hud_update                  = $01B2D4 ; Per-frame HUD update (state_match_frame): plane A follows the pitch scroll; weather\ntile animation into overlay tiles $103-$106 (snow: res04 entry 7 every 8 frames, rain: entry 8 every frame)

@@ -15,6 +15,7 @@
 //	ball/                  ball and shadow frames for 5 actions x 8 directions
 //	npc/                   referee, linesmen, medics, stretcher and dog frames,
 //	                       animations, officials' kit variants
+//	flags/                 corner and halfway flags
 //	stadiums/*             8 stadiums x snow/fine/rain weather: full renders,
 //	                       16x16 metatile atlases, maps, palettes, tile sheets
 //	weather/               plane A snow and rain overlays, one image per
@@ -65,6 +66,7 @@ const (
 	tblPlayerData  = 0x038140 // 43 pointers -> 20 x 12-byte player records
 	tblTeamRatings = 0x03AB82 // 5 bytes per team
 	tblKitClash    = 0x0374AE // word per team: equal values force the away team's second kit
+	tblPitchBounds = 0x016E62 // per stadium: left, right, top, bottom
 	playersPerTeam = 20
 )
 
@@ -121,6 +123,7 @@ func main() {
 	exportAnimations(dir)
 	exportBall(filepath.Join(*out, "assets", "iss", "ball"))
 	exportNPCs(filepath.Join(*out, "assets", "iss", "npc"))
+	exportFlags(filepath.Join(*out, "assets", "iss", "flags"))
 	exportStadiums(filepath.Join(*out, "assets", "iss", "stadiums"))
 	exportWeather(filepath.Join(*out, "assets", "iss", "weather"))
 	exportTeams(filepath.Join(*out, "assets", "iss"))
@@ -143,7 +146,7 @@ func writeScripts(out string) {
 		}
 		return os.WriteFile(t, b, 0644)
 	}))
-	fmt.Println("scripts: iss/ (ISSPitch, ISSWeather, ISSPlayerSprite, ISSBallSprite, ISSNPCSprite, ISSProjection, iss_demo.tscn)")
+	fmt.Println("scripts: iss/ (ISSPitch, ISSWeather, ISSFlags, ISSPlayerSprite, ISSBallSprite, ISSNPCSprite, ISSProjection, iss_demo.tscn)")
 }
 
 // ---------------------------------------------------------------------------
@@ -530,16 +533,17 @@ func exportStadiums(dir string) {
 		fail(err)
 	}
 	type stadiumOut struct {
-		Index      int      `json:"index"`
-		Group      int      `json:"group"`
-		Width      int      `json:"width_metatiles"`
-		Height     int      `json:"height_metatiles"`
-		Metatiles  int      `json:"metatile_count"`
-		Map        string   `json:"map"`
-		Renders    []string `json:"renders"`
-		Atlases    []string `json:"metatile_atlases"`
-		Palettes   []string `json:"palettes"`
-		TileSheets []string `json:"tile_sheets"`
+		Index      int            `json:"index"`
+		Group      int            `json:"group"`
+		Width      int            `json:"width_metatiles"`
+		Height     int            `json:"height_metatiles"`
+		Metatiles  int            `json:"metatile_count"`
+		Pitch      map[string]int `json:"pitch_bounds"`
+		Map        string         `json:"map"`
+		Renders    []string       `json:"renders"`
+		Atlases    []string       `json:"metatile_atlases"`
+		Palettes   []string       `json:"palettes"`
+		TileSheets []string       `json:"tile_sheets"`
 	}
 	var all []stadiumOut
 	for st := 0; st < numStadiums; st++ {
@@ -550,6 +554,9 @@ func exportStadiums(dir string) {
 		w, h := int(be16s(m, 0)), int(be16s(m, 2))
 		nb := len(blocks) / 8
 		so := stadiumOut{Index: st, Group: g, Width: w, Height: h, Metatiles: nb}
+		// tbl_pitch_bounds: left, right, top, bottom (signed, pitch coordinates).
+		b := uint32(tblPitchBounds + 8*st)
+		so.Pitch = map[string]int{"left": s16(b), "right": s16(b + 2), "top": s16(b + 4), "bottom": s16(b + 6)}
 
 		cells := make([]int, w*h)
 		for i := range cells {
