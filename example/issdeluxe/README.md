@@ -132,10 +132,22 @@ palette fades) is an object in a doubly linked list (`obj_alloc`, `obj_free`,
 **Ball.** `ball_update` integrates height with gravity (`vz -= $1400` per
 frame NTSC, `$1CCC` PAL — the square of the 1.2 ratio, since it is an
 acceleration), bounces with `vz = -vz/2` (sound effect 88, speed loses
-`speed >> tbl_ball_bounce_damp[weather]`), rolls with friction
-`speed -= speed >> tbl_ball_friction[weather]` and moves along `obj_heading`
-(`velocity_from_heading`). Lofted passes and high kicks have their own update
-routines (`ball_update_lob`, `ball_update_high`).
+`speed >> tbl_ball_bounce_damp[g_weather]` = 1, 2, 1 for snow, fine, rain),
+rolls with friction `speed -= speed >> tbl_ball_friction[g_weather]` (5, 5, 4)
+and moves along `obj_heading` (`velocity_from_heading`). Lofted passes and
+high kicks have their own update routines (`ball_update_lob`,
+`ball_update_high`). `ball_draw` picks the sprite size from the height
+(`action = clamp((z − $20) >> 5, 0, 2)`, 3 for a lofted pass) and the spin
+frame from `obj_anim_frame` (16.16, + speed/4 per frame rolling, + 1/8 in the
+air), and draws a shadow piece `z` pixels below the ball.
+
+**Weather.** `g_weather` is 0 = snow, 1 = fine (the front-end default),
+2 = rain. It selects the stadium palette (entries 6–8), keeps (snow) or patches
+out (fine, rain) the snow clumps in tiles 238–255, sets the ball friction and
+bounce, and animates the plane A overlay: `match_init_hud` loads res16 entry
+`g_weather` into plane A (empty for fine weather) and `hud_update` streams
+falling-snow frames (res04 entry 7, every 8 frames) or rain frames (entry 8,
+every frame) into overlay tiles `$103`–`$106`.
 
 **Motion.** Angles are 0–63 (0 = up the pitch, 16 = right, clockwise);
 `direction_to` is a table-driven atan2 and `tbl_direction_x` holds the unit
@@ -157,6 +169,14 @@ All VRAM/CRAM uploads go through a 64-entry DMA queue (`dma_queue_add`,
 Palettes: `g_palette_target` (64 colours) is faded into `g_palette_current`,
 which is uploaded every frame. Text is drawn into an off-screen nametable
 (`g_text_nametable`) by `text_draw_small` / `text_draw_large`.
+
+In a match the VDP runs in **shadow/highlight mode**: every sprite shadow is
+palette line 3 colour 15, which the VDP does not draw but uses to halve the
+brightness underneath (colour 14 would highlight). Plane A (the weather
+overlay) has the priority bit on every cell, so the pitch itself is never
+shadowed. An HBlank chain (`hblank_hud_split`) splits the screen at the HUD;
+below the split the backdrop colour (VDP register 7) is line 3 colour 0, the
+grass, which shows through every transparent pitch pixel.
 
 **Input.** `joypad_read_all` supports up to 8 controllers through a multitap
 (`g_pad_type`, `g_pad_state`).
@@ -222,8 +242,10 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   (right- and left-facing), assembled exactly like the game's sprite code does
   (body tiles from `res00`, head, hair and kit tiles, ground shadow). Pixels are
   CRAM indices `line*16 + colour`: body on line 0 (home kit), heads/skin on
-  line 2, shadow on line 3. Draw them with `md_indexed.gdshader` and
-  `palette_match.pal.png`, or swap line 0 for any team's kit from `kits.json`.
+  line 2, the shadow is line 3 colour 15. Draw them with `md_indexed.gdshader`
+  (`shadow_highlight = true` turns colour 15 of line 3 into a 50 % darkening,
+  like the VDP) and `palette_match.pal.png`, or swap line 0 for any team's
+  kit from `kits.json`.
 * `iss/players/animations.json` — 54 actions × 8 directions → frame lists,
   with each frame's origin and hardware sprite pieces (`$0210DE` table).
   Direction = `((facing + 4) & $38) >> 3` for a 0–63 facing angle.
@@ -233,23 +255,46 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   12-byte record (attributes, body type, face and hair styles), team ratings
   and kit-clash codes. Team 0 is England, 1 Germany, 5 Ireland…; the country
   names themselves are drawn from graphics.
-* `iss/stadiums/` — the 8 stadiums in fine / rain / snow weather: full renders
-  (e.g. 2720 × 832 px), 16 × 16 metatile atlases with their maps (the game's
-  own streaming format), tile sheets as index images and palettes.
+* `iss/ball/` — the ball (`tbl_ball_anims`): 5 actions × 8 directions, each
+  frame as a ball image (right / left) and a shadow image.
+* `iss/npc/` — every non-player character drawn by `npc_draw`: referee and
+  linesman (standing, running, flag signals, yellow and red cards, whistle),
+  medics, the stretcher and the dog that runs on the pitch (it can steal the
+  linesman's flag). 21 named actions × 8 directions, 178 frames, plus the four
+  officials' kit variants (`kits.json`).
+* `iss/stadiums/` — the 8 stadiums in snow / fine / rain weather (`g_weather`
+  0–2): full renders (e.g. 2720 × 832 px, transparent pixels filled with the
+  backdrop colour), 16 × 16 metatile atlases with their maps (the game's own
+  streaming format), tile sheets as index images and palettes.
+* `iss/weather/` — the plane A snow and rain overlays: one 512 × 256 index
+  image per animation state (32 for snow at 8 frames each, 16 for rain at one
+  frame each), tiled over the stadium from its origin.
 * `iss/*.gd` — `ISSPitch` (a `TileMapLayer` building any stadium),
-  `ISSPlayerSprite` (animated player with kit swapping through the palette
-  shader), `ISSProjection` (pitch ↔ map coordinates) and `iss/iss_demo.tscn`,
-  a runnable demo: open the project in Godot 4.3+, open the scene and press F6
-  (arrows scroll, +/− change stadium, W the weather).
+  `ISSWeather` (the animated overlay), `ISSPlayerSprite` (animated player with
+  kit swapping through the palette shader), `ISSBallSprite` (ball and shadow,
+  size from the height), `ISSNPCSprite` (officials with kit variants, medics,
+  dog), `ISSProjection` (pitch ↔ map coordinates, heading vectors) and
+  `iss/iss_demo.tscn`, a runnable demo: open the project in Godot 4.3+, open
+  the scene and press F6 (arrows scroll, +/− change stadium, W the weather,
+  K the officials' kit, B kicks the ball).
+
+The generated project has been checked with Godot 4.3: it imports without
+errors, and the demo runs headless and renders under Xvfb (OpenGL). To check
+your own extraction:
+
+```bash
+godot --headless --path example/issdeluxe/out/godot --import
+godot --headless --path example/issdeluxe/out/godot -s res://iss/iss_selftest.gd   # prints "iss_selftest: OK"
+```
 
 **Stadium format.** Each stadium group (`res07`–`res14`) holds a metatile map
 (`width, height` in 16 × 16 metatiles, then one word per metatile), a metatile
 table (four nametable words per metatile, tile numbers relative to the
-stadium's first VRAM tile), 256 + 663 tiles, an 18-tile rain/snow patch
-(tiles 238–255) and one palette line per weather (`g_weather`: fine, rain,
-snow — the weather also changes ball friction). `camera_update` streams
-rows and columns of cells into plane B as the camera moves
-(`pitch_draw_row` / `pitch_draw_column`).
+stadium's first VRAM tile), 256 + 663 tiles, an 18-tile patch replacing the
+snow clumps of tiles 238–255 in fine and rain weather, and one palette line
+per weather (entries 6–8 for `g_weather` 0 snow, 1 fine, 2 rain).
+`camera_update` streams rows and columns of cells into plane B as the camera
+moves (`pitch_draw_row` / `pitch_draw_column`).
 
 Suggested mapping of the original systems:
 
@@ -259,6 +304,8 @@ Suggested mapping of the original systems:
 | Object list and callbacks | Nodes; `update`/`think`/`draw` → `_physics_process` / `_draw` |
 | Planes A/B, window | `MDTilemap` / `TileMapLayer`s, `Camera2D` for scrolling |
 | Sprite attribute buffer | `Sprite2D` / `AnimatedSprite2D` with the indexed shader |
+| Shadow/highlight mode | `md_indexed.gdshader` with `shadow_highlight` (line 3 colours 14/15 → 50 % white/black) |
+| Plane A weather overlay | `ISSWeather`: repeating `Sprite2D` region above the players |
 | CRAM + fades | Palette textures + `md_indexed.gdshader` uniforms |
 | Oblique pitch projection | `screen = Vector2(x + y/2, y/2 - z)` |
 | Sound driver | `AudioStreamPlayer`s; songs recorded from the original or re-sequenced from the music bank |
@@ -294,14 +341,18 @@ Done: full code/data separation, bit-exact rebuild, all compressed data decoded,
 archive typed, core engine documented (boot, states, frame loop, objects, DMA,
 sprites, fades, pads, text, sound API, resource loading), player animation
 system decoded and exported (frames, animation tables, kits for 43 teams),
-stadium format decoded and all 8 stadiums exported with a Godot builder.
+ball and non-player characters (officials, medics, stretcher, dog) exported,
+stadium format decoded and all 8 stadiums exported with a Godot builder,
+weather (palettes, tile patch, animated plane A overlay) and the match's
+shadow/highlight and backdrop rules reproduced in Godot.
 
 Open work, in rough order of value for a port:
-1. Other sprite sets (ball, referee, keepers' special heads, UI) and the
-   stadium objects (goals, corner flags) drawn as sprites.
+1. The stadium objects drawn as sprites (goals, corner flags: `sub_02D50C`)
+   and the HUD (window plane, res16 entry 3; radar and score panels).
 2. Screen composition for `res26`–`res86` (VRAM base and shared UI tiles used
    by the front-end loaders) so their tilemaps render.
 3. Meaning of the eight player attribute bytes and the five team ratings;
    formations (`$037E0E`) and tactics.
-4. Match engine naming: ball physics, player AI, referee, camera.
+4. Match engine naming: player AI, referee and linesman logic, set pieces,
+   the state_result scene (16 × 16 ball), camera.
 5. Music bank format and sample boundaries inside the PCM bank.

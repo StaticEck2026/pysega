@@ -7,15 +7,26 @@ shader_type canvas_item;
 // whose pieces use several lines (0-63). Colour 0 of every line is
 // transparent. Swapping the palette texture reproduces Mega Drive palette
 // tricks such as team kits and fades without touching the graphics.
+//
+// shadow_highlight emulates the VDP's shadow/highlight mode (register 12
+// bit 3) for sprites: line 3 colour 15 is not drawn but halves the colour
+// underneath (shadow), line 3 colour 14 brightens it (highlight). Both are
+// drawn as 50% black / white, which is the same blend.
 
 uniform sampler2D palette : filter_nearest;
 uniform int palette_line = 0;
 uniform bool index0_transparent = true;
+uniform bool shadow_highlight = false;
 
 void fragment() {
 	int idx = int(round(texture(TEXTURE, UV).r * 255.0));
 	if (index0_transparent && (idx & 15) == 0) {
 		discard;
 	}
-	COLOR = texelFetch(palette, ivec2(idx & 15, palette_line + (idx >> 4)), 0);
+	int line = palette_line + (idx >> 4);
+	if (shadow_highlight && line == 3 && (idx & 15) >= 14) {
+		COLOR = (idx & 15) == 15 ? vec4(0.0, 0.0, 0.0, 0.5) : vec4(1.0, 1.0, 1.0, 0.5);
+	} else {
+		COLOR = texelFetch(palette, ivec2(idx & 15, line), 0);
+	}
 }

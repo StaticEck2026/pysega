@@ -5,7 +5,8 @@ extends TileMapLayer
 ## (assets/iss/stadiums), matching the game's pitch scroller ($01DD88).
 
 const DIR := "res://assets/iss/stadiums/"
-const WEATHERS := ["fine", "rain", "snow"]
+## Indexed by g_weather ($FF162E): 0 snow, 1 fine (the default), 2 rain.
+const WEATHERS := ["snow", "fine", "rain"]
 
 @export_range(0, 7) var stadium: int = 0:
 	set(value):
@@ -13,7 +14,7 @@ const WEATHERS := ["fine", "rain", "snow"]
 		if is_inside_tree():
 			rebuild()
 
-@export_enum("Fine", "Rain", "Snow") var weather: int = 0:
+@export_enum("Snow", "Fine", "Rain") var weather: int = 1:
 	set(value):
 		weather = value
 		if is_inside_tree():

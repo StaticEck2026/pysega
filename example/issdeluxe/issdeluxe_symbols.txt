@@ -78,8 +78,9 @@ tbl_direction_x             = $00BFCA ; 64 signed 8.8 X components of the unit v
 ball_update                 = $009FA8 ; Ball on the ground or bouncing: gravity, bounce (vz = -vz/2, SFX 88), rolling friction\n(speed -= speed >> tbl_ball_friction[g_weather]), then move by the velocity from obj_heading
 ball_update_lob             = $00A0CA ; Ball in a lofted pass: rise/fall until obj_distance is used up
 ball_update_high            = $00A134 ; Ball after a high kick (stronger gravity)
-tbl_ball_bounce_damp        = $00BD36 ; Per weather: speed lost on a bounce is speed >> value
-tbl_ball_friction           = $00BD3C ; Per weather: rolling friction shift
+tbl_ball_bounce_damp        = $00BD36 ; Per g_weather (snow, fine, rain) = 1, 2, 1: a bounce costs speed >> value
+tbl_ball_friction           = $00BD3C ; Per g_weather = 5, 5, 4: rolling friction shift (the ball stops soonest in the rain)
+ball_update_large           = $00A1AE ; 16x16 ball of state_result (action 4): bounce, friction; frame = spin 0-2, +3 below\ny $110 and +3 more below y $F0 as the ball travels away from the camera
 velocity_from_heading       = $00BFA0 ; Set obj_vel_x / obj_vel_y from obj_speed and angle d5 (tbl_direction_x)
 obj_steer_idle              = $010D7C ; Think callback: stand still, remember the current position as the target
 obj_steer_to_target         = $010D98 ; Think callback: turn towards obj_target_x/y until within 16 pixels
@@ -120,10 +121,23 @@ tbl_team_ratings            = $03AB82 ; 5 rating bytes per team (copied to $183C
 tbl_kit_clash               = $0374AE ; Word per team: when home and away values match, the away team wears its second kit
 tbl_head_mask_home          = $037402 ; Per-team AND masks applied to head tiles (skin / hair colours), home team
 tbl_head_mask_away          = $037458 ; Same for the away team
-load_stadium_tiles          = $01D7BA ; Load stadium group 7 + g_stadium: tiles (entries 3, 4, rain/snow patch 5), metatile map (1)\nand table (2) into RAM, palette line 3 for g_weather (6-8); create the corner-flag objects
+ball_init_sprite            = $020318 ; Install ball_draw as the draw callback of object a5
+ball_draw                   = $020322 ; Ball draw callback: tbl_ball_anims[action][direction][frame] -> the ball piece (h-flipped\nwhen obj_facing >= $28) and a shadow piece drawn obj_z pixels lower, on the ground
+tbl_ball_anims              = $020408 ; 5 actions (0-2: size by height, 3: lofted pass, 4: 16x16 ball) -> 8 directions -> 4 or 9\nframes of two 10-byte pieces: y, size, tile word (ORed with obj_attr), x right, x left
+npc_init_sprite             = $033018 ; Install npc_draw and npc_null_frame on object a5 (referee, linesman, medic, stretcher, dog)
+npc_draw                    = $033034 ; NPC draw callback: tbl_npc_anims[action][direction][frame]; takes a VRAM slot from\ng_npc_vram_slots, DMAs the body tiles from res03 and, for flags and cards, 4 tiles of res04 entry 6\n(group + obj_anim_frame & 3) into slot tile 18; left-facing frames set h-flip on every piece
+tbl_npc_anims               = $033244 ; 21 actions (0-4 officials, 5-7 linesman flag, 8-9 cards, 10 whistle, 11-12 medic,\n13 stretcher, 14-20 dog) -> 8 directions -> frames. Descriptor: +0 res03 entry*4, +2 offset, +4 bytes,\n+6 extra tile group or -1, +8 piece count-1, then 10-byte pieces (y, size, tile word, x right, x left)
+npc_null_frame              = $0358B8 ; Empty frame of an NPC without a VRAM slot
+load_stadium_tiles          = $01D7BA ; Load stadium group 7 + g_stadium: tiles (entries 3, 4; patch 5 replaces the snow clumps unless g_weather = 0), metatile map (1)\nand table (2) into RAM, palette line 3 for g_weather (6-8); create the corner-flag objects
 camera_update               = $01DBBE ; Per-frame camera: ease towards g_camera_focus, clamp to the pitch and stream\nnew metatile rows / columns into plane B
 pitch_draw_row              = $01DD88 ; Draw pitch cell row d7 starting at cell column d6 into plane B (via the DMA queue)
 pitch_draw_column           = $01DE54 ; Draw pitch cell column d6 starting at cell row d7 into plane B
+match_create_objects        = $015A1A ; Match objects: pitch bounds for g_stadium (tbl_pitch_bounds), the ball (res04 entry 0\ntiles), the officials' kit (res04 entry 38, variant g_officials_kit or 3) into palette line 2\ncolours 0-7, the referee and the linesman
+tbl_pitch_bounds            = $016E62 ; Per stadium: left, top, right, bottom (words, pitch coordinates)
+ball_init_large             = $019BCE ; state_result: create the ball with the 16x16 tile set (res04 entry 1) and ball_update_large
+match_init_hud              = $01ACCA ; Install the HUD HBlank chain, load the overlay / HUD tiles (res16 entry 5 at\ng_overlay_vram), the weather overlay map (res16 entry g_weather) into plane A with priority set on\nevery cell (so the pitch is never shadowed) and the HUD map (res16 entry 3) into the window plane
+hud_update                  = $01B2D4 ; Per-frame HUD update (state_match_frame): plane A follows the pitch scroll; weather\ntile animation into overlay tiles $103-$106 (snow: res04 entry 7 every 8 frames, rain: entry 8 every frame)
+hblank_hud_split            = $01CE88 ; HBlank chain for the HUD split; below the split the backdrop (VDP register 7) becomes\nline 3 colour 0, the stadium grass
 
 ; ═════════════════════════════════════════════════════════════════════════════
 ; Front-end text and tilemap helpers. They draw into the off-screen nametable
@@ -205,23 +219,30 @@ g_pitch_right               = $00FF092E ; Word
 g_pitch_top                 = $00FF0930 ; Word
 g_pitch_bottom              = $00FF0932 ; Word
 g_pitch_middle_x            = $00FF0934 ; Word: halfway line X
+g_pitch_middle_y            = $00FF0936 ; Word: pitch centre Y
+g_overlay_vram              = $00FF0876 ; Word: VRAM address of the overlay / HUD tiles (res16 entry 5)
 g_stadium                   = $00FF162C ; Word: stadium 0-7
-g_weather                   = $00FF162E ; Word: 0 fine, 1 rain, 2 snow (pitch palette, tile patch and ball friction)
+g_weather                   = $00FF162E ; Word: 0 snow, 1 fine (front-end default), 2 rain: pitch palette and tiles, plane A\nweather animation (res04 entry 7 snow / 8 rain), ball friction and bounce
 g_ball                      = $00FF19C0 ; Ball object
+g_referee                   = $00FF1A4E ; Referee object (npc_draw)
+g_linesman                  = $00FF1ADC ; Linesman object (npc_draw)
 g_match_phase               = $00FF181C ; Word: match phase ($0E = ball in play, ...)
 g_team_home                 = $00FF163E ; Word: home team (0-42)
 g_team_away                 = $00FF1640 ; Word: away team (0-42)
 g_kit_home                  = $00FF1646 ; Word: home kit (0 = first, 1 = second, 2 = edited)
 g_kit_away                  = $00FF1648 ; Word: away kit
 g_player_tiles              = $00FF1810 ; Long: pointer to resource group res00 (player body tiles)
+g_npc_vram_slots            = $00FF17F6 ; Words up to g_player_tiles: free NPC VRAM slots (0 = taken)
+g_officials_kit             = $00FF164A ; Word: officials' kit variant 0-3 (res04 entry 38)
+g_npc_extra_tiles           = $00FF192E ; Long: pointer to res04 entry 6 (NPC flag and card tiles)
 g_kit_tiles_home            = $00FF181E ; Long: home team kit tiles (7 per team, unpacked)
 g_head_tiles_home           = $00FF1822 ; Long: head tiles recoloured with the home team's mask
 g_hair_tiles_home           = $00FF1826 ; Long: hair tiles (ROM)
 g_kit_tiles_away            = $00FF18A6 ; Long: away team kit tiles
 g_head_tiles_away           = $00FF18AA ; Long: head tiles for the away team
 g_hair_tiles_away           = $00FF18AE ; Long: hair tiles (ROM)
-g_team_home_players         = $00FF1B6A ; 11 player objects ($8E bytes each), home team
-g_team_away_players         = $00FF2682 ; 11 player objects, away team
+g_team_home_players         = $00FF1B6A ; 20 player objects ($8E bytes each), home squad
+g_team_away_players         = $00FF2682 ; 20 player objects, away squad
 g_text_nametable            = $00FF1762 ; Long: off-screen nametable the text helpers draw into
 g_obj_free_list             = $00FF096E ; Long: head of the free object list (-1 = empty)
 g_obj_active_list           = $00FF0972 ; Long: head of the active object list (-1 = empty)

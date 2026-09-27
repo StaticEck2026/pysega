@@ -10,9 +10,15 @@
 //	                       frame origins and sprite piece lists
 //	players/kits.json      first/second kit palettes and head masks, 43 teams
 //	players/palette_match.pal.png  representative match palette (home kit on
-//	                       line 0, away kit on line 1, skin line 2, shadow 3)
-//	stadiums/*             8 stadiums x fine/rain/snow weather: full renders,
+//	                       line 0, away kit on line 1, officials' kit and skin
+//	                       on line 2, stadium / ball / shadows on line 3)
+//	ball/                  ball and shadow frames for 5 actions x 8 directions
+//	npc/                   referee, linesmen, medics, stretcher and dog frames,
+//	                       animations, officials' kit variants
+//	stadiums/*             8 stadiums x snow/fine/rain weather: full renders,
 //	                       16x16 metatile atlases, maps, palettes, tile sheets
+//	weather/               plane A snow and rain overlays, one image per
+//	                       animation state, and their timing
 //
 // and GDScript classes plus a demo scene into <godot>/iss.
 //
@@ -113,7 +119,10 @@ func main() {
 	kits := exportKits(dir)
 	exportMatchPalette(dir, kits)
 	exportAnimations(dir)
+	exportBall(filepath.Join(*out, "assets", "iss", "ball"))
+	exportNPCs(filepath.Join(*out, "assets", "iss", "npc"))
 	exportStadiums(filepath.Join(*out, "assets", "iss", "stadiums"))
+	exportWeather(filepath.Join(*out, "assets", "iss", "weather"))
 	exportTeams(filepath.Join(*out, "assets", "iss"))
 	writeScripts(*out)
 }
@@ -134,7 +143,7 @@ func writeScripts(out string) {
 		}
 		return os.WriteFile(t, b, 0644)
 	}))
-	fmt.Println("scripts: iss/ (ISSPitch, ISSPlayerSprite, ISSProjection, iss_demo.tscn)")
+	fmt.Println("scripts: iss/ (ISSPitch, ISSWeather, ISSPlayerSprite, ISSBallSprite, ISSNPCSprite, ISSProjection, iss_demo.tscn)")
 }
 
 // ---------------------------------------------------------------------------
@@ -169,19 +178,23 @@ func exportKits(dir string) []teamKit {
 	return kits
 }
 
+// exportMatchPalette writes a representative match palette: home and away
+// first kits on lines 0 and 1, line 2 as loaded from res17 entry 2 with the
+// officials' first kit in colours 0-7, line 3 = stadium 0 in fine weather
+// (g_weather 1)
+// (the pitch, the ball and all shadows).
 func exportMatchPalette(dir string, kits []teamKit) {
-	lines23 := unpack(entry(grpMatchPal, 2))
+	line2 := unpack(entry(grpMatchPal, 2))
 	img := image.NewRGBA(image.Rect(0, 0, 16, 4))
-	set := func(line int, words []uint16) {
-		for i, w := range words {
-			img.SetRGBA(i, line, types.MDColor(w))
-		}
+	setLine(img, 0, kits[0].FirstKit)
+	setLine(img, 1, kits[1].FirstKit)
+	var words []uint16
+	for i := 0; i+1 < len(line2) && i < 32; i += 2 {
+		words = append(words, uint16(line2[i])<<8|uint16(line2[i+1]))
 	}
-	set(0, kits[0].FirstKit)
-	set(1, kits[1].FirstKit)
-	for i := 0; i+1 < len(lines23) && i < 64; i += 2 {
-		img.SetRGBA((i/2)%16, 2+(i/2)/16, types.MDColor(uint16(lines23[i])<<8|uint16(lines23[i+1])))
-	}
+	setLine(img, 2, words)
+	setLine(img, 2, officialKit(0))
+	setLine(img, 3, stadiumLine(0, 1))
 	if err := types.WritePNG(filepath.Join(dir, "palette_match.pal.png"), img); err != nil {
 		fail(err)
 	}
@@ -196,12 +209,12 @@ type piece struct {
 	Y         int  `json:"y"`
 	W         int  `json:"w"` // size in cells
 	H         int  `json:"h"`
-	Tile      int  `json:"tile"` // tile in the player's VRAM slot`
+	Tile      int  `json:"tile"` // tile in the object's VRAM slot
 	Line      int  `json:"line"`
 	HFlip     bool `json:"hflip"`
 	VFlip     bool `json:"vflip"`
 	Priority  bool `json:"priority"`
-	AttrIndex int  `json:"attr_index"`
+	AttrIndex *int `json:"attr_index,omitempty"` // players: index into the attribute tables
 }
 
 type frameOut struct {
@@ -403,7 +416,6 @@ func renderFrame(f uint32, slot []byte, left bool, path string) *render {
 		attr = attrLeft
 	}
 	var ps []piece
-	minX, minY, maxX, maxY := 1<<30, 1<<30, -(1 << 30), -(1 << 30)
 	for i := 0; i < n; i++ {
 		b := f + 14 + uint32(10*i)
 		size := int(rom[b+2])
@@ -413,12 +425,20 @@ func renderFrame(f uint32, slot []byte, left bool, path string) *render {
 		if left {
 			x = s16(b + 8)
 		}
-		p := piece{
+		ps = append(ps, piece{
 			X: x - 128, Y: s16(b) - 128, W: (size>>2)&3 + 1, H: size&3 + 1,
 			Tile: s16(b + 4), Line: int(aw>>13) & 3, HFlip: aw&0x800 != 0, VFlip: aw&0x1000 != 0,
-			Priority: aw&0x8000 != 0, AttrIndex: ai,
-		}
-		ps = append(ps, p)
+			Priority: aw&0x8000 != 0, AttrIndex: &ai,
+		})
+	}
+	return drawPieces(ps, slot, path)
+}
+
+// drawPieces renders sprite pieces, their tiles taken from slot, into a
+// CRAM-index image (pixel = line * 16 + colour) written to path.
+func drawPieces(ps []piece, slot []byte, path string) *render {
+	minX, minY, maxX, maxY := 1<<30, 1<<30, -(1 << 30), -(1 << 30)
+	for _, p := range ps {
 		minX, minY = imin(minX, p.X), imin(minY, p.Y)
 		maxX, maxY = imax(maxX, p.X+p.W*8), imax(maxY, p.Y+p.H*8)
 	}
@@ -466,7 +486,7 @@ func renderFrame(f uint32, slot []byte, left bool, path string) *render {
 	if err := types.WritePNG(path, img); err != nil {
 		fail(err)
 	}
-	return &render{PNG: "res://assets/iss/players/frames/" + filepath.Base(path), OriginX: -minX, OriginY: -minY, Pieces: ps}
+	return &render{PNG: resPath(path), OriginX: -minX, OriginY: -minY, Pieces: ps}
 }
 
 func imin(a, b int) int {
@@ -503,8 +523,8 @@ func writeJSON(p string, v any) {
 //	2  metatile table: 4 nametable words per metatile (TL, TR, BL, BR),
 //	   tile numbers relative to the stadium's first VRAM tile
 //	3  tiles loaded at the stadium's VRAM base, 4 tiles loaded after them
-//	5  18 tiles replacing tiles 238-255 in rain and snow
-//	6  palette line 3 for fine weather, 7 rain, 8 snow
+//	5  18 tiles replacing tiles 238-255 (the snow clumps) in fine and rain
+//	6  palette line 3 for g_weather 0 (snow), 7 fine, 8 rain
 func exportStadiums(dir string) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		fail(err)
@@ -552,7 +572,7 @@ func exportStadiums(dir string) {
 				"tile numbers are relative to the stadium tile sheet",
 		})
 
-		for tod, name := range []string{"fine", "rain", "snow"} {
+		for tod, name := range weatherNames {
 			tiles := append([]byte(nil), base...)
 			if tod > 0 {
 				patch := unpack(entry(g, 5))
@@ -571,9 +591,9 @@ func exportStadiums(dir string) {
 			pp := filepath.Join(dir, fmt.Sprintf("stadium%d_%s.pal.png", st, name))
 			must(types.WritePNG(pp, pimg))
 			so.Palettes = append(so.Palettes, resPath(pp))
-			if tod <= 1 { // fine uses the base tiles; rain and snow share the patched tiles
+			if tod <= 1 { // snow uses the base tiles; fine and rain share the patched tiles
 				idx, _ := types.TileSheet(tiles, 32, types.GrayPalette(16), false)
-				tp := filepath.Join(dir, fmt.Sprintf("stadium%d_%s_tiles.png", st, map[bool]string{true: "fine", false: "wet"}[tod == 0]))
+				tp := filepath.Join(dir, fmt.Sprintf("stadium%d_%s_tiles.png", st, map[bool]string{true: "snow", false: "grass"}[tod == 0]))
 				must(types.WritePNG(tp, grayIndex(idx)))
 				so.TileSheets = append(so.TileSheets, resPath(tp))
 			}
@@ -599,7 +619,7 @@ func exportStadiums(dir string) {
 	}
 	writeJSON(filepath.Join(dir, "stadiums.json"), map[string]any{
 		"description": "Stadium maps built from 16x16 metatiles. Renders and metatile atlases are pre-coloured " +
-			"per weather (fine, rain, snow); tile sheets are index images (colour 0-15) for use with md_indexed.gdshader.",
+			"per g_weather (0 snow, 1 fine, 2 rain); tile sheets are index images (colour 0-15) for use with md_indexed.gdshader.",
 		"stadiums": all,
 	})
 	fmt.Printf("stadiums: %d x 3 weathers\n", len(all))
@@ -627,7 +647,19 @@ func grayIndex(p *image.Paletted) *image.Gray {
 	return g
 }
 
-// drawMetatile draws metatile b at (ox,oy) using a 64-colour palette.
+// weatherNames names the g_weather values: the front end defaults to 1;
+// weather 0 keeps the snow clumps of the base tiles and animates falling
+// snow on plane A (res04 entry 7), weather 2 animates rain (res04 entry 8).
+var weatherNames = []string{"snow", "fine", "rain"}
+
+// backdrop is the CRAM index of the backdrop colour below the HUD during a
+// match: the HBlank chain installed by sub_01ACCA switches VDP register 7
+// from line 2 colour 0 to line 3 colour 0 (the stadium's grass) at the
+// HUD split ($01CEF0).
+const backdrop = 3 * 16
+
+// drawMetatile draws metatile b at (ox,oy) using a 64-colour palette;
+// colour 0 pixels get the backdrop colour, as on the Mega Drive.
 func drawMetatile(img *image.RGBA, ox, oy int, blocks []byte, b int, tiles []byte, pal []color.RGBA) {
 	if b*8+8 > len(blocks) {
 		return
@@ -648,8 +680,9 @@ func drawMetatile(img *image.RGBA, ox, oy int, blocks []byte, b int, tiles []byt
 					v >>= 4
 				}
 				v &= 15
+				c := pal[line*16+int(v)]
 				if v == 0 {
-					continue
+					c = pal[backdrop] // transparent: the backdrop shows through
 				}
 				px, py := x, y
 				if hf {
@@ -658,7 +691,7 @@ func drawMetatile(img *image.RGBA, ox, oy int, blocks []byte, b int, tiles []byt
 				if vf {
 					py = 7 - y
 				}
-				img.SetRGBA(cx+px, cy+py, pal[line*16+int(v)])
+				img.SetRGBA(cx+px, cy+py, c)
 			}
 		}
 	}

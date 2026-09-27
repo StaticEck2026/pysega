@@ -1,12 +1,12 @@
-class_name ISSPlayerSprite
+class_name ISSNPCSprite
 extends Sprite2D
-## An ISS Deluxe player drawn from the exported animation frames.
-##
-## Frames are CRAM-index images (line * 16 + colour). The palette texture holds
-## the kit on line 0, skin/hair on line 2 and the shadow colour on line 3, so a
-## different kit is just a different palette row (set_kit).
+## A non-player character of ISS Deluxe (npc_draw, $033034): referee,
+## linesman, medic, stretcher or the dog. `action` indexes
+## assets/iss/npc/animations.json (see its action_names). The officials' kit
+## is palette line 2 colours 0-7; `kit` picks one of the four variants.
 
-const DIR := "res://assets/iss/players/"
+const DIR := "res://assets/iss/npc/"
+const PALETTE := "res://assets/iss/players/palette_match.pal.png"
 
 static var _anims: Dictionary = {}
 static var _kits: Array = []
@@ -15,8 +15,7 @@ static var _base_palette: Image
 @export var action: int = 0
 @export_range(0, 63) var facing: int = 0
 @export var frames_per_second: float = 8.0
-@export var team: int = 0
-@export var second_kit: bool = false
+@export_range(0, 3) var kit: int = 0
 
 var _frame := 0
 var _time := 0.0
@@ -25,25 +24,24 @@ var _time := 0.0
 func _ready() -> void:
 	if _anims.is_empty():
 		_anims = JSON.parse_string(FileAccess.get_file_as_string(DIR + "animations.json"))
-		_kits = JSON.parse_string(FileAccess.get_file_as_string(DIR + "kits.json"))["teams"]
-		_base_palette = (load(DIR + "palette_match.pal.png") as Texture2D).get_image()
+		_kits = JSON.parse_string(FileAccess.get_file_as_string(DIR + "kits.json"))["variants"]
+		_base_palette = (load(PALETTE) as Texture2D).get_image()
 	centered = false
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://md/md_indexed.gdshader")
 	mat.set_shader_parameter("shadow_highlight", true) # shadows are line 3 colour 15
 	material = mat
-	set_kit(team, second_kit)
+	set_kit(kit)
 	_show()
 
 
-## Recolour the player with a team's first or second kit.
-func set_kit(team_index: int, use_second: bool) -> void:
-	team = team_index
-	second_kit = use_second
+## Recolour the officials' kit (variant 0-3, as chosen by $FF164A).
+func set_kit(variant: int) -> void:
+	kit = variant
 	var img := _base_palette.duplicate() as Image
-	var kit: Array = _kits[team]["second_kit" if use_second else "first_kit"]
-	for i in 16:
-		img.set_pixel(i, 0, MDPalette.cram_to_color(int(kit[i])))
+	var words: Array = _kits[variant]
+	for i in words.size():
+		img.set_pixel(i, 2, MDPalette.cram_to_color(int(words[i])))
 	(material as ShaderMaterial).set_shader_parameter("palette", ImageTexture.create_from_image(img))
 
 
@@ -54,8 +52,8 @@ func play(new_action: int) -> void:
 		_show()
 
 
-func action_count() -> int:
-	return (_anims["actions"] as Array).size()
+static func action_names() -> Array:
+	return _anims.get("action_names", [])
 
 
 func _process(delta: float) -> void:
@@ -72,6 +70,6 @@ func _show() -> void:
 	if seq.is_empty():
 		return
 	var f: Dictionary = _anims["frames"][seq[_frame % seq.size()]]
-	var r: Dictionary = f["left" if dir >= 5 else "right"]
+	var r: Dictionary = f["left" if ((facing + 4) & 63) >= 0x28 else "right"]
 	texture = load(r["png"])
 	offset = Vector2(-int(r["origin_x"]), -int(r["origin_y"]))

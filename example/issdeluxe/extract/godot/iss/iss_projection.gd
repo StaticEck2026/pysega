@@ -22,3 +22,10 @@ static func to_pitch(map_pos: Vector2, height: float = 0.0) -> Vector2:
 ## Direction index used by the animation tables for a 0-63 facing angle.
 static func direction(facing: int) -> int:
 	return ((facing + 4) & 0x38) >> 3
+
+
+## Unit movement on the pitch for a 0-63 heading (0 = up the pitch, 16 = right),
+## as velocity_from_heading ($00BFA0): x grows with sin, y shrinks with cos.
+static func heading_vector(heading: int) -> Vector2:
+	var a := heading / 64.0 * TAU
+	return Vector2(sin(a), -cos(a))
