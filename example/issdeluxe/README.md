@@ -179,13 +179,106 @@ below the split the backdrop colour (VDP register 7) is line 3 colour 0, the
 grass, which shows through every transparent pitch pixel.
 
 **Input.** `joypad_read_all` supports up to 8 controllers through a multitap
-(`g_pad_type`, `g_pad_state`).
+(`g_pad_type`, `g_pad_state`). `match_players_update` merges them per team
+(`g_pads_home` / `g_pads_away` controllers each, newly pressed and held
+buttons in `g_pad_pressed_*` / `g_pad_held_*`) and keeps one control slot per
+controller (`g_control_slots`: controlled player, buttons, pad type,
+direction remap).
 
 **Sound.** The 68000 driver drives the YM2612/PSG itself; the Z80 only streams
 PCM samples. API (call through the `bra.w` table at `$1FD954`):
 `sound_init`, `sound_play_music` (d0 = song), `sound_play_sfx` (d0 = effect),
 `sound_play_pcm` (a1 = sample), `sound_music_stop`, `sound_update` (every
 frame), `sound_reset`. Work RAM is at `g_sound_ram` ($FF31A8).
+
+## Match engine
+
+`state_match_frame` runs, every video frame and inside the VBlank interrupt:
+pads → `match_players_update` (controllers, AI scheduling, team analysis) →
+`objects_update` (every object's think and update callbacks) →
+`camera_update` → crowd sounds → `speech_queue_update` (commentary) →
+`objects_draw` → `match_rules_update` (the referee) → `hud_update`.
+
+**AI scheduling.** `g_ai_slot` advances `(slot + 1) & 15` every frame. A
+player only runs its expensive decisions when the slot equals its
+`obj_ai_slot` (its index 0–10 in the team), so each player thinks once every
+16 frames; the referee uses slot 12, the linesman 13 and the goal-mouth
+sprite priority of the ball slot 14. In the same slot `match_players_update`
+refreshes the player's `obj_landing_dist` and the team's `tm_nearest`,
+`tm_second`, `tm_front`, `tm_back` and `tm_cover` (struct `team`, instances
+`g_team_home_info` / `g_team_away_info`). A port can run the same logic every
+frame, but keeping the 16-frame cadence reproduces the original reaction
+times.
+
+**Players.** Player 0 is the goalkeeper (`keeper_ai`: 32 px in front of the
+goal line, sliding along it with the angle to the ball; `keeper_save` when
+the ball comes within $50, `keeper_rush_out` for balls played into the
+area). Outfield players use `player_ai`:
+
+1. loose ball and nearest to where it will land → `player_ai_chase_ball`;
+2. opponents in possession and nearest (or second nearest, unless covering)
+   → `player_ai_press`;
+3. `obj_mark` set → `player_ai_mark` (man-marking);
+4. otherwise go to the formation position: X = `tm_lines[obj_role]` +
+   `obj_form_x` × 8 (+ $80 for roles flagged to join attacks when the team
+   has the ball), Y = pitch centre + `obj_form_y` × 8 (× 10 in possession).
+   Defenders (role 0) stay out of the opponents' penalty area, forwards
+   (role 2) out of their own, and nobody runs past the opponents' last
+   defender (`tm_back`) minus 32 px.
+
+`tbl_team_strategies` holds the eight in-match strategies. They either move
+the team's three lines relative to the ball (all up, all back, forwards up
+with the defence back, ...) or send a player on a run.
+`tbl_kickoff_positions` gives each formation's kick-off layout.
+
+**Rules** (`match_rules_update`).
+* Clock: `g_match_clock` counts down minutes, tens, seconds and frames (60 or
+  50 per second). At zero the referee waits until no restart is being taken
+  and `g_restart_timer` has run out, then calls half time (restart 9) or
+  time up ($A).
+* Ball out of play: past a touchline → throw-in for the team that did not
+  touch it last (`obj_team` of the ball). Past a goal line → goal if it is
+  under the bar (z < $3C) and within 92 px of the centre line; a post
+  (92–100 px) or the bar (z $3C–$40) makes it rebound; otherwise a corner if
+  the defenders touched it last, else a goal kick. Own goals are detected
+  from `g_last_touch`.
+* Fouls: the fouler (`g_foul_player`) is only punished if the referee sees
+  it: `tbl_referee_strictness[officials' kit][random & 3]`, so the four
+  referees differ. A foul within $180 px of the fouler's own goal line (only
+  the distance to the goal line is checked) is a penalty, otherwise a free
+  kick. Whether a card follows depends on the foul, on the player's entry in
+  `g_player_status` (bit 7 = already booked) and on how many squad members
+  are already flagged there. The settings `g_opt_fouls_off` /
+  `g_opt_cards_off` switch fouls and cards off.
+* Offside: when a pass is played, the team's most advanced player
+  (`tm_front`) is flagged (`g_offside_pending`) if, with 16 px of tolerance,
+  they are in the opponents' half and beyond the last defender (`tm_back`),
+  and the ball is behind that defender.
+
+Restarts are scripts run by the invisible `g_director` object:
+
+| `g_restart_type` | Script | Banner | Commentary | Position |
+|---|---|---|---|---|
+| 0 | `restart_throw_in` | THROW IN | 3 | 24 px outside the touchline, X clamped 128 px from the goal lines |
+| 1 | `restart_goal_kick` | GOAL KICK | 2 / $23 | 128 px from the goal line, 192 px off centre |
+| 2 | `restart_corner` | CORNER KICK | 1 / $22 | 8 px inside the corner |
+| 3, 4 | `restart_kickoff` | — | $27 | centre spot (4 = start of the match) |
+| 5 | `restart_foul` → `restart_free_kick`, or `restart_offside` | FOUL, FREE KICK / OFFSIDE | 4 / $24, 6 | where the foul or offside was |
+| 6 | `restart_foul` → `restart_penalty` | FOUL, PENALTY KICK | 5 / $25 | penalty spot |
+| 7 | `restart_penalty_spot` | — | — | 256 px from the goal line |
+| 8 | `restart_own_goal` | OWN GOAL | $32 | — |
+| 9 | `restart_half_time` | HALF TIME | 8 | — |
+| $A | `restart_time_up` | TIME UP | $42 | then `match_result_banner` |
+| $B | `restart_goal` | scorer's name | cheer (SFX 100) | — |
+
+The second commentary number is the one used on PAL consoles. When a
+restart starts, `tbl_restart_setup[g_restart_type]` moves both teams into
+position. Every event updates `g_stats_home` / `g_stats_away` (shots, free
+kicks, corners, penalties, yellow and red cards, offsides, goals), and
+`g_scorers` keeps the minute, team and squad slot of every goal.
+
+**Commentary.** `speech_queue_push` queues sample numbers (4 entries);
+`speech_queue_update` plays one every $40 frames through `sound_play_sfx`.
 
 ## Data formats
 
@@ -349,7 +442,10 @@ ball, non-player characters (officials, medics, stretcher, dog) and pitch
 flags exported,
 stadium format decoded and all 8 stadiums exported with a Godot builder,
 weather (palettes, tile patch, animated plane A overlay) and the match's
-shadow/highlight and backdrop rules reproduced in Godot.
+shadow/highlight and backdrop rules reproduced in Godot. Match engine
+architecture named: AI scheduler, player and goalkeeper AI, team state and
+strategies, referee rules (clock, out of play, goals, fouls, offside, cards),
+restart scripts, statistics and commentary.
 
 Open work, in rough order of value for a port:
 1. The remaining small sprites in `$02D4B2`–`$02D7DA` (ball marker, the
@@ -359,6 +455,8 @@ Open work, in rough order of value for a port:
    by the front-end loaders) so their tilemaps render.
 3. Meaning of the eight player attribute bytes and the five team ratings;
    formations (`$037E0E`) and tactics.
-4. Match engine naming: player AI, referee and linesman logic, set pieces,
-   the state_result scene (16 × 16 ball), camera.
+4. Match engine, remaining: the 54 player actions (animation numbers) and
+   the per-action update routines (`player_update`, `keeper_update`), the
+   controller button format and button → action mapping, the strategy
+   names, game modes 0–12, the state_result scene (16 × 16 ball), camera.
 5. Music bank format and sample boundaries inside the PCM bank.

@@ -128,6 +128,7 @@ npc_init_sprite             = $033018 ; Install npc_draw and npc_null_frame on o
 npc_draw                    = $033034 ; NPC draw callback: tbl_npc_anims[action][direction][frame]; takes a VRAM slot from\ng_npc_vram_slots, DMAs the body tiles from res03 and, for flags and cards, 4 tiles of res04 entry 6\n(group + obj_anim_frame & 3) into slot tile 18; left-facing frames set h-flip on every piece
 tbl_npc_anims               = $033244 ; 21 actions (0-4 officials, 5-7 linesman flag, 8-9 cards, 10 whistle, 11-12 medic,\n13 stretcher, 14-20 dog) -> 8 directions -> frames. Descriptor: +0 res03 entry*4, +2 offset, +4 bytes,\n+6 extra tile group or -1, +8 piece count-1, then 10-byte pieces (y, size, tile word, x right, x left)
 npc_null_frame              = $0358B8 ; Empty frame of an NPC without a VRAM slot
+match_stats_clear           = $0358CC ; Clear the practice flags and both teams' match statistics
 flag_draw                   = $02D50C ; Corner / halfway flag draw callback: tbl_flag_anims[action][frame], pieces\n(y, size, tile word, x, unused); tiles res04 entry 16 loaded by load_stadium_tiles
 tbl_flag_anims              = $02D56A ; 2 actions x 4 frames: count - 1, then 10-byte pieces (pole, cloth, shadow)
 load_stadium_tiles          = $01D7BA ; Load stadium group 7 + g_stadium: tiles (entries 3, 4; patch 5 replaces the snow clumps unless g_weather = 0), metatile map (1)\nand table (2) into RAM, palette line 3 for g_weather (6-8); create the corner-flag objects
@@ -228,8 +229,53 @@ g_stadium                   = $00FF162C ; Word: stadium 0-7
 g_weather                   = $00FF162E ; Word: 0 snow, 1 fine (front-end default), 2 rain: pitch palette and tiles, plane A\nweather animation (res04 entry 7 snow / 8 rain), ball friction and bounce
 g_ball                      = $00FF19C0 ; Ball object
 g_referee                   = $00FF1A4E ; Referee object (npc_draw)
+g_director                  = $00FF1932 ; Invisible object whose update runs the current restart script (tbl_restart_setup)
+g_team_home_info            = $00FF181E ; Home team match state (struct team, $88 bytes)
+g_team_away_info            = $00FF18A6 ; Away team match state (struct team)
+g_random                    = $00FF0044 ; Word: random number, stepped by rol #1 / eor #$37E8 on carry
+g_game_mode                 = $00FF1262 ; Word: game mode chosen in the front end (0-2 practice, 3-9 matches and cups,\n$A-$C special; $B = attract demo, ended after 4 clock minutes)
+g_player_status             = $00FF12E4 ; 2 x 20 bytes, one per squad player: bit 7 = booked, bits 0-2 = status
+g_pads_home                 = $00FF1540 ; Word: number of controllers playing for the home team
+g_pads_away                 = $00FF1542 ; Word: number of controllers playing for the away team
+g_pad_pressed_any           = $00FF154A ; Word: buttons newly pressed on any controller (g_pad_held_any: held)
+g_pad_held_any              = $00FF154C ; Word
+g_pad_pressed_home          = $00FF1550 ; Word: buttons newly pressed on the home team's controllers
+g_pad_held_home             = $00FF1552 ; Word
+g_pad_pressed_away          = $00FF1556 ; Word: buttons newly pressed on the away team's controllers
+g_pad_held_away             = $00FF1558 ; Word
+g_control_slots             = $00FF155C ; 8 x $1A bytes, one per controller: +0 controlled player, +4 pressed,\n+6 held, +8 pad type, +$18 direction remap (dat_014FB2)
+g_half                      = $00FF1632 ; Word: bit 0 = second half
+g_left_goal_team            = $00FF1636 ; Word: team defending the left goal (0 = home); ends swap at half time
+g_training                  = $00FF163A ; Word: practice rules: no fouls, restarts not given to a team
+g_no_restarts               = $00FF163C ; Word: no throw-ins, corners or goal kicks (practice)
+g_stats_home                = $00FF164E ; 8 words: shots, free kicks, corners, penalties, yellow cards, red cards,\noffsides, goals (home team)
+g_score_home                = $00FF165C ; Word: home goals (g_stats_home+$E)
+g_stats_away                = $00FF165E ; 8 words: the same for the away team
+g_score_away                = $00FF166C ; Word: away goals
+g_scorers                   = $00FF166E ; 32 x 6 bytes: minute (word), $1633, team credited, scorer's team,\nscorer's squad slot
+g_restart_type              = $00FF1796 ; Word: -1 = ball in play, else the restart being taken (tbl_restart_setup):\n0 throw-in, 1 goal kick, 2 corner, 3 kick-off, 4 match start, 5 free kick, 6 penalty,\n7 penalty kick from the spot, 8 own goal, 9 half time, $A time up, $B goal, $C/$D practice
+g_restart_setup             = $00FF1798 ; Word: restart type whose player positions are set up (-1 = none yet)
+g_ball_out                  = $00FF179C ; Word: 1 while the ball is out of play
+g_foul_player               = $00FF17A0 ; Long: player who committed a foul (-1 = none)
+g_foul_card                 = $00FF17A4 ; Word: card decision for the foul (1 = card, -1 = none; set by the foul\ndetection, then checked against g_player_status)
+g_offside_player            = $00FF17A6 ; Long: player caught offside when the pass was played
+g_offside_pending           = $00FF17AA ; Word: 1 = a pass was played to an offside player
+g_foul_victim               = $00FF17B0 ; Long: fouled player (loses a point of the record byte +$57 unless a goalkeeper)
+g_last_touch                = $00FF17BE ; Long: player who touched the ball last (goal scorer)
+g_ball_zone_team            = $00FF17C8 ; Word: team whose penalty-area depth ($180 from its goal line) holds the ball
+g_match_clock               = $00FF17CC ; 4 bytes counting down: minutes, tens of seconds, seconds, frames (59 / 49)
+g_restart_timer             = $00FF17D0 ; Word: frames since the restart began (to $780); delay before time up
+g_restart_team              = $00FF17D2 ; Word: team taking the restart (-1 = none / draw)
+g_restart_x                 = $00FF17D4 ; Word: restart position
+g_restart_y                 = $00FF17D6 ; Word
+g_speech_delay              = $00FF319A ; Word: frames until the next commentary sample may play
+g_speech_read               = $00FF319C ; Word: read index of g_speech_queue
+g_speech_write              = $00FF319E ; Word: write index of g_speech_queue
+g_speech_queue              = $00FF31A0 ; 4 words: commentary samples waiting to be played
+g_opt_fouls_off             = $00FFFFF6 ; Word (settings): 1 = fouls are not called
+g_opt_cards_off             = $00FFFFF8 ; Word (settings): 1 = no cards
 g_linesman                  = $00FF1ADC ; Linesman object (npc_draw)
-g_match_phase               = $00FF181C ; Word: match phase ($0E = ball in play, ...)
+g_ai_slot                   = $00FF181C ; Word: round-robin AI slot, (slot + 1) & 15 every frame (match_players_update).\nPlayer i runs its heavy AI when the slot equals obj_ai_slot (i); slot 12 = referee, 13 = linesman,\n14 = ball / goal-mouth sprite priority
 g_team_home                 = $00FF163E ; Word: home team (0-42)
 g_team_away                 = $00FF1640 ; Word: away team (0-42)
 g_kit_home                  = $00FF1646 ; Word: home kit (0 = first, 1 = second, 2 = edited)
@@ -238,12 +284,6 @@ g_player_tiles              = $00FF1810 ; Long: pointer to resource group res00 
 g_npc_vram_slots            = $00FF17F6 ; Words up to g_player_tiles: free NPC VRAM slots (0 = taken)
 g_officials_kit             = $00FF164A ; Word: officials' kit variant 0-3 (res04 entry 38)
 g_npc_extra_tiles           = $00FF192E ; Long: pointer to res04 entry 6 (NPC flag and card tiles)
-g_kit_tiles_home            = $00FF181E ; Long: home team kit tiles (7 per team, unpacked)
-g_head_tiles_home           = $00FF1822 ; Long: head tiles recoloured with the home team's mask
-g_hair_tiles_home           = $00FF1826 ; Long: hair tiles (ROM)
-g_kit_tiles_away            = $00FF18A6 ; Long: away team kit tiles
-g_head_tiles_away           = $00FF18AA ; Long: head tiles for the away team
-g_hair_tiles_away           = $00FF18AE ; Long: hair tiles (ROM)
 g_team_home_players         = $00FF1B6A ; 20 player objects ($8E bytes each), home squad
 g_team_away_players         = $00FF2682 ; 20 player objects, away squad
 g_text_nametable            = $00FF1762 ; Long: off-screen nametable the text helpers draw into
@@ -253,3 +293,63 @@ g_unpack_buffer             = $00FF3E12 ; Long: destination buffer for decompres
 g_unpack_vram               = $00FF3E16 ; Word: VRAM address the next unpacked resource is uploaded to
 g_settings_checksum         = $00FFFFEE ; Word: checksum of the 8 settings words that follow
 g_settings                  = $00FFFFF0 ; 8 words: options kept across resets
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Match rules. match_rules_update runs every frame of state_match: it keeps the
+; clock, detects the ball leaving the pitch (throw-in, goal kick, corner),
+; goals (the posts are 92-100 pixels either side of the centre line, the bar
+; at height $3C-$40), fouls, offside and time up, records statistics, and starts
+; the matching restart script on g_director. Each script shows a banner
+; (banner_draw) and queues a commentary sample (speech_queue_push).
+; ═════════════════════════════════════════════════════════════════════════════
+match_players_update        = $01253E ; Per frame: merge the controllers per team, update the control slots, advance\ng_ai_slot and, for that slot's player, distances to the ball and the team's nearest / front / back players
+match_rules_update          = $015CE8 ; Referee logic, see above
+tbl_referee_strictness      = $016EA2 ; 4 bytes per officials' kit variant: foul seen when byte [random & 3] is non-zero
+restart_kickoff             = $016EAE ; Restart script: kick-off (speech $27)
+restart_corner              = $016F4A ; Restart script: CORNER KICK banner (speech 1)
+restart_corner_resume       = $016F32 ; Corner script entered when a saved match resumes (tbl_restart_resume)
+restart_offside             = $01712A ; OFFSIDE banner (speech 6), the linesman raises his flag; continues as a free kick
+restart_free_kick_resume    = $0171AC ; Free kick script entered when a saved match resumes
+restart_free_kick           = $0171C8 ; FREE KICK banner (speech 4, $24 on PAL)
+restart_free_kick_wait      = $017230 ; Free kick: wait for the kicker
+restart_goal_kick_resume    = $017356 ; Goal kick script entered when a saved match resumes
+restart_goal_kick           = $01736E ; GOAL KICK banner (speech 2, $23 on PAL), from 128 px in front of the goal
+restart_throw_in_resume     = $0174B4 ; Throw-in script entered when a saved match resumes
+restart_throw_in            = $0174DC ; THROW IN banner (speech 3), 24 px outside the touchline
+restart_foul                = $017628 ; FOUL banner and whistle (SFX 83), then card and free kick / penalty
+restart_card                = $0178A8 ; YELLOW CARD / RED CARD banners, g_stats cards
+restart_penalty             = $017A5C ; PENALTY KICK banner (speech 5, $25 on PAL)
+restart_penalty_spot        = $017B66 ; Penalty from the spot, 256 px in front of the goal (restart type 7)
+restart_own_goal            = $017B82 ; OWN GOAL banner (speech $32)
+restart_goal                = $017CB2 ; Goal: crowd cheer (SFX 100), scorer's name and goal count banner
+restart_half_time           = $01814E ; HALF TIME banner (speech 8)
+restart_time_up             = $018268 ; TIME UP banner (speech $42)
+match_result_banner         = $0183A2 ; MATCH DRAWN / YOU WIN / YOU LOSE / <team> WINS
+tbl_restart_resume          = $01975A ; match_create_objects: director script per restart type when a match resumes
+banner_draw                 = $019490 ; Draw the $FF-terminated banner text at a2 ('@' = space) in the 16x32 font of\ndat_0195AA into the HUD buffer at a1
+speech_queue_update         = $01A4EA ; Per frame: play the next queued commentary sample (sound_play_sfx), $40 frames apart
+speech_queue_push           = $01A530 ; Queue commentary sample d5
+ball_think_rebound          = $010F72 ; Ball hit a post or the bar: keep it on the pitch and let it bounce back
+ball_think_in_net           = $010FF8 ; Ball in the net: stop it behind the goal line and start the net animation
+ball_think_out              = $011108 ; Ball out of play: keep rolling until the restart script takes it
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Player AI. Outfield players think with player_ai, the goalkeeper with
+; keeper_ai. The expensive decisions run only in the player's g_ai_slot frame.
+; A player's home position is the X of its role's line (tm_lines) plus
+; obj_form_x * 8, and the pitch centre plus obj_form_y * 8 (x10 when its team
+; has the ball); roles 0 (defence) and 2 (attack) stay out of the far and own
+; penalty areas, and attackers stop 32 px short of the opponents' last defender.
+; ═════════════════════════════════════════════════════════════════════════════
+player_ai                   = $00CBBA ; Outfield think: chase a loose ball when nearest, press the carrier when nearest or\nsecond nearest, man-mark obj_mark, else move to the formation position
+player_ai_chase_ball        = $00D0BE ; Run to where the ball will land
+player_ai_press             = $00D322 ; Close down the opponent with the ball (intensity from dat_00D504)
+player_ai_mark              = $00DE2E ; Follow the opponent given by obj_mark
+player_update               = $00534C ; Outfield player movement / action state machine (update callback)
+keeper_ai                   = $00FAEC ; Goalkeeper think: stand 32 px in front of the goal line and slide along it with the\nangle to the ball; rush out or dive when the ball comes close
+keeper_save                 = $00FF62 ; Goalkeeper: ball within $50 pixels, go for it
+keeper_rush_out             = $010164 ; Goalkeeper: leave the line for a ball played into the area (speech $21)
+keeper_update               = $001DF0 ; Goalkeeper movement / action state machine (update callback)
+tbl_team_strategies         = $0135C0 ; 8 strategies, run for a team when its tm_strategy is set: 0 push all lines up to\nthe ball, 1 / 2 send a player on a run, 3 forwards up with the defence back, 4 all lines back, ...
+tbl_restart_setup           = $013834 ; 14 routines indexed by g_restart_type that move both teams into position for the restart
+tbl_kickoff_positions       = $037E0E ; 20 bytes per formation: (dx, dy) x 16 from the centre spot for 10 outfield players
