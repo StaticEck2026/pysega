@@ -77,8 +77,9 @@ func setup(home: int, away: int, opts: Dictionary) -> void:
 	for s in 2:
 		var t := ISSTeam.new()
 		var human: bool = int(pads[s]) > 0
+		var formations: Array = opts.get("formations", [-1, -1])
 		t.setup(self, s, home if s == 0 else away, 2 if human else level,
-			s == 1 and (home == away or clash_home == clash_away))
+			s == 1 and (home == away or clash_home == clash_away), int(formations[s]))
 		t.pads = int(pads[s])
 		teams.append(t)
 	var minutes := 2 * int(opts.get("time", 2)) + 1
@@ -752,8 +753,11 @@ func start_restart(type: int, side: int, pos: Vector2) -> void:
 		emit_sound(0x61)
 	if type == R.GOAL:
 		emit_sound(0x64)
+		# The scorer's name, centred in the 12-letter banner.
 		var s := ball.last_touch
-		banner.emit(s.name.to_upper() if s != null else "GOAL")
+		var n := s.name.to_upper().left(12) if s != null else "GOAL"
+		var pad := (12 - n.length()) / 2
+		banner.emit(" ".repeat(pad) + n + " ".repeat(12 - n.length() - pad))
 	elif a[0] != "":
 		banner.emit(a[0])
 	if int(a[1]) >= 0:
@@ -787,15 +791,39 @@ func _director() -> void:
 					t.reset_lines()
 				_start_kickoff(1 - kickoff_side)
 			R.TIME_UP:
-				over = true
-				finished.emit()
+				# match_result_banner, then the end.
+				banner.emit(_result_banner())
+				restart_phase = 2
+				restart_timer = 150
 			_:
 				_setup_restart()
+	elif restart_phase == 2:
+		restart_timer -= 1
+		if restart_timer <= 0:
+			banner_off.emit()
+			over = true
+			finished.emit()
 	elif restart_phase == 1:
 		if restart_taker == null or ball.owner != restart_taker:
 			restart_type = R.NONE
 			restart_phase = 0
 			restart_taker = null
+
+
+## YOU WIN / YOU LOSE against the computer, else MATCH DRAWN or TEAM WINS.
+func _result_banner() -> String:
+	var diff := teams[0].score - teams[1].score
+	if diff == 0:
+		return "match_drawn"
+	var winner := 0 if diff > 0 else 1
+	var human_w := teams[winner].pads > 0
+	var human_l := teams[1 - winner].pads > 0
+	if human_w and not human_l:
+		return "you_win"
+	if human_l and not human_w:
+		return "you_lose"
+	# team_wins ("  T  WINS  ") with the winner's name in place of the T.
+	return (teams[winner].name.to_upper().left(7) + " WINS").lpad(12)
 
 
 func _ball_in_net() -> void:

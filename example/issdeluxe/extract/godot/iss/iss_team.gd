@@ -39,7 +39,7 @@ var stats := {"shots": 0, "fouls": 0, "corners": 0, "free_kicks": 0, "penalties"
 	"offsides": 0, "yellow": 0, "red": 0, "goals": 0, "possession": 0}
 
 
-func setup(engine: ISSMatchEngine, s: int, team: int, level: int, kit2: bool) -> void:
+func setup(engine: ISSMatchEngine, s: int, team: int, level: int, kit2: bool, formation_override := -1) -> void:
 	eng = engine
 	side = s
 	team_id = team
@@ -51,6 +51,11 @@ func setup(engine: ISSMatchEngine, s: int, team: int, level: int, kit2: bool) ->
 	ratings = t["ratings"]
 	formation = int(t["formation"])
 	layout = t["layout"]
+	if formation_override >= 0 and formation_override != formation:
+		# Another formation from the pre-match menu: the generic layout
+		# (tbl_formations) instead of the team's tuned copy.
+		formation = formation_override
+		layout = ISSMatchData.formations[formation]["layout"]
 	kickoff_layout = ISSMatchData.formations[formation]["kickoff"]
 	var squad: Array = t["players"]
 	for i in squad.size():

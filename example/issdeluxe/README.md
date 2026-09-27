@@ -518,8 +518,8 @@ ends a string (`issdeluxe.tbl`).
   per palette line and flip alternatives, when the tiles and palette of the map
   are known.
 * `assets/sound/*.wav`, `assets/text/*.json`.
-* `md/md_asset_browser.tscn` (main scene) — browse all assets with their ROM
-  addresses.
+* `md/md_asset_browser.tscn` — browse all assets with their ROM addresses
+  (the main scene until the ISS extractor makes the game the main scene).
 
 Then run the game-specific extractor, which adds `assets/iss/`:
 
@@ -593,6 +593,15 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   valid effects rendered by running the game's own sound driver: Ogg Vorbis
   files, the VGM logs they came from and `rendered.json` (loop offsets,
   lengths; effects that hold forever are marked `held`).
+* `iss/match.json` — the match engine's constants read from the ROM:
+  pitch bounds per stadium, ball gravity (normal and after a high kick),
+  rolling friction and bounce damping per weather, the pass, drive, rising
+  and lofted kick tables with the distance each power carries, the team
+  line table of `$01521E`, referee strictness, press intensity per AI level,
+  the goalkeeper's dive data and the knocked-over launch.
+* `iss/screens/font_large*.png`, `font_small*.png` — the front end's own
+  8 × 16 and 8 × 8 fonts (`text_draw_large`, `text_draw_small`; the `_hi`
+  variants are the highlighted colour).
 * `iss/*.gd` — `ISSPitch` (a `TileMapLayer` building any stadium),
   `ISSWeather` (the animated overlay), `ISSFlags` (the six flags), `ISSHud`
   (flags, names, score, clock and a live radar), `ISSPlayerSprite` (animated player with
@@ -614,6 +623,65 @@ your own extraction:
 godot --headless --path example/issdeluxe/out/godot --import
 godot --headless --path example/issdeluxe/out/godot -s res://iss/iss_selftest.gd   # prints "iss_selftest: OK"
 ```
+
+### Playing the game
+
+The extractor makes `iss/iss_game.tscn` the project's main scene: open
+`out/godot` in Godot 4.3+ and press F5. It is International Superstar Soccer
+Deluxe rebuilt in GDScript on the exported data, in a 256 × 224 viewport
+scaled by whole numbers:
+
+* **Front end** on the game's own screens and fonts: 1P vs COM, 1P vs 2P,
+  COM vs COM; team selection with flags, each side's formation (the team's
+  tuned default or any of the 16), stadium (8) and weather (snow, fine,
+  rain); the options screen (game level 1–5, game time 3, 5 or 7 minutes a
+  half, sound) and the rules screen (fouls, yellow cards, offside, the four
+  referees); the result with the scorers. Menu music is song 3.
+* **Controls** (`ISSInput`, the logical buttons of `tbl_button_layouts`):
+  player 1 arrows, Z pass, X shoot, A lofted pass / sliding tackle,
+  Left Shift dash, S switch player, Enter pause; player 2 I J K L, U, O, Y, H,
+  N, Backspace; or two joypads (A pass, B shoot, X lofted, Y switch, RB or
+  RT dash, Start). Holding the lofted or shoot button builds the kick's
+  power, the d-pad aims passes (a team-mate in the aimed direction receives
+  it) and picks the post for shots; without the ball pass or shoot heads a
+  high ball.
+* **Match engine** (`ISSMatchEngine`, `ISSTeam`, `ISSFootballer`, `ISSBall`,
+  no drawing, 60 steps a second):
+  - the ball's physics are `ball_update`'s, with the constants of
+    `match.json` (so a pass travels as far as in the original, the ball
+    stops sooner in the rain and bounces lower in the snow);
+  - players run at the team's running speed (1.875 px per frame) and dash
+    up to their top speed from `tbl_speed_max` with `tbl_dash_accel`, tire
+    by `tbl_stamina_drain`, and play the 54 animation actions of the ROM
+    (run, sprint, side-foot pass, power kick, headers, sliding tackle,
+    falls, celebrations, the keeper's dive and jump);
+  - humans and the AI drive the same state machines through the same
+    input bits (`obj_input`); the AI thinks once every 16 frames per
+    player (`g_ai_slot`) and steers every frame: the formation lines of
+    `$01521E` (the ROM's table and limits), chasing the ball's landing
+    point, pressing the carrier and sliding in, and with the ball dribble,
+    pass, long ball, cross or shoot, weighted by the team's five ratings;
+    the goalkeeper on the line from the goal centre to the ball
+    32 px out, diving at shots and rushing out, holding the ball 64–191
+    frames and kicking one time in four;
+  - the rules of `match_rules_update`: throw-ins, goal kicks and corners by
+    the last touch, goals under the bar and between the posts (the posts
+    and the bar rebound), fouls seen by the referee's strictness table,
+    yellow and red cards, penalties within $180 px of the goal line,
+    offside, half time with the ends swapped, time up with the result
+    banner, the banners and commentary of each restart and the crowd;
+* **On screen** (`ISSMatch`): the stadium, weather and flags, sprites from
+  the exported frames with the teams' kits (the away side changes kit on a
+  clash), the referee and linesman following play, the landing marker of
+  lofted balls, `camera_update`'s lead toward the attacking goal, the HUD
+  with the live radar, banners, commentary, crowd and effects.
+
+Not reproduced (yet): the competitions (leagues, cups, World Series,
+scenarios, training, challenges, passwords), the penalty shoot-out view,
+extra time, substitutions, the in-match strategies, man-marking and the
+keeper's human control outside distribution. `iss_selftest.gd` plays a
+whole CPU match headless, drives a player through the pad input and starts
+a match in the game scene.
 
 ### Rendering the music and FM effects
 
@@ -733,12 +801,19 @@ screen handlers are named, and every routine and data block now has a name
 The options, the handicap settings, the password container, the
 goalkeeper's dive and distribution and the shoot-out keeper are decoded too.
 
+The game itself runs in Godot (see [Playing the game](#playing-the-game)):
+exhibition matches for one or two players or CPU against CPU, with the
+front end, the rules, the AI and the presentation rebuilt on the exported
+data.
+
 Open work, in rough order of value for a port:
-1. The figures of the presentation scenes (`flag_fans_draw`).
-2. The field layout of each mode's password and the object behind each
+1. In the Godot game: the competitions and their tables, the penalty
+   shoot-out view, extra time, substitutions and the in-match strategies.
+2. The figures of the presentation scenes (`flag_fans_draw`).
+3. The field layout of each mode's password and the object behind each
    remaining menu screen.
-3. The exact effects of curl, intelligence, balance and dribble (bytes 4,
+4. The exact effects of curl, intelligence, balance and dribble (bytes 4,
    5 and 7 are read by the tackle, foul and ball-control code; no read of
    byte 3 was found yet).
-4. Sound: the note and pattern encoding in full (to convert songs to MIDI)
+5. Sound: the note and pattern encoding in full (to convert songs to MIDI)
    and the FM patch format; the rendered audio already covers playback.

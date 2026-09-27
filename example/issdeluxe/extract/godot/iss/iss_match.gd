@@ -24,11 +24,22 @@ var _marker := Sprite2D.new()
 var _referee := ISSNPCSprite.new()
 var _linesman := ISSNPCSprite.new()
 var _cursor := Cursor.new()
+var _pause := PauseText.new()
 var _sprites := {}
 var _cam := Vector2.ZERO
 var _lead := Vector2.ZERO
 var _cam_z := 0.0
 var _end_wait := -1
+
+
+## "PAUSE" in the middle of the screen while the game is paused.
+class PauseText:
+	extends Node2D
+	var on := false
+
+	func _draw() -> void:
+		if on:
+			ISSText.draw_centred(self, "PAUSE", 128, 104, true, true)
 
 
 ## Arrow over the controlled players (home / away colours).
@@ -91,6 +102,7 @@ func start(home: int, away: int, opts: Dictionary) -> void:
 	_hud.home_team = engine.teams[0].team_id
 	_hud.away_team = engine.teams[1].team_id
 	layer.add_child(_hud)
+	layer.add_child(_pause)
 	add_child(layer)
 	_hud.set_stadium(engine.stadium)
 	_hud.set_teams(engine.teams[0].team_id, engine.teams[1].team_id)
@@ -110,6 +122,8 @@ func _physics_process(_delta: float) -> void:
 	for i in 2:
 		if ISSInput.start_pressed(i) and int(engine.options.get("pads", [1, 0])[i]) > 0:
 			paused = not paused
+			_pause.on = paused
+			_pause.queue_redraw()
 	if paused:
 		return
 	if _end_wait >= 0:

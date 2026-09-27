@@ -25,6 +25,8 @@ static var away := 2
 static var stadium := 0
 static var weather := 1
 static var mode := 0
+static var home_formation := -1
+static var away_formation := -1
 
 var page := Page.MAIN
 var cursor := 0
@@ -121,24 +123,36 @@ func _main(moved: Vector2i, ok: bool) -> void:
 
 func _teams(moved: Vector2i, ok: bool, back: bool) -> void:
 	var n := ISSMatchData.team_count() - 1 # the practice team stays out
-	cursor = clampi(cursor + moved.y, 0, 4)
+	cursor = clampi(cursor + moved.y, 0, 6)
 	match cursor:
 		0:
 			home = posmod(home + moved.x, n)
+			home_formation = -1
 		1:
-			away = posmod(away + moved.x, n)
+			home_formation = posmod(_formation(home, home_formation) + moved.x, 16) if moved.x != 0 else home_formation
 		2:
-			stadium = posmod(stadium + moved.x, 8)
+			away = posmod(away + moved.x, n)
+			away_formation = -1
 		3:
+			away_formation = posmod(_formation(away, away_formation) + moved.x, 16) if moved.x != 0 else away_formation
+		4:
+			stadium = posmod(stadium + moved.x, 8)
+		5:
 			weather = posmod(weather + moved.x, 3)
 	if back:
 		show_page(Page.MAIN)
-	elif ok and cursor == 4:
+	elif ok and cursor == 6:
 		var opts := settings.duplicate()
 		opts["stadium"] = stadium
 		opts["weather"] = weather
 		opts["pads"] = PADS[mode]
+		opts["formations"] = [home_formation, away_formation]
 		start_match.emit(home, away, opts)
+
+
+## The team's own formation (tbl_team_formations) unless one was picked.
+static func _formation(team: int, picked: int) -> int:
+	return picked if picked >= 0 else int(ISSMatchData.teams[team]["formation"])
 
 
 func _options(moved: Vector2i, ok: bool, back: bool) -> void:
@@ -187,24 +201,25 @@ func _draw() -> void:
 				ISSText.draw_centred(self, MODES[i], cx, cy - 8, true, i == cursor)
 				if i == cursor:
 					_box(r, true)
-			ISSText.draw_centred(self, "INTERNATIONAL SUPERSTAR SOCCER DELUXE", 128, 208, false)
+			ISSText.draw_centred(self, "SUPERSTAR SOCCER DELUXE", 128, 210, false)
 		Page.TEAMS:
-			ISSText.draw_centred(self, "-TODAY'S GAME-", 128, 12, true)
-			_team_row(0, home, 40)
-			ISSText.draw_centred(self, "VS", 128, 72, true)
-			_team_row(1, away, 92)
-			var sname := "STADIUM %d" % (stadium + 1)
-			ISSText.draw(self, sname, Vector2(40, 132), true, cursor == 2)
-			ISSText.draw(self, "WEATHER " + WEATHERS[weather], Vector2(40, 152), true, cursor == 3)
-			ISSText.draw_centred(self, "GAME START", 128, 180, true, cursor == 4)
-			ISSText.draw_centred(self, MODES[mode], 128, 204, false)
+			ISSText.draw_centred(self, "-TODAYS GAME-", 128, 8, true)
+			_team_row(0, home, 30)
+			_formation_row(home, home_formation, 50, cursor == 1)
+			ISSText.draw_centred(self, "VS", 128, 64, false)
+			_team_row(1, away, 78)
+			_formation_row(away, away_formation, 98, cursor == 3)
+			ISSText.draw(self, "STADIUM %d" % (stadium + 1), Vector2(40, 120), true, cursor == 4)
+			ISSText.draw(self, "WEATHER " + WEATHERS[weather], Vector2(40, 140), true, cursor == 5)
+			ISSText.draw_centred(self, "GAME START", 128, 168, true, cursor == 6)
+			ISSText.draw_centred(self, MODES[mode], 128, 200, false)
 		Page.OPTIONS:
 			var level := int(settings["level"])
 			_box(Rect2(120 + 24 * level, 40, 8, 16), cursor == 0)
 			var t := int(settings["time"])
 			_box(Rect2(120 + 48 * (t - 1), 64, 8, 16), cursor == 1)
 			var mono := int(settings["mono"])
-			_box(Rect2(136, 88, 48, 16) if mono == 0 else Rect2(200, 88, 32, 16), cursor == 2)
+			_box(Rect2(120, 88, 48, 16) if mono == 0 else Rect2(192, 88, 32, 16), cursor == 2)
 			if cursor == 3:
 				_box(Rect2(24, 112, 40, 16), true)
 		Page.RULES:
@@ -238,5 +253,10 @@ func _team_row(i: int, team: int, y: float) -> void:
 		f.position = Vector2(40, y)
 		f.visible = true
 	var name := ISSMatchData.team_name(team).to_upper()
-	ISSText.draw(self, name, Vector2(80, y), true, cursor == i)
+	ISSText.draw(self, name, Vector2(80, y), true, cursor == i * 2)
 	ISSText.draw(self, "HOME" if i == 0 else "AWAY", Vector2(208, y + 4), false)
+
+
+func _formation_row(team: int, picked: int, y: float, on: bool) -> void:
+	var fid := _formation(team, picked)
+	ISSText.draw(self, "FORMATION " + str(ISSMatchData.formations[fid]["name"]), Vector2(80, y), false, on)
