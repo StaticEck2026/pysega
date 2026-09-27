@@ -297,6 +297,7 @@ func exportAnimations(dir string) {
 		fm[fmt.Sprintf("$%06X", a)] = frames[a]
 	}
 	writeJSON(filepath.Join(dir, "animations.json"), map[string]any{
+		"action_names": playerActionNames,
 		"description": "Player animations: actions[action].directions[d] lists frame addresses. " +
 			"Direction d = ((facing + 4) & $38) >> 3 with facing 0-63; directions 5-7 use the left-facing render. " +
 			"Frames are rendered with face style 1, hair style 0 and the kit tiles of team 0.",
@@ -304,6 +305,23 @@ func exportAnimations(dir string) {
 		"frames":  fm,
 	})
 	fmt.Printf("players: %d actions, %d unique frames\n", len(outActions), len(frames))
+}
+
+// playerActionNames labels obj_action values (tbl_player_anims), from the
+// routines that set them and the frames; "(?)" marks a best guess.
+var playerActionNames = []string{
+	"stand", "ready stance", "jog on the spot", "turn step", "side step", "shuffle step",
+	"run", "walk", "run crouched (?)", "sprint (dash)", "pull up", "turn",
+	"knee trap", "short poke", "power kick (shot, long ball)", "side-foot pass",
+	"kick to the left", "kick to the right", "backheel", "standing header / volley",
+	"overhead kick", "jumping header", "diving header", "sliding tackle / stretched kick",
+	"sit after a slide", "get up", "stumble", "dejected (hands on head)", "stand still",
+	"hands over face", "celebration: fist pump", "celebration: knee slide",
+	"celebration: arm up", "celebration: dance", "celebration: jump", "full-length dive",
+	"fall backwards (fouled)", "bend down (place the ball)", "defensive wall", "lying injured",
+	"lose the ball (stumble forward)", "feint left (?)", "feint right (?)", "arm raised (?)",
+	"stop the ball", "leap (?)", "flick the ball up (?)", "chip", "goalkeeper curled on the ball",
+	"knock on and run", "wall shuffle", "walk, arms out (?)", "bend over", "celebration: belly slide",
 }
 
 // actions0 bounds the action table by the first action list it points to.

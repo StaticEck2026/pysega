@@ -565,7 +565,11 @@ structs:
     - {offset: 0x34, name: obj_update, comment: "Long: update callback (-1 = none)"}
     - {offset: 0x38, name: obj_think, comment: "Long: think / steering callback run before obj_update"}
     - {offset: 0x3C, name: obj_travel, comment: "Long: remaining distance to the target (16.16)"}
+    - {offset: 0x3E, name: obj_kick_request, comment: "Word: set pieces: button(s) that started the kick (AI: 1 once aimed)"}
+    - {offset: 0x40, name: obj_kick_power, comment: "Word: kick power 4-15 while the button is held (AI states use it as a timer)"}
+    - {offset: 0x42, name: obj_aim, comment: "Word: set pieces: aim direction 0-63, turned with the d-pad"}
     - {offset: 0x44, name: obj_heading, comment: "Word: direction to the target (0-63)"}
+    - {offset: 0x48, name: obj_input, comment: "Word: this frame's input: d-pad (bits 0-3), pass $10, lofted $20, dash $40, shoot $100, switch $200 - copied from the control slot for humans, written by the AI otherwise"}
     - {offset: 0x4A, name: obj_team, comment: "Word: 0 = home, 1 = away; ball: team that touched it last"}
     - {offset: 0x51, name: obj_role, comment: "Byte: formation role 0 defence, 1 midfield, 2 attack, 3 goalkeeper; bit 7: joins attacks"}
     - {offset: 0x52, name: obj_form_x, comment: "Byte: signed X offset from the role's line (x8 pixels)"}
@@ -587,6 +591,7 @@ structs:
     - {offset: 0x7E, name: obj_speed, comment: "Long: speed (16.16 pixels per frame)"}
     - {offset: 0x82, name: obj_vel_z, comment: "Long: vertical velocity (16.16), ball"}
     - {offset: 0x86, name: obj_facing, comment: "Word: facing angle 0-63 (0 = up the pitch, 16 = right)"}
+    - {offset: 0x88, name: obj_kick_dir, comment: "Word: direction of the kick being taken (0-63)"}
     - {offset: 0x8A, name: obj_distance, comment: "Long: distance left in a lofted pass (16.16)"}
   # Per-team match state (home at $FF181E, away at $FF18A6).
   team:

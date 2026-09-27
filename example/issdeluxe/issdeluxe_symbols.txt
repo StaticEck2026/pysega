@@ -243,7 +243,7 @@ g_pad_pressed_home          = $00FF1550 ; Word: buttons newly pressed on the hom
 g_pad_held_home             = $00FF1552 ; Word
 g_pad_pressed_away          = $00FF1556 ; Word: buttons newly pressed on the away team's controllers
 g_pad_held_away             = $00FF1558 ; Word
-g_control_slots             = $00FF155C ; 8 x $1A bytes, one per controller: +0 controlled player, +4 pressed,\n+6 held, +8 pad type, +$18 direction remap (dat_014FB2)
+g_control_slots             = $00FF155C ; 8 x $1A bytes, one per controller: +0 controlled player (its obj_state = 1,\nobj_owner = the slot), +4 presses not yet consumed, +6 consumed latch (cleared on release), +8 pad type,\n+$A player switch mode, +$18 button layout (row offset into tbl_button_layouts)
 g_half                      = $00FF1632 ; Word: bit 0 = second half
 g_left_goal_team            = $00FF1636 ; Word: team defending the left goal (0 = home); ends swap at half time
 g_training                  = $00FF163A ; Word: practice rules: no fouls, restarts not given to a team
@@ -353,3 +353,36 @@ keeper_update               = $001DF0 ; Goalkeeper movement / action state machi
 tbl_team_strategies         = $0135C0 ; 8 strategies, run for a team when its tm_strategy is set: 0 push all lines up to\nthe ball, 1 / 2 send a player on a run, 3 forwards up with the defence back, 4 all lines back, ...
 tbl_restart_setup           = $013834 ; 14 routines indexed by g_restart_type that move both teams into position for the restart
 tbl_kickoff_positions       = $037E0E ; 20 bytes per formation: (dx, dy) x 16 from the centre spot for 10 outfield players
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Controls and player actions. joypad_read_port packs every pad as
+; U D L R B C A Start (bits 0-7) plus Z Y X Mode (bits 8-11) on 6-button pads;
+; match_players_update maps B, C, A and Z through the controller's button layout
+; to the logical buttons pass $10, lofted $20, dash $40 and shoot $100, and the
+; controlled player copies them into obj_input. The action state machines
+; (player_update, keeper_update) read obj_input the same way for humans and AI.
+; ═════════════════════════════════════════════════════════════════════════════
+tbl_button_layouts          = $014FB2 ; 8 layouts x 16 bytes: logical buttons for each B/C/A/Z combination
+tbl_dpad_angles             = $0134FE ; 16 words: d-pad bits -> direction 0-63
+player_standing             = $00524C ; State: standing with the ball; pass / lofted pass with a direction, shoot, stop
+player_running              = $0053A6 ; State: running; by ball height and distance: jumping / diving / standing headers,\nvolleys, chips, sliding tackles
+player_stop_ball            = $0055DC ; Stop with the ball at the feet (dash button while standing)
+player_shoot                = $008C8C ; Shoot at the opponents' goal (power kick, action 14); a clearance in the own zone
+player_long_kick            = $0083A8 ; Power kick along obj_kick_dir with obj_kick_power (lofted)
+player_lofted_pass          = $00840C ; Lofted pass / cross in the d-pad direction, power from how long the button is held
+player_pass                 = $0089DE ; Ground pass in the d-pad direction
+player_set_piece_pass       = $008AAA ; Set-piece pass with fixed power; kick animation 15-18 by the angle to obj_facing
+player_header_shot          = $00766A ; Standing header / volley at goal (action 19)
+player_jump_header          = $007BF6 ; Jumping header at goal (action 21)
+player_dive_header          = $008074 ; Diving header (action 22)
+set_piece_aim               = $00E9DA ; Free kick / corner taker: turn obj_aim with the d-pad, a button starts the kick
+set_piece_kick              = $00EB0C ; Run up and kick: $100 long kick, $20 power kick, $10 pass (power grows while held)
+ball_launch_kick            = $00AC6E ; Launch the ball (tbl_kick_rising), keeper kicks
+ball_launch_shot            = $00AD1E ; Launch a shot (tbl_kick_rising): headers, volleys, overhead kicks (speech $E)
+ball_launch_lofted          = $00B40A ; Launch a lofted ball (tbl_kick_lofted)
+ball_launch_drive           = $00B536 ; Launch a fast low drive (tbl_kick_drive)
+ball_launch_pass            = $00B654 ; Launch a ground pass (tbl_kick_pass)
+tbl_kick_lofted             = $00B986 ; Per power: speed and vertical speed (16.16), NTSC and PAL: 2-6 px, rising 2.4-6.6
+tbl_kick_rising             = $00BA16 ; Per power: 2-4 px per frame, rising 1.5-3.5
+tbl_kick_drive              = $00BC1E ; 6 px per frame, rising 1
+tbl_kick_pass               = $00BC2E ; 3.5 px per frame, rising 1

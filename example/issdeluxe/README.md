@@ -280,6 +280,37 @@ kicks, corners, penalties, yellow and red cards, offsides, goals), and
 **Commentary.** `speech_queue_push` queues sample numbers (4 entries);
 `speech_queue_update` plays one every $40 frames through `sound_play_sfx`.
 
+**Controls.** `joypad_read_port` packs every pad as Up, Down, Left, Right, B,
+C, A, Start (bits 0–7), plus Z, Y, X, Mode (bits 8–11) on 6-button pads.
+`match_players_update` passes B, C, A and Z through the controller's button
+layout (`tbl_button_layouts`, 8 selectable rows) to four logical buttons.
+Presses stay pending in the control slot until an action consumes them. The
+controlled player copies them, with the d-pad, into `obj_input`, and the AI
+drives its players by writing the same word, so one set of action state
+machines serves both:
+
+| Logical button | With the ball | Without the ball | Ball in the air |
+|---|---|---|---|
+| pass `$10` | ground pass in the d-pad direction (`player_pass`) | — | header / volley pass |
+| lofted `$20` | lofted pass or cross, power from how long it is held | sliding tackle | header / volley at goal |
+| shoot `$100` | shot at the goal (`player_shoot`) | — | jumping header (high ball), diving header (further away), standing header or volley (low ball) |
+| dash `$40` | sprint while running; stop the ball when standing | sprint | — |
+| switch `$200` (Y) | — | switch player (mode per controller: nearest, or in the d-pad direction) | — |
+
+At free kicks and corners the taker turns the aim with the d-pad and the
+button picks pass, power kick or long ball (`set_piece_aim`,
+`set_piece_kick`). On 3-button pads the lofted button near the opponents'
+goal also counts as a long ball. Kick strength comes from the per-power
+tables `tbl_kick_pass`, `tbl_kick_drive`, `tbl_kick_rising` and
+`tbl_kick_lofted` (speed and vertical speed, NTSC and PAL).
+
+**Player animations.** `players/animations.json` names all 54
+`obj_action` values (`action_names`): stand, run, sprint, the pass and kick
+family (14 power kick, 15 side-foot pass, 16–18 left, right and backheel,
+chosen by the angle between the kick and the facing), headers (19 standing,
+21 jumping, 22 diving), 20 overhead kick, 23 sliding tackle, falls,
+celebrations (30–34, 53), the defensive wall (38, 50) and more.
+
 ## Data formats
 
 **Factor 5 packed stream** (`decompress_factor5`, sega2asm `lzfactor5`):
@@ -455,8 +486,6 @@ Open work, in rough order of value for a port:
    by the front-end loaders) so their tilemaps render.
 3. Meaning of the eight player attribute bytes and the five team ratings;
    formations (`$037E0E`) and tactics.
-4. Match engine, remaining: the 54 player actions (animation numbers) and
-   the per-action update routines (`player_update`, `keeper_update`), the
-   controller button format and button → action mapping, the strategy
+4. Match engine, remaining: the individual goalkeeper states, strategy
    names, game modes 0–12, the state_result scene (16 × 16 ball), camera.
 5. Music bank format and sample boundaries inside the PCM bank.
