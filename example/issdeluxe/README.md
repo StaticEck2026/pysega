@@ -527,7 +527,8 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   frame each), tiled over the stadium from its origin.
 * `iss/hud/` — the match HUD: the window plane (`window.png`, 32 × 32
   cells), the 42 team flags and name plates, score / clock digits, the
-  strategy labels, the radar background and, per stadium, the pitch → radar
+  strategy labels, the banner font and all 17 banner messages (CORNER
+  KICK, THROW IN, HALF TIME ...; `ISSHud.show_banner`), the radar background and, per stadium, the pitch → radar
   pixel mapping and the dot colours (`hud.json` gives every item's cells).
 * `iss/misc/` — the small sprites: rain drops and splashes, snowflakes,
   confetti and sparkles (`particle_draw`), the landing-point marker of lofted
@@ -690,8 +691,7 @@ screen handlers are named, and every routine and data block now has a name
 (hand-written or derived from its owner, see above).
 
 Open work, in rough order of value for a port:
-1. The HUD's banner text (`banner_draw` font) and the figures of the
-   presentation scenes (`flag_fans_draw`).
+1. The figures of the presentation scenes (`flag_fans_draw`).
 2. The front-end logic in detail: the object behind each remaining menu
    screen, the cursor sprites, the options and how the password bits map to
    the competition state.

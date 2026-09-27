@@ -47,6 +47,8 @@ func _init() -> void:
 	var formations = _json("res://assets/iss/formations.json")
 	_check(formations["formations"].size() == 16 and formations["formations"][1]["name"] == "4-4-2", "formations")
 	_check(hud["radar"]["mapping"].size() == 8, "radar mapping per stadium")
+	_check(hud["banner_messages"]["throw_in"]["text"] == "  THROW IN  " \
+		and ResourceLoader.exists("res://assets/iss/hud/banner_font.png"), "banner font and messages")
 	_check(ResourceLoader.exists("res://assets/iss/hud/flags/flag_41.png"), "team flags")
 	_check(hud["strategy_names"].size() == 8 \
 		and ResourceLoader.exists("res://assets/iss/hud/strategies/strategy_7.png"), "strategy labels")

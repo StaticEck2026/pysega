@@ -28,6 +28,7 @@ const DOT_COLOURS := {"home": 13, "away": 10, "controlled_home": 9, "controlled_
 
 var _bounds := Rect2()
 var _radar := RadarLayer.new()
+var _banner := BannerLayer.new()
 var _team_sprites := {} # "home_flag" etc. -> Sprite2D
 
 
@@ -55,6 +56,23 @@ class RadarLayer:
 			draw_rect(Rect2(at, Vector2(2, 2)), col)
 
 
+## Banner text (banner_draw): 16x32 letters over the bottom window rows.
+class BannerLayer:
+	extends Node2D
+	var font: Texture2D
+	var text := ""
+	var column := 5
+
+	func _draw() -> void:
+		for i in text.length():
+			var g := text.unicode_at(i) - 0x40 # '@' = space, then A-Z
+			if text[i] == " ":
+				g = 0
+			if g < 0 or g > 26:
+				continue
+			draw_texture_rect_region(font, Rect2((column + 2 * i) * 8, 23 * 8, 16, 32), Rect2(g * 16, 0, 16, 32))
+
+
 func _ready() -> void:
 	_doc = JSON.parse_string(FileAccess.get_file_as_string(DIR + "hud.json"))
 	_mat.shader = load("res://md/md_indexed.gdshader")
@@ -75,6 +93,10 @@ func _ready() -> void:
 		add_child(sp)
 		_team_sprites[item] = sp
 	add_child(_radar)
+	_banner.font = load(DIR + "banner_font.png")
+	_banner.use_parent_material = true
+	_banner.visible = false
+	add_child(_banner)
 	set_teams(home_team, away_team)
 	set_stadium(stadium)
 
@@ -101,6 +123,20 @@ func set_stadium(index: int) -> void:
 func _process(_delta: float) -> void:
 	queue_redraw()
 	_radar.queue_redraw()
+
+
+## Shows a banner: message is a key of hud.json banner_messages ("throw_in",
+## "goal_kick", "half_time", ...) or any text in capitals.
+func show_banner(message: String) -> void:
+	var m: Dictionary = _doc["banner_messages"].get(message, {"text": message, "column": 5})
+	_banner.text = m["text"]
+	_banner.column = int(m["column"])
+	_banner.visible = true
+	_banner.queue_redraw()
+
+
+func hide_banner() -> void:
+	_banner.visible = false
 
 
 ## Radar contents: an array of [Vector2 pitch position, kind], kind one of

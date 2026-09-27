@@ -3,7 +3,7 @@ extends Node2D
 ## directions with alternating kits, a bouncing ball, the officials and the
 ## dog, with the crowd. Arrow keys scroll, +/- change the stadium, W changes
 ## the weather, K the officials' kit, B kicks the ball, G and C play the
-## goal and corner-kick commentary, M the next song (needs the rendered sound).
+## goal and corner-kick commentary (with the banner), M the next song (needs the rendered sound).
 
 const SPEED := 60.0
 ## Ball physics per 60 Hz frame (NTSC values of ball_update / sub_00A1C6).
@@ -126,6 +126,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_sound.say(0x2F) # goal
 			KEY_C:
 				_sound.say(0x01) # corner kick
+				_hud.show_banner("corner_kick")
+				get_tree().create_timer(2.0).timeout.connect(_hud.hide_banner)
 			KEY_M:
 				for i in 26:
 					_song = (_song + 1) % 26

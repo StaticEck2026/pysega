@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"sega2asm/types"
 )
@@ -29,8 +30,25 @@ const (
 	tblRadarDots   = 0x1BB90 // 6 dot patterns x 16 bytes
 	radarFirstTile = 2
 	hudTeams       = 42
-	entStrategies  = 5 // res04, raw: 9 blocks of 8 tiles, block s+1 = label of strategy s
+	entStrategies  = 5        // res04, raw: 9 blocks of 8 tiles, block s+1 = label of strategy s
+	bannerFont     = 0x0195AA // 27 glyphs ('@' = space, A-Z) x 8 window-cell words (2 x 4)
+	bannerGlyphs   = 27
 )
+
+// bannerMessages are the banner_draw strings (str_banner_*): text and the
+// window column the game draws it at (row 23).
+var bannerMessages = []struct {
+	Name string
+	Addr uint32
+	Col  int
+}{
+	{"corner_kick", 0x01711E, 5}, {"offside", 0x0171A0, 5}, {"free_kick", 0x01734A, 5},
+	{"goal_kick", 0x0174A8, 5}, {"throw_in", 0x01761A, 4}, {"foul", 0x01789A, 4},
+	{"yellow_card", 0x017A44, 5}, {"red_card", 0x017A50, 5}, {"penalty_kick", 0x017B58, 4},
+	{"own_goal", 0x017CA4, 4}, {"blank", 0x018142, 5}, {"half_time", 0x01825C, 5},
+	{"time_up", 0x018396, 5}, {"match_drawn", 0x018588, 5}, {"you_win", 0x018594, 5},
+	{"you_lose", 0x0185A0, 4}, {"team_wins", 0x0185AD, 5},
+}
 
 // strategyNames are the team strategies in tm_strategy order (labels in
 // res04 entry 5 and on screen $0A).
@@ -113,6 +131,26 @@ func exportHUD(dir string) {
 			cellsImage(lw, 8, 1, labels[b:b+8*32])))
 	}
 
+	// Banner font: glyph g is 2 x 4 cells, words added to the overlay base
+	// with priority and palette line 2 ($C000).
+	var fw []uint16
+	for row := 0; row < 4; row++ {
+		for g := 0; g < bannerGlyphs; g++ {
+			for c := 0; c < 2; c++ {
+				fw = append(fw, uint16(be16(bannerFont+uint32(16*g+4*row+2*c)))+0xC000)
+			}
+		}
+	}
+	must(types.WritePNG(filepath.Join(dir, "banner_font.png"), cellsImage(fw, 2*bannerGlyphs, 4, tiles)))
+	messages := map[string]any{}
+	for _, m := range bannerMessages {
+		e := m.Addr
+		for rom[e] != 0xFF {
+			e++
+		}
+		messages[m.Name] = map[string]any{"text": strings.ReplaceAll(string(rom[m.Addr:e]), "@", " "), "column": m.Col}
+	}
+
 	// Digits 0-9 (8x16 each), and the time-up cells.
 	var dw []uint16
 	for r := 0; r < 2; r++ {
@@ -187,13 +225,17 @@ func exportHUD(dir string) {
 			"clock":      map[string]any{"cells": []int{27, 1}, "format": "M:SS, minutes at column 27, colon at 28, seconds at 29-30; time_up.png at 27-30 when the clock is 0"},
 			"half":       map[string]any{"cells": []int{25, 1}, "tiles": "$6C first half, $64 second half"},
 			"radar":      map[string]any{"cells": []int{11, 20}, "size_px": []int{80, 56}},
-			"banner":     map[string]any{"cells": []int{0, 24}, "size": []int{32, 2}, "note": "banner_draw text (THROW IN, ...)"},
+			"banner": map[string]any{"cells": []int{4, 23}, "size": []int{24, 4},
+				"note": "banner_draw: 16x32 letters from banner_font.png ('@' = space, A-Z, 16 px each) at row 23, " +
+					"from the message's column; see banner_messages"},
 			"home_strategy": map[string]any{"cells": []int{2, 22}, "size": []int{8, 1},
 				"images": "strategies/strategy_N.png (tm_strategy N) while the strategy runs"},
 			"away_strategy": map[string]any{"cells": []int{22, 22}, "size": []int{8, 1}},
 		},
-		"strategy_names": strategyNames,
-		"digits":         "digits.png: 10 digits of 8x16 pixels",
+		"strategy_names":  strategyNames,
+		"banner_font":     map[string]any{"png": "banner_font.png", "chars": "@ABCDEFGHIJKLMNOPQRSTUVWXYZ", "glyph_px": []int{16, 32}},
+		"banner_messages": messages,
+		"digits":          "digits.png: 10 digits of 8x16 pixels",
 		"radar": map[string]any{
 			"background": "radar.png (index 32 + colour, line 2)",
 			"mapping":    maps,
