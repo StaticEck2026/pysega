@@ -634,9 +634,10 @@ scaled by whole numbers:
 * **Front end** on the game's own screens and fonts: 1P vs COM, 1P vs 2P,
   COM vs COM; team selection with flags, each side's formation (the team's
   tuned default or any of the 16), stadium (8) and weather (snow, fine,
-  rain); the options screen (game level 1–5, game time 3, 5 or 7 minutes a
-  half, sound) and the rules screen (fouls, yellow cards, offside, the four
-  referees); the result with the scorers. Menu music is song 3.
+  rain); PK (a shoot-out); the options screen (game level 1–5, game time
+  3, 5 or 7 minutes a half, sound) and the rules screen (fouls, yellow
+  cards, offside, V-goal or full extra time, the four referees); the result
+  with the scorers. Menu music is song 3.
 * **Controls** (`ISSInput`, the logical buttons of `tbl_button_layouts`):
   player 1 arrows, Z pass, X shoot, A lofted pass / sliding tackle,
   Left Shift dash, S switch player, Enter pause; player 2 I J K L, U, O, Y, H,
@@ -670,6 +671,12 @@ scaled by whole numbers:
     yellow and red cards, penalties within $180 px of the goal line,
     offside, half time with the ends swapped, time up with the result
     banner, the banners and commentary of each restart and the crowd;
+  - open games are knockout matches (`g_knockout`): a draw goes to extra
+    time (halves one `g_game_time` step shorter; with V-goal the match ends
+    after the extra-time half in which a side leads) and then to a
+    penalty shoot-out, five kicks each and sudden death, with the keeper
+    diving where the defending human's pad points; PK mode on the main
+    menu is a shoot-out on its own;
 * **On screen** (`ISSMatch`): the stadium, weather and flags, sprites from
   the exported frames with the teams' kits (the away side changes kit on a
   clash), the referee and linesman following play, the landing marker of
@@ -677,9 +684,10 @@ scaled by whole numbers:
   with the live radar, banners, commentary, crowd and effects.
 
 Not reproduced (yet): the competitions (leagues, cups, World Series,
-scenarios, training, challenges, passwords), the penalty shoot-out view,
-extra time, substitutions, the in-match strategies, man-marking and the
-keeper's human control outside distribution. `iss_selftest.gd` plays a
+scenarios, training, challenges, passwords), the shoot-out's own view from
+behind the taker (the kicks are taken on the pitch), substitutions, the
+in-match strategies, man-marking and the keeper's human control outside
+distribution. `iss_selftest.gd` plays a
 whole CPU match headless, drives a player through the pad input and starts
 a match in the game scene.
 
@@ -807,8 +815,8 @@ front end, the rules, the AI and the presentation rebuilt on the exported
 data.
 
 Open work, in rough order of value for a port:
-1. In the Godot game: the competitions and their tables, the penalty
-   shoot-out view, extra time, substitutions and the in-match strategies.
+1. In the Godot game: the competitions and their tables, the shoot-out's
+   own view, substitutions and the in-match strategies.
 2. The figures of the presentation scenes (`flag_fans_draw`).
 3. The field layout of each mode's password and the object behind each
    remaining menu screen.

@@ -32,14 +32,17 @@ var _cam_z := 0.0
 var _end_wait := -1
 
 
-## "PAUSE" in the middle of the screen while the game is paused.
+## "PAUSE" while the game is paused; the penalty tally during a shoot-out.
 class PauseText:
 	extends Node2D
 	var on := false
+	var pk := ""
 
 	func _draw() -> void:
 		if on:
 			ISSText.draw_centred(self, "PAUSE", 128, 104, true, true)
+		if pk != "":
+			ISSText.draw_centred(self, pk, 128, 36, false, true)
 
 
 ## Arrow over the controlled players (home / away colours).
@@ -150,6 +153,7 @@ func _exit_tree() -> void:
 func result() -> Dictionary:
 	return {"home": engine.teams[0].team_id, "away": engine.teams[1].team_id,
 		"home_score": engine.teams[0].score, "away_score": engine.teams[1].score,
+		"penalties": engine.pk_scores if engine.shootout else [],
 		"scorers": engine.scorers, "home_stats": engine.teams[0].stats, "away_stats": engine.teams[1].stats}
 
 
@@ -205,6 +209,10 @@ func _sync() -> void:
 	_hud.clock_seconds = e.clock_seconds()
 	_hud.second_half = e.half > 0
 	_hud.set_radar(dots)
+	var pk := "PK %d-%d" % [e.pk_scores[0], e.pk_scores[1]] if e.shootout else ""
+	if pk != _pause.pk:
+		_pause.pk = pk
+		_pause.queue_redraw()
 	_update_camera()
 
 

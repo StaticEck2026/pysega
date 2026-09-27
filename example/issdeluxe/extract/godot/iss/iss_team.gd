@@ -254,6 +254,11 @@ func think(p: ISSFootballer) -> void:
 
 ## Steering every frame: turns ai_target into input_dir and dash.
 func steer(p: ISSFootballer) -> void:
+	if eng.shootout:
+		# Shoot-out: everybody waits where they were put.
+		p.input_dir = -1
+		p.held = 0
+		return
 	if p.busy() and p.state != ISSFootballer.S.KEEPER_HOLD:
 		p.input_dir = -1
 		p.held = 0

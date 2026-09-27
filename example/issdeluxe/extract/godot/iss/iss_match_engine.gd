@@ -50,6 +50,21 @@ var restart_after := R.NONE
 var ball_entered := true
 var offside_side := -1
 
+## Knockout match ($1274): a draw goes to extra time and penalties.
+var knockout := false
+## g_game_time: 1-3, one less in extra time.
+var game_time := 2
+var shootout := false
+var pk_scores := [0, 0]
+var pk_taken := [0, 0]
+var pk_side := 0
+## 0 waiting for the kick, 1 ball on its way, 2 showing the outcome.
+var pk_phase := 0
+var pk_timer := 0
+var pk_next := [10, 10]
+var shootout_over := false
+var last_pads: Array = []
+
 var referee_pos := Vector2.ZERO
 var linesman_pos := Vector2.ZERO
 var event_counts := {}
@@ -82,8 +97,9 @@ func setup(home: int, away: int, opts: Dictionary) -> void:
 			s == 1 and (home == away or clash_home == clash_away), int(formations[s]))
 		t.pads = int(pads[s])
 		teams.append(t)
-	var minutes := 2 * int(opts.get("time", 2)) + 1
-	half_frames = int(opts.get("half_seconds", minutes * 60)) * 60
+	knockout = bool(opts.get("knockout", false))
+	game_time = int(opts.get("time", 2))
+	half_frames = _half_length()
 	clock = half_frames
 	left_goal_team = 0
 	kickoff_side = randi() % 2
@@ -92,7 +108,18 @@ func setup(home: int, away: int, opts: Dictionary) -> void:
 	_place_for_kickoff(kickoff_side)
 	referee_pos = mid + Vector2(-48, 64)
 	linesman_pos = Vector2(mid.x, rect.position.y - 20)
-	start_restart(R.MATCH_START, kickoff_side, mid)
+	if bool(opts.get("pk_only", false)):
+		_start_shootout() # PK mode (mode_start_pk)
+	else:
+		start_restart(R.MATCH_START, kickoff_side, mid)
+
+
+## Frames in a half: 2 * g_game_time + 1 minutes (g_game_time is one less in
+## extra time); "half_seconds" overrides it for tests.
+func _half_length() -> int:
+	if options.has("half_seconds"):
+		return int(options["half_seconds"]) * (60 if half < 2 else 30)
+	return (2 * game_time + 1) * 3600
 
 
 ## Break the engine / team / player references so that everything is freed.
@@ -172,6 +199,7 @@ func step(pads: Array = []) -> void:
 	if over:
 		return
 	frame += 1
+	last_pads = pads
 	var slot := frame & 15
 	# Formation lines: one role per frame, home on slots 0-3, away on 4-7.
 	var order: Array = ISSMatchData.consts["team_lines"]["order"]
@@ -188,7 +216,8 @@ func step(pads: Array = []) -> void:
 			if slot == p.index:
 				t.think(p)
 			if p.state == ISSFootballer.S.KEEPER_HOLD:
-				t.keeper_distribute(p)
+				if not shootout:
+					t.keeper_distribute(p)
 			elif p.state == ISSFootballer.S.SET_PIECE:
 				_cpu_set_piece(p)
 			else:
@@ -200,10 +229,13 @@ func step(pads: Array = []) -> void:
 	ball.step()
 	_contacts()
 	_bounds()
-	if restart_type == R.NONE and ball.live:
+	if shootout:
+		_shootout_step()
+	elif restart_type == R.NONE and ball.live:
 		_check_out()
-	_clock()
-	_director()
+	if not shootout:
+		_clock()
+		_director()
 	_officials()
 
 
@@ -519,6 +551,11 @@ func kick_ball(p: ISSFootballer) -> void:
 	b.launch(p, h, spd, v, z0)
 	emit_sound(sfx)
 	var was := restart_type
+	if was == R.PENALTY and p == restart_taker:
+		_penalty_keeper(teams[1 - p.team].players[0])
+		if shootout:
+			pk_phase = 1
+			pk_timer = 0
 	if restart_type != R.NONE and restart_phase == 1 and p == restart_taker:
 		restart_type = R.NONE
 		restart_taker = null
@@ -715,7 +752,19 @@ func _clock() -> void:
 		return
 	if restart_type == R.NONE and ball.live:
 		_release()
-		start_restart(R.HALF_TIME if half == 0 else R.TIME_UP, 0, ball.pos)
+		var level := teams[0].score == teams[1].score
+		var next := R.TIME_UP
+		match half:
+			0:
+				next = R.HALF_TIME
+			1:
+				if knockout and level:
+					next = R.HALF_TIME # into extra time
+			2:
+				# V-goal: extra time stops after the half in which a side leads.
+				if not (int(options.get("vgoal", 1)) == 1 and not level):
+					next = R.HALF_TIME
+		start_restart(next, 0, ball.pos)
 
 
 func clock_seconds() -> float:
@@ -784,13 +833,19 @@ func _director() -> void:
 			R.GOAL, R.OWN_GOAL:
 				_start_kickoff(restart_side)
 			R.HALF_TIME:
-				half = 1
+				half += 1
+				if half == 2:
+					game_time = maxi(0, game_time - 1)
+				half_frames = _half_length()
 				left_goal_team = 1 - left_goal_team
 				clock = half_frames
 				for t in teams:
 					t.reset_lines()
-				_start_kickoff(1 - kickoff_side)
+				_start_kickoff(kickoff_side if half % 2 == 0 else 1 - kickoff_side)
 			R.TIME_UP:
+				if knockout and teams[0].score == teams[1].score:
+					_start_shootout()
+					return
 				# match_result_banner, then the end.
 				banner.emit(_result_banner())
 				restart_phase = 2
@@ -813,6 +868,8 @@ func _director() -> void:
 ## YOU WIN / YOU LOSE against the computer, else MATCH DRAWN or TEAM WINS.
 func _result_banner() -> String:
 	var diff := teams[0].score - teams[1].score
+	if shootout:
+		diff = int(pk_scores[0]) - int(pk_scores[1])
 	if diff == 0:
 		return "match_drawn"
 	var winner := 0 if diff > 0 else 1
@@ -946,7 +1003,7 @@ func _setup_restart() -> void:
 	ball.step()
 	restart_taker = taker
 	restart_phase = 1
-	if type == R.PENALTY:
+	if type == R.PENALTY and not shootout:
 		_setup_penalty(taker)
 	elif type in [R.KICKOFF, R.MATCH_START]:
 		emit_sound(0x47)
@@ -991,11 +1048,6 @@ func _cpu_set_piece(p: ISSFootballer) -> void:
 			p.kick_target = null
 			p.kick_power = 3 + randi() % 4
 			p.press = ISSFootballer.SHOOT
-			# The keeper guesses.
-			var k := teams[1 - p.team].players[0]
-			var guess := randi() % 3
-			if guess < 2:
-				k.start_dive(0.0 if guess == 0 else 32.0)
 		R.KICKOFF, R.MATCH_START:
 			var mate := t._best_mate(p, t.their_goal(), 200.0)
 			p.kick_target = mate
@@ -1024,6 +1076,161 @@ func _cpu_set_piece(p: ISSFootballer) -> void:
 			else:
 				p.press = ISSFootballer.PASS
 	p.kick_heading = p.facing
+
+
+# ---------------------------------------------------------------------------
+# Penalties.
+
+## The keeper facing a penalty: a human keeper dives the way the pad points
+## (up or down) at the kick, the computer guesses (shootout_keeper_ai).
+func _penalty_keeper(k: ISSFootballer) -> void:
+	var side := k.team
+	var dir := -1
+	if teams[side].pads > 0 and side < last_pads.size() and last_pads[side] != null:
+		var d: int = last_pads[side].get("dir", -1)
+		if d >= 0:
+			var v := ISSProjection.heading_vector(d)
+			dir = 0 if v.y < -0.3 else (1 if v.y > 0.3 else 2)
+		else:
+			dir = 2
+	else:
+		dir = randi() % 3
+	if dir < 2:
+		k.start_dive(0.0 if dir == 0 else 32.0, 2.2 + 0.2 * float(teams[side].keeper_skill))
+
+
+## state_shootout: five kicks each at one goal, then sudden death.
+func _start_shootout() -> void:
+	shootout = true
+	half = 4
+	pk_scores = [0, 0]
+	pk_taken = [0, 0]
+	pk_next = [10, 10]
+	pk_side = kickoff_side
+	restart_type = R.NONE
+	ball.live = true
+	banner.emit("penalty_kick")
+	_next_penalty()
+
+
+func _next_penalty() -> void:
+	var s := pk_side
+	# Kicks go at the right-hand goal: the taker's side defends the left one.
+	left_goal_team = s
+	var taker_team := teams[s]
+	var keeper := teams[1 - s].players[0]
+	# Takers from the forwards back (squad order 10, 9, ... 1), skipping the sent off.
+	var taker: ISSFootballer = null
+	for i in 11:
+		var idx := int(pk_next[s])
+		pk_next[s] = 10 if idx <= 1 else idx - 1
+		var cand := taker_team.players[idx]
+		if cand.state != ISSFootballer.S.SENT_OFF:
+			taker = cand
+			break
+	for t in teams:
+		for p in t.active():
+			p.set_state(ISSFootballer.S.MOVE, ISSFootballer.A_STAND)
+			p.speed = 0.0
+			p.z = 0.0
+			# Everyone else waits in the centre circle.
+			p.pos = mid + Vector2(-40.0 + 16.0 * float(p.index % 6), -40.0 + 20.0 * float(p.team * 3 + p.index / 6))
+			p.facing = 16
+	keeper.pos = goal_center(1 - s) + Vector2(-4.0, 0)
+	keeper.facing = 48
+	restart_type = R.PENALTY
+	restart_side = s
+	restart_pos = goal_center(1 - s) + Vector2(-256.0, 0)
+	restart_phase = 0
+	_setup_restart()
+	if taker != null and restart_taker != taker:
+		# _setup_restart took the nearest: swap in this round's taker.
+		var first := restart_taker
+		first.set_state(ISSFootballer.S.MOVE, ISSFootballer.A_STAND)
+		first.pos = taker.pos
+		taker.pos = restart_pos - Vector2(8, 0)
+		taker.start_set_piece(16.0)
+		taker.ai_wait = 60 + randi() % 40
+		ball.owner = taker
+		ball.team = s
+		ball.last_touch = taker
+		restart_taker = taker
+	pk_phase = 0
+	pk_timer = 0
+
+
+func _shootout_step() -> void:
+	if shootout_over:
+		restart_timer -= 1
+		if restart_timer <= 0:
+			banner_off.emit()
+			over = true
+			finished.emit()
+		return
+	if pk_phase == 2:
+		pk_timer -= 1
+		if pk_timer <= 0:
+			banner_off.emit()
+			var w := _shootout_winner()
+			if w >= 0:
+				banner.emit(_result_banner())
+				restart_type = R.TIME_UP
+				restart_phase = 2
+				restart_timer = 150
+				shootout_over = true
+				return
+			pk_side = 1 - pk_side
+			_next_penalty()
+		return
+	if pk_phase != 1:
+		return
+	pk_timer += 1
+	var b := ball
+	var g: Dictionary = ISSMatchData.consts["goal"]
+	var goal_x := rect.end.x
+	if b.pos.x > goal_x:
+		var scored: bool = absf(b.pos.y - mid.y) < float(g["post_inner"]) and b.z < float(g["bar"])
+		_penalty_done(scored)
+	elif b.owner != null or pk_timer > 150 or (b.speed < 0.2 and b.z <= 0.0 and pk_timer > 20) \
+			or b.pos.y < rect.position.y or b.pos.y > rect.end.y:
+		_penalty_done(false)
+
+
+
+func _penalty_done(scored: bool) -> void:
+	var s := pk_side
+	pk_taken[s] = int(pk_taken[s]) + 1
+	if scored:
+		pk_scores[s] = int(pk_scores[s]) + 1
+		emit_sound(0x64)
+		say(0x2F)
+		banner.emit("   GOAL   ")
+	else:
+		emit_sound(0x6A)
+		banner.emit("  MISSED  ")
+	ball.speed = 0.0
+	pk_phase = 2
+	pk_timer = 120
+
+
+## The winning side once it cannot be caught (5 kicks each), else -1.
+func _shootout_winner() -> int:
+	var a := int(pk_scores[0])
+	var b := int(pk_scores[1])
+	var ta := int(pk_taken[0])
+	var tb := int(pk_taken[1])
+	if ta <= 5 and tb <= 5:
+		if a > b + (5 - tb):
+			return 0
+		if b > a + (5 - ta):
+			return 1
+		if ta == 5 and tb == 5 and a != b:
+			return 0 if a > b else 1
+		return -1
+	# Sudden death: after each pair.
+	if ta == tb and a != b:
+		return 0 if a > b else 1
+	return -1
 
 
 # ---------------------------------------------------------------------------

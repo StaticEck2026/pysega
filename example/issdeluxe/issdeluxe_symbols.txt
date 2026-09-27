@@ -350,6 +350,7 @@ g_opt_vgoal                 = $00FFFFFC ; Word (settings): overtime 0 = full ext
 g_opt_referee               = $00FFFFFE ; Word (settings): referee 0 Carlos, 1 Heinz (default), 2 Hasegawa, 3 random;\nbecomes g_officials_kit at the start of a match
 g_game_level                = $00FF1278 ; Word: game level 0-4 of this match (g_settings word 0); CPU teams play at\nthis tm_ai_level and tm_keeper_skill, human teams at 2
 g_game_time                 = $00FF164C ; Word: game time 1-3 of this match (g_opt_time); the clock starts each half at\n2 * value + 1 minutes
+g_knockout                  = $00FF1274 ; Word: 1 = the match needs a winner: level after the second half, it goes to extra\ntime (halves of 2 * (g_game_time - 1) + 1 minutes; with g_opt_vgoal it ends after the extra-time half in which a\nside leads), level after that to state_shootout. Set for open games, short tournaments and cup knockout rounds
 g_linesman                  = $00FF1ADC ; Linesman object (npc_draw)
 g_ai_slot                   = $00FF181C ; Word: round-robin AI slot, (slot + 1) & 15 every frame (match_players_update).\nPlayer i runs its heavy AI when the slot equals obj_ai_slot (i); slot 12 = referee, 13 = linesman,\n14 = ball / goal-mouth sprite priority
 g_team_home                 = $00FF163E ; Word: home team (0-42)

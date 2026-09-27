@@ -101,6 +101,7 @@ func _init() -> void:
 	await process_frame
 	_check_match_engine()
 	_check_human_control()
+	_check_knockout()
 	await _check_game()
 	print("iss_selftest: ", "OK" if _failures == 0 else "%d failure(s)" % _failures)
 	quit(0 if _failures == 0 else 1)
@@ -205,3 +206,30 @@ func _check_game() -> void:
 	_check(m != null and m.engine.frame > 60, "match runs on screen")
 	game.queue_free()
 	await process_frame
+
+
+## A level knockout match goes through extra time to a shoot-out that ends
+## with a winner; PK mode is a shoot-out on its own.
+func _check_knockout() -> void:
+	seed(21)
+	var e := ISSMatchEngine.new()
+	e.setup(0, 1, {"pads": [0, 0], "half_seconds": 20, "knockout": true, "vgoal": 0})
+	var halves := {}
+	var frames := 0
+	while not e.over and frames < 60 * 60 * 20:
+		if not e.shootout:
+			e.teams[1].score = e.teams[0].score
+		e.step([])
+		halves[e.half] = true
+		frames += 1
+	_check(e.over and e.shootout and halves.size() == 5, "extra time then penalties")
+	_check(e.pk_scores[0] != e.pk_scores[1] and e.pk_taken[0] >= 3, "the shoot-out has a winner")
+	e.dispose()
+	var p := ISSMatchEngine.new()
+	p.setup(2, 3, {"pads": [0, 0], "pk_only": true})
+	frames = 0
+	while not p.over and frames < 60 * 60 * 10:
+		p.step([])
+		frames += 1
+	_check(p.over and p.half == 4, "PK mode")
+	p.dispose()

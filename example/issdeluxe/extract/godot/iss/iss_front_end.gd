@@ -12,14 +12,14 @@ signal start_match(home: int, away: int, options: Dictionary)
 enum Page { MAIN, TEAMS, OPTIONS, RULES, RESULT }
 
 const SCREENS := "res://assets/iss/screens/"
-const MODES := ["1P VS COM", "1P VS 2P", "COM VS COM", "OPTIONS", "RULES"]
-const PADS := [[1, 0], [1, 1], [0, 0]]
+const MODES := ["1P VS COM", "1P VS 2P", "COM VS COM", "OPTIONS", "RULES", "PK"]
+const PADS := [[1, 0], [1, 1], [0, 0], [], [], [1, 0]]
 const WEATHERS := ["SNOW", "FINE", "RAIN"]
 const REFEREES := ["CARLOS", "HEINZ", "HASEGAWA", "RANDOM"]
 
 ## Settings kept between matches (g_settings), with the game's defaults.
 static var settings := {"level": 2, "time": 2, "mono": 0, "fouls": true, "cards": true,
-	"offside": true, "referee": 1}
+	"offside": true, "vgoal": 1, "referee": 1}
 static var home := 0
 static var away := 2
 static var stadium := 0
@@ -112,7 +112,7 @@ func _main(moved: Vector2i, ok: bool) -> void:
 	cursor = clampi(cursor + moved.y * 2 + moved.x, 0, MODES.size() - 1)
 	if ok:
 		match cursor:
-			0, 1, 2:
+			0, 1, 2, 5:
 				mode = cursor
 				show_page(Page.TEAMS)
 			3:
@@ -147,6 +147,9 @@ func _teams(moved: Vector2i, ok: bool, back: bool) -> void:
 		opts["weather"] = weather
 		opts["pads"] = PADS[mode]
 		opts["formations"] = [home_formation, away_formation]
+		# Open games are knockout matches ($1274 = 1): extra time, then penalties.
+		opts["knockout"] = true
+		opts["pk_only"] = mode == 5
 		start_match.emit(home, away, opts)
 
 
@@ -171,11 +174,13 @@ func _options(moved: Vector2i, ok: bool, back: bool) -> void:
 
 
 func _rules(moved: Vector2i, ok: bool, back: bool) -> void:
-	cursor = clampi(cursor + moved.y, 0, 3)
+	cursor = clampi(cursor + moved.y, 0, 4)
 	var keys := ["fouls", "cards", "offside"]
 	if cursor < 3 and moved.x != 0:
 		settings[keys[cursor]] = moved.x < 0
-	elif cursor == 3:
+	elif cursor == 3 and moved.x != 0:
+		settings["vgoal"] = 1 if moved.x < 0 else 0
+	elif cursor == 4:
 		settings["referee"] = posmod(int(settings["referee"]) + moved.x, 4)
 	if ok or back:
 		show_page(Page.MAIN)
@@ -226,8 +231,10 @@ func _draw() -> void:
 			for i in 3:
 				var on: bool = settings[["fouls", "cards", "offside"][i]]
 				_box(Rect2(144, 40 + 24 * i, 16, 16) if on else Rect2(168, 40 + 24 * i, 24, 16), cursor == i)
+			var vgoal := int(settings["vgoal"]) == 1
+			_box(Rect2(112, 112, 48, 16) if vgoal else Rect2(168, 112, 64, 16), cursor == 3)
 			var ref := int(settings["referee"])
-			_box(Rect2(20 + 56 * ref, 150, 48, 64), cursor == 3)
+			_box(Rect2(20 + 56 * ref, 150, 48, 64), cursor == 4)
 		Page.RESULT:
 			ISSText.draw_centred(self, "FULL TIME", 128, 24, true)
 			var hs := int(result.get("home_score", 0))
@@ -242,6 +249,11 @@ func _draw() -> void:
 				var who := "%s %s%s" % [str(s["minute"] + 1) + "'", s["name"], " (OG)" if s["own_goal"] else ""]
 				ISSText.draw(self, who, Vector2(24 if int(s["side"]) == 0 else 136, y), false)
 				y += 12
+			var pk: Array = result.get("penalties", [])
+			if not pk.is_empty():
+				ISSText.draw_centred(self, "PK %d - %d" % [pk[0], pk[1]], 128, 74, false)
+				hs = int(pk[0])
+				as_ = int(pk[1])
 			var winner := "MATCH DRAWN" if hs == as_ else (hn if hs > as_ else an) + " WINS"
 			ISSText.draw_centred(self, winner, 128, 196, true, true)
 
