@@ -197,9 +197,43 @@ length `g_password_length`):
 
 A penalty shoot-out (PK mode uses one too) runs `state_shootout` once per
 kick while `g_shootout_kicks` is below 5: the kick is seen from behind the
-taker (screen `$26`, the 16 × 16 ball of `ball_update_large`). The options
-screens set the rules (fouls, yellow cards, offside, overtime or V-goal
-overtime) and the referee (Carlos, Heinz, Hasegawa or random).
+taker (screen `$26`, the 16 × 16 ball of `ball_update_large`).
+`shootout_setup` places the taker (the next in the order list, x $80,
+y $12C, facing away, with the ball) and the keeper (x $80, y $CC, facing the
+camera). The keeper (`shootout_keeper`) waits until the ball moves, then the
+pad (or `shootout_keeper_ai`) picks a save: pass + direction crouches, pass
+alone steps across, lofted + direction jumps with both arms, lofted alone
+reaches with one arm (the frames of actions 31, 33, 30 and 32 seen from the
+front).
+
+**Options** (`g_settings`, 8 words at $FFFFF0 kept across resets with a
+checksum; `system_init` restores the defaults when the checksum is wrong):
+
+| Word | Setting | Values (default in bold) |
+|---|---|---|
+| $FFFFF0 | game level | 0-4 (**2**); CPU teams play at this `tm_ai_level` and `tm_keeper_skill` |
+| `g_opt_time` | game time | 1-3 (**2**): 3, 5 or 7 minutes per half |
+| `g_opt_mono` | sound | **0 stereo**, 1 mono |
+| `g_opt_fouls_off` | fouls | **0 on**, 1 off |
+| `g_opt_cards_off` | yellow cards | **0 on**, 1 off |
+| `g_opt_offside_off` | offside | **0 on**, 1 off (the offside check does not read it) |
+| `g_opt_vgoal` | overtime | 0 full extra time, **1 V-goal** |
+| `g_opt_referee` | referee | 0 Carlos, **1 Heinz**, 2 Hasegawa, 3 random (`g_officials_kit`) |
+
+The handicap screen sets, per team, `tm_condition` (0-4 for every player's
+`obj_energy`, 5 = random), `tm_players` (players on the pitch − 7; a
+sending-off takes one off and no card is given at 0) and `tm_keeper_skill`.
+
+**Passwords.** `g_password` holds a checksum byte, a key byte and the mode's
+fields, written most significant bit first from bit 16
+(`password_write_bits`, `password_read_bits`). `password_seal` picks a
+random key, XORs the 46 bytes after it with the key and stores the checksum
+($F5 + the bytes from the key on); `password_check` verifies it and removes
+the key. Each character carries 6 bits, and the number of bits entered
+selects the mode: 42 championship (game level: 3 bits, then three 6-bit team
+numbers), 48 International Cup, 72 its group round, 96 short league,
+102 short tournament, 120 scenario, 180 International Cup finals, 264 World
+Series (`password_encode_*` write them, `mode_resume_*` read them back).
 
 **Input.** `joypad_read_all` supports up to 8 controllers through a multitap
 (`g_pad_type`, `g_pad_state`). `match_players_update` merges them per team
@@ -306,7 +340,13 @@ times.
 **Players.** Player 0 is the goalkeeper (`keeper_ai`: 32 px in front of the
 goal line, sliding along it with the angle to the ball; `keeper_save` when
 the ball comes within $50, `keeper_rush_out` for balls played into the
-area). Outfield players use `player_ai`:
+area). Its movement (`keeper_update`) is a copy of the outfield state machine
+with the keeper's own states: `keeper_dive` (a slow ball gets the
+full-length dive in the frames of action 22, a fast one the jump of
+action 21; gravity $5000 per frame NTSC, $7333 PAL), then `keeper_hold`
+(turns at most 45° off the line up the pitch; pass throws, lofted or shoot
+kicks from the hands; left alone it kicks after 64-191 frames one time in
+four and rolls the ball out otherwise). Outfield players use `player_ai`:
 
 1. loose ball and nearest to where it will land → `player_ai_chase_ball`;
 2. opponents in possession and nearest (or second nearest, unless covering)
@@ -650,8 +690,8 @@ comments to `issdeluxe_symbols.txt` (`name = $ADDRESS ; comment`) — RAM
 addresses become equates, ROM addresses labels — and re-run the split. Labels
 must sit on instruction, hint or segment boundaries; `sega2asm` warns otherwise.
 
-Every routine and data block has a name. About 520 names (routines, tables
-and RAM variables) are written by hand; the other 1918 come from
+Every routine and data block has a name. About 580 names (routines, tables
+and RAM variables) are written by hand; the other 1864 come from
 `tools/name_routines.py`, which works from the listing: a routine
 only ever reached from one named routine (installed as its next state, called
 or jumped to) is `<owner>_<n>`, or `<owner>_<action>` when it starts one of the
@@ -690,15 +730,15 @@ shoot-out state, the strategies, the small sprites and the 60 front-end
 screen handlers are named, and every routine and data block now has a name
 (hand-written or derived from its owner, see above).
 
+The options, the handicap settings, the password container, the
+goalkeeper's dive and distribution and the shoot-out keeper are decoded too.
+
 Open work, in rough order of value for a port:
 1. The figures of the presentation scenes (`flag_fans_draw`).
-2. The front-end logic in detail: the object behind each remaining menu
-   screen, the cursor sprites, the options and how the password bits map to
-   the competition state.
+2. The field layout of each mode's password and the object behind each
+   remaining menu screen.
 3. The exact effects of curl, intelligence, balance and dribble (bytes 4,
    5 and 7 are read by the tackle, foul and ball-control code; no read of
    byte 3 was found yet).
-4. Match engine, remaining: the individual goalkeeper states, the
-   shoot-out's own logic, the camera.
-5. Sound: the note and pattern encoding in full (to convert songs to MIDI)
+4. Sound: the note and pattern encoding in full (to convert songs to MIDI)
    and the FM patch format; the rendered audio already covers playback.

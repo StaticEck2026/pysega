@@ -247,23 +247,6 @@ def main():
     def show(r):
         return name[r][0] if r in name else r
 
-    for n, (new, note) in list(name.items()):
-        if note is not None:
-            continue
-        how = sorted({(KIND[kind], show(r)) for r, kind in refs.get(n, [])})
-        o = owner.get(n)
-        if o and o != new:
-            note = "Part of %s: " % o
-        elif how:
-            note = "Shared: "
-        else:
-            note = "No static reference (reached through a computed jump, or unused)"
-        note += "; ".join("%s %s" % h for h in how[:4]) + (" (+%d)" % (len(how) - 4) if len(how) > 4 else "")
-        acts = sorted(funcs[n]["actions"])
-        if acts:
-            note += "; action " + ", ".join("%d %s" % (a, ACTIONS[a]) if a < len(ACTIONS) else str(a) for a in acts)
-        name[n] = (new, note)
-
     # Data blocks: named after the routine that uses them.
     users = defaultdict(set)
     for f in funcs.values():
@@ -311,6 +294,24 @@ def main():
                     taken.add(new)
                     name[d] = (new, "Entry %d of %s" % (i, tn))
                     changed = True
+
+    # Notes last, so that they cite the final names of the tables too.
+    for n, (new, note) in list(name.items()):
+        if note is not None:
+            continue
+        how = sorted({(KIND[kind], show(r)) for r, kind in refs.get(n, [])})
+        o = owner.get(n)
+        if o and o != new:
+            note = "Part of %s: " % o
+        elif how:
+            note = "Shared: "
+        else:
+            note = "No static reference (reached through a computed jump, or unused)"
+        note += "; ".join("%s %s" % h for h in how[:4]) + (" (+%d)" % (len(how) - 4) if len(how) > 4 else "")
+        acts = sorted(funcs[n]["actions"])
+        if acts:
+            note += "; action " + ", ".join("%d %s" % (a, ACTIONS[a]) if a < len(ACTIONS) else str(a) for a in acts)
+        name[n] = (new, note)
 
     for n in sorted(name, key=addr_of):
         new, note = name[n]

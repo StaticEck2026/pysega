@@ -85,11 +85,15 @@ structs:
     - {offset: 0x00, name: tm_kit_tiles, comment: "Long: kit tiles (7 per team, unpacked)"}
     - {offset: 0x04, name: tm_head_tiles, comment: "Long: head tiles recoloured with the team's head mask"}
     - {offset: 0x08, name: tm_hair_tiles, comment: "Long: hair tiles (ROM)"}
+    - {offset: 0x12, name: tm_ai_level, comment: "Word: AI level 0-4 (CPU team: g_game_level; human team: 2); indexes the AI tables such as player_ai_press_data"}
     - {offset: 0x1E, name: tm_ratings, comment: "5 bytes: tbl_team_ratings"}
     - {offset: 0x24, name: tm_strategy, comment: "Word: strategy being applied (-1 = none): 0 all out attack, 1 push along centre, 2 push along wings, 3 counter attack, 4 all out defence, 5 press up, 6 zone press, 7 offside trap"}
     - {offset: 0x26, name: tm_strategy_run, comment: "Word: run started by strategy 1 or 2"}
     - {offset: 0x36, name: tm_lines, comment: "3 words: X of the attack, midfield and defence lines (indexed by obj_role)"}
     - {offset: 0x5C, name: tm_formation, comment: "Word: formation 0-15 (tbl_formations: 4-5-1, 4-4-2, 4-3-3, 4-2-4, 3-5-2, 3-4-3, 3-3-4, 3-2-5, 2-5-3, 2-4-4, 2-3-5, 5-4-1, 5-3-2, 5-2-3, 1-5-4, 1-4-5)"}
+    - {offset: 0x5E, name: tm_condition, comment: "Word: handicap condition 0-4 copied to every player's obj_energy, 5 = random per player"}
+    - {offset: 0x60, name: tm_players, comment: "Word: players on the pitch - 7 (handicap, default 4 = 11 players); a sending-off takes one off (restart_card), and no card is given while it is 0"}
+    - {offset: 0x62, name: tm_keeper_skill, comment: "Word: goalkeeper skill 0-4 (handicap; CPU team: g_game_level), read by the keeper and ball code"}
     - {offset: 0x64, name: tm_nearest, comment: "Long: player nearest to the ball's landing point"}
     - {offset: 0x68, name: tm_second, comment: "Long: second nearest player"}
     - {offset: 0x6C, name: tm_front, comment: "Long: most advanced player (offside checks)"}
