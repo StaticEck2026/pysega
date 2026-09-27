@@ -69,6 +69,16 @@ var referee_pos := Vector2.ZERO
 var linesman_pos := Vector2.ZERO
 var event_counts := {}
 
+## Training (mode 0): the drill (g_training_drill) 0 free, 1 defence, 2 free kick,
+## 3 keeper, or -1 outside training; drill_wait counts down the frames
+## (match_rules_update_1) before the drill is set up again.
+var drill := -1
+var drill_wait := -1
+## Where players go for the restart being set up when its script puts them
+## somewhere else than restart_place: the free kick wall and its runners.
+var set_places := {}
+var _wall: Array[ISSFootballer] = []
+
 
 ## options: stadium 0-7, weather 0 snow / 1 fine / 2 rain, time 1-3 (minutes
 ## per half = 2 * time + 1), level 0-4, fouls, cards, offside (bools),
@@ -93,8 +103,9 @@ func setup(home: int, away: int, opts: Dictionary) -> void:
 		var t := ISSTeam.new()
 		var human: bool = int(pads[s]) > 0
 		var formations: Array = opts.get("formations", [-1, -1])
-		t.setup(self, s, home if s == 0 else away, 2 if human else level,
-			s == 1 and (home == away or clash_home == clash_away), int(formations[s]))
+		# Training puts the practice team in its second kit (g_kit_away = 1).
+		var kit2 := s == 1 and (home == away or clash_home == clash_away or opts.has("training"))
+		t.setup(self, s, home if s == 0 else away, 2 if human else level, kit2, int(formations[s]))
 		t.pads = int(pads[s])
 		if human:
 			var slots: Array = opts.get("strategies", [0, 2, 4, 7])
@@ -111,15 +122,12 @@ func setup(home: int, away: int, opts: Dictionary) -> void:
 	_place_for_kickoff(kickoff_side)
 	referee_pos = mid + Vector2(-48, 64)
 	linesman_pos = Vector2(mid.x, rect.position.y - 20)
-	if bool(opts.get("training", false)):
-		# Training: the other side only fields its goalkeeper.
-		for p in teams[1].players:
-			if not p.is_keeper():
-				p.set_state(ISSFootballer.S.SENT_OFF, ISSFootballer.A_STAND)
-				p.pos = Vector2(mid.x, rect.position.y - 300.0)
-		half = 1
-		kickoff_side = 0
-	if bool(opts.get("pk_only", false)):
+	if opts.has("training"):
+		# No referee in training: no fouls, cards or offside.
+		for k in ["fouls", "cards", "offside"]:
+			options[k] = false
+		start_drill(int(opts["training"]))
+	elif bool(opts.get("pk_only", false)):
 		_start_shootout() # PK mode (mode_start_pk)
 	elif opts.has("scenario"):
 		_start_scenario(opts["scenario"])
@@ -176,6 +184,8 @@ func dispose() -> void:
 	ball.kicker = null
 	ball.last_touch = null
 	restart_taker = null
+	set_places.clear()
+	_wall.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -270,8 +280,11 @@ func step(pads: Array = []) -> void:
 		_shootout_step()
 	elif restart_type == R.NONE and ball.live:
 		_check_out()
-	if not shootout:
+	if drill >= 0:
+		_drill_step()
+	elif not shootout:
 		_clock()
+	if not shootout:
 		_director()
 	_officials()
 
@@ -285,7 +298,9 @@ func _control(t: ISSTeam, pad: Dictionary) -> void:
 		return
 	var c := t.controlled
 	var owner := ball.owner
-	if owner != null and owner.team == t.side:
+	if t.keeper_manual:
+		c = t.players[0]
+	elif owner != null and owner.team == t.side:
 		c = owner
 	elif restart_taker != null and restart_taker.team == t.side and restart_phase == 1:
 		c = restart_taker
@@ -613,6 +628,7 @@ func kick_ball(p: ISSFootballer) -> void:
 		restart_type = R.NONE
 		restart_taker = null
 		restart_phase = 0
+		set_places.clear()
 	# No offside from throw-ins, goal kicks and corners.
 	if was not in [R.THROW_IN, R.GOAL_KICK, R.CORNER] and kind != ISSFootballer.K.SHOT:
 		_mark_offside(p)
@@ -731,12 +747,16 @@ func _check_out() -> void:
 			ball_entered = true
 		elif b.owner != null or b.speed > 0.2 or b.z > 0.0:
 			return
+	if drill > 0 and (b.pos.y < rect.position.y or b.pos.y > rect.end.y):
+		_drill_over()
+		return
 	if b.pos.y < rect.position.y or b.pos.y > rect.end.y:
 		_release()
 		var y := rect.position.y - float(rs["throw_in_outside"]) if b.pos.y < rect.position.y else rect.end.y + float(rs["throw_in_outside"])
 		var x := clampf(b.pos.x, rect.position.x + float(rs["throw_in_clamp"]), rect.end.x - float(rs["throw_in_clamp"]))
 		emit_sound(0x59)
-		start_restart(R.THROW_IN, 1 - b.team, Vector2(x, y))
+		# Free training: every restart is the home side's (nobody else is on).
+		start_restart(R.THROW_IN, 0 if drill == 0 else 1 - b.team, Vector2(x, y))
 		return
 	if b.pos.x >= rect.position.x and b.pos.x <= rect.end.x:
 		return
@@ -758,6 +778,9 @@ func _check_out() -> void:
 		emit_sound(0x4B)
 		return
 	_release()
+	if drill > 0:
+		_drill_over()
+		return
 	var rsx := float(rs["goal_kick_x"])
 	if b.team == defending:
 		var cy := rect.position.y + float(rs["corner_inside"]) if b.pos.y < mid.y else rect.end.y - float(rs["corner_inside"])
@@ -786,6 +809,12 @@ func _goal(defending: int) -> void:
 	var minute := (half_frames - clock) / 3600 + half * (half_frames / 3600)
 	scorers.append({"side": side, "name": scorer.name if scorer != null else "", "minute": minute, "own_goal": own})
 	goal_scored.emit(side, scorer, own)
+	if drill > 0:
+		# A drill counts it and starts again.
+		emit_sound(0x64)
+		say(0x2F)
+		_drill_over()
+		return
 	for p in teams[side].active():
 		if not p.is_keeper():
 			p.celebrate()
@@ -843,6 +872,10 @@ func start_restart(type: int, side: int, pos: Vector2) -> void:
 	restart_pos = pos
 	restart_phase = 0
 	restart_taker = null
+	set_places.clear()
+	_wall.clear()
+	if type in [R.FREE_KICK, R.OFFSIDE]:
+		_free_kick_places()
 	event_counts[type] = int(event_counts.get(type, 0)) + 1
 	var a: Array = ANNOUNCE.get(type, ["", -1, 60])
 	restart_timer = int(a[2])
@@ -884,7 +917,7 @@ func _director() -> void:
 		banner_off.emit()
 		match restart_type:
 			R.GOAL, R.OWN_GOAL:
-				_start_kickoff(0 if bool(options.get("training", false)) else restart_side)
+				_start_kickoff(0 if drill >= 0 else restart_side)
 			R.HALF_TIME:
 				half += 1
 				if half == 2:
@@ -916,6 +949,7 @@ func _director() -> void:
 			restart_type = R.NONE
 			restart_phase = 0
 			restart_taker = null
+			set_places.clear()
 
 
 ## YOU WIN / YOU LOSE against the computer, else MATCH DRAWN or TEAM WINS.
@@ -992,6 +1026,8 @@ func kickoff_place(p: ISSFootballer, side: int) -> Vector2:
 
 ## Where a player stands while a restart is being set up.
 func restart_place(p: ISSFootballer) -> Vector2:
+	if set_places.has(p):
+		return set_places[p]
 	var t := teams[p.team]
 	if restart_type in [R.KICKOFF, R.MATCH_START]:
 		return kickoff_place(p, restart_side)
@@ -1035,6 +1071,13 @@ func _setup_restart() -> void:
 					taker = p
 	if taker == null:
 		taker = t.players[0]
+	# The wall is in place when the ball is put down.
+	for p in _wall:
+		if p != taker and p.state != ISSFootballer.S.SENT_OFF:
+			p.pos = set_places[p]
+			p.speed = 0.0
+			p.facing = int(ISSFootballer.heading_to(p.pos, restart_pos)) & 63
+	set_places.erase(taker)
 	var d := attack_dir(side)
 	var aim := 16.0 if d > 0.0 else 48.0
 	match type:
@@ -1284,6 +1327,198 @@ func _shootout_winner() -> int:
 	if ta == tb and a != b:
 		return 0 if a > b else 1
 	return -1
+
+
+# ---------------------------------------------------------------------------
+# The free kick wall (restart_setup_free_kick, $013B76).
+
+## Within wall_range of the goal line the defenders 1..n line up
+## wall_distance px from the ball toward the goal centre, n by the angle
+## (tbl_wall_size), wall_gap px apart; the other defenders and the
+## kicking side's players 5-10 go to the places of tbl_fk_attack / _defence,
+## mirrored to the ball's side of the pitch.
+func _free_kick_places() -> void:
+	var fk: Dictionary = ISSMatchData.consts["free_kick"]
+	var side := restart_side
+	var goal := goal_center(1 - side)
+	if absf(goal.x - restart_pos.x) >= float(fk["wall_range"]):
+		return
+	var h := int(ISSFootballer.heading_to(restart_pos, goal)) & 63
+	var n := int(fk["wall_size"][h >> 2])
+	var centre := restart_pos + ISSProjection.heading_vector(h) * float(fk["wall_distance"])
+	var across := ISSProjection.heading_vector((h + 16) & 63) * float(fk["wall_gap"])
+	var start := centre - across * float(n) / 2.0
+	var def := teams[1 - side]
+	var att := teams[side]
+	for k in range(1, n + 1):
+		var p := def.players[k]
+		set_places[p] = start + across * float(k)
+		_wall.append(p)
+	var dy := restart_pos.y - mid.y
+	var flip := 1.0 if restart_pos.y >= mid.y else -1.0
+	var spots: Array = fk["defence_wide"] if absf(dy) >= float(fk["wide_y"]) else fk["defence"]
+	var own_line := goal.x
+	for k in range(n + 1, 11):
+		var at: Array = spots[k - n - 1]
+		set_places[def.players[k]] = Vector2(own_line - attack_dir(side) * float(at[0]) * 16.0,
+			mid.y + flip * float(at[1]) * 16.0)
+	# (The ROM picks the kicking side's table on dy, not |dy|.)
+	spots = fk["attack_low"] if dy >= float(fk["wide_y"]) else fk["attack"]
+	for k in range(5, 11):
+		var at: Array = spots[k - 5]
+		set_places[att.players[k]] = Vector2(goal.x + attack_dir(side) * float(at[0]) * 16.0,
+			mid.y + flip * float(at[1]) * 16.0)
+
+
+# ---------------------------------------------------------------------------
+# Training (mode 0: restart_setup_practice, $01418C, and the resets of
+# match_rules_update in mode 0, $015E32).
+
+## Set drill n up: 0 free (the practice team stays off, the home side kicks
+## off), 1 defence (the home defenders against three attackers), 2 free
+## kick (home players 5-10 against the keeper and players 1-6, with a wall),
+## 3 keeper (the home keeper, on the pad, against two attackers).
+func start_drill(n: int) -> void:
+	var tr: Dictionary = ISSMatchData.consts["training"]
+	drill = n
+	drill_wait = -1
+	event_counts["drills"] = int(event_counts.get("drills", 0)) + 1
+	half = 0
+	clock = half_frames
+	left_goal_team = 0
+	_clear_offside()
+	restart_type = R.NONE
+	restart_taker = null
+	restart_phase = 0
+	set_places.clear()
+	_wall.clear()
+	banner_off.emit()
+	var kick_spot := ball.pos
+	ball.owner = null
+	ball.kicker = null
+	ball.stop()
+	ball.live = true
+	ball_entered = true
+	var home := teams[0]
+	var away := teams[1]
+	# tm_keeper_manual = 2: the pad drives the home keeper.
+	home.keeper_manual = n == 3
+	for t in teams:
+		t.reset_lines()
+		t.controlled = null
+		t.strategy = -1
+		t.strategy_run = -1
+		for p in t.players:
+			p.set_state(ISSFootballer.S.MOVE, ISSFootballer.A_STAND)
+			p.speed = 0.0
+			p.z = 0.0
+			p.vz = 0.0
+			p.offside = false
+			p.protect = 0
+			p.kick_target = null
+			p.ai_mode = ISSTeam.AI.KEEPER if p.is_keeper() else ISSTeam.AI.FORMATION
+			p.facing = 16 if t.side == 0 else 48
+			p.pos = t.home_position(p) if not p.is_keeper() else goal_center(t.side) + Vector2(attack_dir(t.side) * 32.0, 0)
+	match n:
+		0:
+			for p in away.players:
+				_take_off(p)
+			_start_kickoff(0)
+		1:
+			var form: Array = tr["defence_form"]
+			for p in home.players:
+				if p.role != 2:
+					_take_off(p)
+				else:
+					p.pos = Vector2(rect.position.x + float(tr["defence_x"]) + p.form.x * float(form[0]),
+						mid.y + p.form.y * float(form[1]))
+			_drill_attackers(tr["defence_attackers"])
+		2:
+			for i in 5:
+				_take_off(home.players[i])
+			for i in range(7, 11):
+				_take_off(away.players[i])
+			_drill_free_kick(kick_spot)
+		3:
+			for i in range(1, 11):
+				_take_off(home.players[i])
+			_drill_attackers(tr["keeper_attackers"])
+
+
+func _take_off(p: ISSFootballer) -> void:
+	p.set_state(ISSFootballer.S.SENT_OFF, ISSFootballer.A_STAND)
+	p.pos = Vector2(mid.x, rect.position.y - 300.0)
+
+
+## The practice team's players 10, 9, ... at the drill's places (x16 px from
+## the left line and from the middle); the last one placed has the ball and
+## the rest are off.
+func _drill_attackers(spots: Array) -> void:
+	var away := teams[1]
+	var first := 11 - spots.size()
+	for i in 11:
+		var p := away.players[i]
+		if i < first:
+			_take_off(p)
+			continue
+		var at: Array = spots[10 - i]
+		p.pos = Vector2(rect.position.x + float(at[0]) * 16.0, mid.y + float(at[1]) * 16.0)
+		p.facing = 48
+	var c := away.players[first]
+	ball.pos = c.pos + ISSProjection.heading_vector(c.facing) * 6.0
+	ball.owner = c
+	ball.team = 1
+	ball.last_touch = c
+	c.protect = 30
+	ball.step()
+
+
+## The free kick is taken where the ball was (g_restart_x / g_restart_y keep
+## its position); the port keeps it inside the pitch, outside the area and
+## within the wall's range, so that each kick has a wall to beat.
+func _drill_free_kick(at: Vector2) -> void:
+	var g := goal_center(1)
+	var dx := clampf(g.x - at.x, 280.0, 600.0)
+	var spot := Vector2(g.x - dx, clampf(at.y, mid.y - 360.0, mid.y + 360.0))
+	restart_type = R.FREE_KICK
+	restart_side = 0
+	restart_pos = spot
+	_free_kick_places()
+	for t in teams:
+		for p in t.active():
+			p.pos = restart_place(p)
+	_setup_restart()
+
+
+## match_rules_update, mode 0: the defence and keeper drills end when the
+## home side has the ball, the free kick drill when the other side has it;
+## out of play (and goals) end drills 1-3 too (_check_out, _goal).
+func _drill_step() -> void:
+	if drill_wait >= 0:
+		_ball_in_net()
+		drill_wait -= 1
+		if drill_wait < 0:
+			start_drill(drill)
+		return
+	var o := ball.owner
+	if o == null or restart_type != R.NONE:
+		return
+	if (drill in [1, 3] and o.team == 0) or (drill == 2 and o.team == 1):
+		_drill_over()
+
+
+func _drill_over() -> void:
+	drill_wait = int(ISSMatchData.consts["training"]["reset_frames"])
+	ball.live = false
+	restart_type = R.NONE
+	restart_taker = null
+	set_places.clear()
+	_wall.clear()
+
+
+## The team whose half the ball is in (g_ball_zone_team).
+func ball_zone_team() -> int:
+	return left_goal_team if ball.pos.x < mid.x else 1 - left_goal_team
 
 
 # ---------------------------------------------------------------------------

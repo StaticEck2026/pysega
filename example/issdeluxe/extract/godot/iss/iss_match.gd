@@ -149,6 +149,10 @@ func _physics_process(_delta: float) -> void:
 	if engine.teams.is_empty():
 		return
 	var sides := _human_sides()
+	if engine.drill >= 0 and ISSInput.start_pressed(0):
+		# Training: Start goes to the training menu (match_rules_update_3).
+		match_over.emit({"training_menu": true})
+		return
 	for i in sides.size():
 		if ISSInput.start_pressed(i):
 			paused = not paused

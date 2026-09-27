@@ -85,6 +85,7 @@ structs:
     - {offset: 0x00, name: tm_kit_tiles, comment: "Long: kit tiles (7 per team, unpacked)"}
     - {offset: 0x04, name: tm_head_tiles, comment: "Long: head tiles recoloured with the team's head mask"}
     - {offset: 0x08, name: tm_hair_tiles, comment: "Long: hair tiles (ROM)"}
+    - {offset: 0x10, name: tm_keeper_manual, comment: "Word: 2 = the pad drives the goalkeeper instead of keeper_ai (restart_setup_practice, keeper drill)"}
     - {offset: 0x12, name: tm_ai_level, comment: "Word: AI level 0-4 (CPU team: g_game_level; human team: 2); indexes the AI tables such as player_ai_press_data"}
     - {offset: 0x1E, name: tm_ratings, comment: "5 bytes: tbl_team_ratings"}
     - {offset: 0x24, name: tm_strategy, comment: "Word: strategy being applied (-1 = none): 0 all out attack, 1 push along centre, 2 push along wings, 3 counter attack, 4 all out defence, 5 press up, 6 zone press, 7 offside trap"}

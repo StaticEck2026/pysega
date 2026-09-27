@@ -44,6 +44,10 @@ var strategy_slots := [-1, -1, -1, -1]
 ## Substitutions left (screen_select_squad: up to 3).
 var subs_left := 3
 
+## tm_keeper_manual (+$10 = 2): the pad drives the goalkeeper, not the
+## keeper AI (the keeper training drill).
+var keeper_manual := false
+
 var score := 0
 var stats := {"shots": 0, "fouls": 0, "corners": 0, "free_kicks": 0, "penalties": 0,
 	"offsides": 0, "yellow": 0, "red": 0, "goals": 0, "possession": 0}

@@ -650,14 +650,25 @@ scaled by whole numbers:
   that only the winner leaves, a group round of four whose top two go
   through, and a 16-team knockout final tournament); the World Series (the
   36 national teams play each other once in the order of `$05C7B2`, every
-  game with a winner). The computer's games are decided by
+  game with a winner, over two seasons with home and away swapped; a side
+  that wins one season meets the other season's winner in the
+  Championship, winning both makes it the champion). The computer's games
+  are decided by
   `match_simulate` from each team's strength (`tbl_team_strength`,
   `tbl_sim_goals`).
 * **Scenarios**: the 12 situations of `tbl_scenarios` with their stories
   (`tbl_scenario_texts`): the score, the time left in the second half, the
   stadium, the referee and the restart the human side starts with; only a
   win clears one (the port remembers which are cleared).
-* **Training**: your side against the other team's goalkeeper alone.
+* **Training** (`restart_setup_practice`): pick a side, then the drills of
+  the training menu (screen `$18`, with the ROM's descriptions; Start in a
+  drill goes back to it) against the practice team in its second kit:
+  *free* (nobody else on the pitch), *defence* (your defenders against
+  three attackers, `tbl_drill_defence_attackers`), *free kick* (your
+  players 5-10 against the keeper and a wall) and *keeper* (you control
+  the goalkeeper against two attackers, `tbl_drill_keeper_attackers`).
+  A drill starts again 128 frames after the ball goes out or a goal, or
+  once your side wins the ball (defence, keeper) or loses it (free kick).
 * **Controls** (`ISSInput`, the logical buttons of `tbl_button_layouts`):
   player 1 arrows, Z pass, X shoot, A lofted pass / sliding tackle,
   Left Shift dash, S switch player, D strategy, Enter pause; player 2 I J K
@@ -665,7 +676,10 @@ scaled by whole numbers:
   Y switch, RB or RT dash, LB strategy, Start). Holding the lofted or shoot button builds the kick's
   power, the d-pad aims passes (a team-mate in the aimed direction receives
   it) and picks the post for shots; without the ball pass or shoot heads a
-  high ball.
+  high ball. A human goalkeeper (the keeper drill, `tm_keeper_manual`)
+  dives the pad's way with lofted + a direction, jumps with lofted alone
+  and throws himself at the ball with shoot (`keeper_side_dive`,
+  `keeper_dive`, `keeper_smother`).
 * **Match engine** (`ISSMatchEngine`, `ISSTeam`, `ISSFootballer`, `ISSBall`,
   no drawing, 60 steps a second):
   - the ball's physics are `ball_update`'s, with the constants of
@@ -689,6 +703,8 @@ scaled by whole numbers:
     the last touch, goals under the bar and between the posts (the posts
     and the bar rebound), fouls seen by the referee's strictness table,
     yellow and red cards, penalties within $180 px of the goal line,
+    free kicks within $280 px of it facing a wall of 3-6 defenders 192 px
+    away with both sides in the places of `restart_setup_free_kick`,
     offside, half time with the ends swapped, time up with the result
     banner, the banners and commentary of each restart and the crowd;
   - open games are knockout matches (`g_knockout`): a draw goes to extra
@@ -713,14 +729,16 @@ scaled by whole numbers:
   lofted balls, `camera_update`'s lead toward the attacking goal, the HUD
   with the live radar, banners, commentary, crowd and effects.
 
-Not reproduced (yet): the championship after the World Series, the
-training menu's drills and the timed challenges, the passwords themselves
-(the port saves instead), the shoot-out's own view from behind the taker
-(the kicks are taken on the pitch), man-marking and the keeper's human
-control outside distribution. `iss_selftest.gd` plays a whole CPU match
-headless, drives a player through the pad input, plays a level knockout
-match to penalties, runs a league, a tournament, the International Cup and
-the World Series, starts a scenario and training, checks strategies and
+Not reproduced (yet): the timed challenges (mode 1), the passwords
+themselves (the port saves instead), the shoot-out's own view from behind
+the taker (the kicks are taken on the pitch) and man-marking. Where the ROM
+leaves a choice open the port picks: a free kick drill kick is taken where
+the ball was, kept 280-600 px from the goal line so that there is always a
+wall. `iss_selftest.gd` plays a whole CPU match headless, drives a player
+through the pad input, plays a level knockout match to penalties, runs a
+league, a tournament, the International Cup and both paths of the World
+Series, starts a scenario, sets up and replays each training drill, dives
+with a human keeper, checks the free kick wall, strategies and
 substitutions and starts a match in the game scene.
 
 ### Rendering the music and FM effects
@@ -848,8 +866,9 @@ training, with the front end, the rules, the AI and the presentation
 rebuilt on the exported data.
 
 Open work, in rough order of value for a port:
-1. In the Godot game: the championship, the training drills and
-   challenges, and the shoot-out's own view.
+1. In the Godot game: the timed challenges (the tables of
+   `restart_setup_practice_target`; their scoring is not decoded yet) and
+   the shoot-out's own view.
 2. The figures of the presentation scenes (`flag_fans_draw`).
 3. The field layout of each mode's password and the object behind each
    remaining menu screen.

@@ -300,7 +300,7 @@ func _check_strategies_and_subs() -> void:
 
 ## The International Cup through to the final when the human side wins every
 ## game, out in the first round when it loses; the World Series; a scenario
-## and training start.
+## start; the training drills and the free kick wall.
 func _check_long_modes() -> void:
 	seed(12)
 	var cup := ISSCompetition.international_cup(0)
@@ -352,7 +352,78 @@ func _check_long_modes() -> void:
 	_check(e.teams[0].score == 1 and e.teams[1].score == 2 and e.half == 1 \
 		and e.restart_type == ISSMatchEngine.R.CORNER and e.clock == 74 * 60, "scenario 1: Italy 1-2 Croatia, 1:14, corner")
 	e.dispose()
-	var t := ISSMatchEngine.new()
-	t.setup(0, 1, {"pads": [1, 0], "training": true})
-	_check(t.teams[1].active().size() == 1 and t.teams[1].active()[0].is_keeper(), "training: only their keeper")
-	t.dispose()
+	_check_training()
+	_check_wall()
+
+
+## The four drills of restart_setup_practice: who is on, who has the ball,
+## and that each one starts again once it is over.
+func _check_training() -> void:
+	seed(21)
+	var practice := int(ISSMatchData.consts["training"]["team"])
+	var expect := {0: [11, 0], 1: [-1, 3], 2: [6, 7], 3: [1, 2]}
+	for d in 4:
+		var t := ISSMatchEngine.new()
+		t.setup(0, practice, {"pads": [0, 0], "training": d, "level": 4})
+		var home := t.teams[0].active().size()
+		var away := t.teams[1].active().size()
+		var defenders := 0
+		for p in t.teams[0].players:
+			if p.role == 2:
+				defenders += 1
+		var want_home: int = expect[d][0] if expect[d][0] >= 0 else defenders
+		_check(home == want_home and away == expect[d][1], "training %d: %d v %d players" % [d, home, away])
+		match d:
+			0:
+				_check(t.restart_type == ISSMatchEngine.R.KICKOFF and t.restart_side == 0, "free training: home kick-off")
+			1:
+				_check(t.ball.owner == t.teams[1].players[8], "defence drill: attacker 8 has the ball")
+			2:
+				_check(t.restart_type == ISSMatchEngine.R.FREE_KICK and t.restart_side == 0 and t._wall.size() >= 3,
+					"free kick drill: a free kick with a wall of %d" % t._wall.size())
+			3:
+				_check(t.ball.owner == t.teams[1].players[9] and t.teams[0].keeper_manual,
+					"keeper drill: attacker 9 has the ball, the pad has the keeper")
+		if d == 0:
+			t.dispose()
+			continue
+		var resets := 0
+		var last: int = t.event_counts.get("drills", 0)
+		for f in 60 * 90:
+			t.step([{}, {}])
+			if t.event_counts.get("drills", 0) != last:
+				last = t.event_counts["drills"]
+				resets += 1
+				if resets == 2:
+					break
+		_check(resets == 2 and t.teams[1].active().size() == expect[d][1], "drill %d starts again (%d)" % [d, resets])
+		t.dispose()
+	# A human keeper: lofted with a direction dives that way.
+	var k := ISSMatchEngine.new()
+	k.setup(0, practice, {"pads": [1, 0], "training": 3})
+	var keeper := k.teams[0].players[0]
+	k.step([{"dir": 0, "press": ISSFootballer.LOFT, "held": ISSFootballer.LOFT}, {}])
+	_check(keeper.state == ISSFootballer.S.KEEPER_DIVE and keeper.facing == 0, "keeper drill: lofted + up dives up")
+	k.dispose()
+
+
+## restart_setup_free_kick: a wall of 6 for a free kick straight in front
+## of the goal from 400 px, none from 700 px.
+func _check_wall() -> void:
+	var e := ISSMatchEngine.new()
+	e.setup(0, 1, {"pads": [0, 0], "half_seconds": 60})
+	var g := e.goal_center(1)
+	e.start_restart(ISSMatchEngine.R.FREE_KICK, 0, Vector2(g.x - 400.0, g.y))
+	_check(e._wall.size() == 6, "free kick: wall of 6 (%d)" % e._wall.size())
+	for f in 200:
+		e.step([{}, {}])
+		if e.restart_phase == 1:
+			break
+	var at := true
+	for p in e._wall:
+		if p.state != ISSFootballer.S.SENT_OFF and absf(p.pos.distance_to(e.restart_pos) - 192.0) > 24.0:
+			at = false
+	_check(e.restart_phase == 1 and at, "free kick: the wall stands 192 px from the ball")
+	e.start_restart(ISSMatchEngine.R.FREE_KICK, 0, Vector2(g.x - 700.0, g.y))
+	_check(e._wall.is_empty(), "free kick: no wall from 700 px")
+	e.dispose()

@@ -38,6 +38,16 @@ const (
 	tblScenarioTexts    = 0x0529B6     // 12 pointers to 8 $FF-terminated lines
 	teamRunSpeed        = 0x01487E + 2 // move.l #$0001E000,$1814(a6)
 	keeperDiveSlowBall  = 0x00BC0E     // keeper_dive: full-length dive for balls up to this speed
+	tblKeeperSmother    = 0x00514C     // keeper_smother: speed, lift of the dive at the ball
+	tblKeeperSideDive   = 0x00516C     // keeper_side_dive: speed, lift of the dive the pad's way
+	tblWallSize         = 0x038110     // restart_setup_free_kick: players in the wall by angle / 4
+	tblFreeKickAttack   = 0x0380AE     // kicking side's players 5-10 (x16 px from the goal line attacked)
+	tblFreeKickDefence  = 0x0380BA     // defenders outside the wall, ball within $1A0 of the middle
+	tblFreeKickAttackLo = 0x0380C6     // kicking side, ball $1A0 or more below the middle
+	tblFreeKickDefWide  = 0x0380D2     // defenders outside the wall, ball out wide
+	tblDrillDefence     = 0x03B02A     // defence drill: attackers 10, 9, 8 (x16 px from the left line / the middle)
+	tblDrillKeeper      = 0x03B030     // keeper drill: attackers 10, 9
+	tblDrillTexts       = 0x04F772     // screen_training_select: 4 pointers to 4 $FF-terminated lines
 )
 
 func fix(a uint32) float64 { return float64(int32(be32(a))) / 65536 }
@@ -149,6 +159,44 @@ func exportMatch(dir string) {
 			"hold_frames":    []int{64, 191},
 			"dive_note":      "a ball up to dive_slow_ball px/frame gets the full-length dive (action 22), a faster one the jump (21)",
 			"dive_slow_ball": fix(keeperDiveSlowBall),
+			"side_dive":      []float64{fix(tblKeeperSideDive), fix(tblKeeperSideDive + 8)},
+			"smother":        []float64{fix(tblKeeperSmother), fix(tblKeeperSmother + 8)},
+			"smother_lead":   8,
+			"human_note": "a human keeper (keeper_update_1), with the ball in his half: lofted + direction = side_dive " +
+				"that way (keeper_side_dive), lofted alone = keeper_dive, shoot = smother toward where the ball " +
+				"will be in smother_lead frames (keeper_smother)",
+		},
+		"free_kick": map[string]any{
+			"wall_range":    0x280,
+			"wall_distance": 0x60 * 256 >> 7,
+			"wall_gap":      12,
+			"wall_size":     bytesAt(tblWallSize, 16),
+			"wide_y":        0x1A0,
+			"attack":        signedPairs(tblFreeKickAttack, 6),
+			"attack_low":    signedPairs(tblFreeKickAttackLo, 6),
+			"defence":       signedPairs(tblFreeKickDefence, 7),
+			"defence_wide":  signedPairs(tblFreeKickDefWide, 7),
+			"note": "restart_setup_free_kick ($013B76): within wall_range of the goal line the defenders 1..n form a " +
+				"wall wall_distance px from the ball toward the goal centre, n = wall_size[heading / 4], wall_gap px " +
+				"apart across the line (member k at centre + gap * (k - n / 2)); the other defenders take defence " +
+				"(|ball y - middle| < wide_y) or defence_wide, x16 px from their own goal line; the kicking side's " +
+				"players 5-10 take attack_low (ball y - middle >= wide_y) or attack, x16 px from the goal line they " +
+				"attack; y is mirrored to the ball's side of the pitch",
+		},
+		"training": map[string]any{
+			"team":              0x2A,
+			"reset_frames":      0x80,
+			"defence_x":         0x180,
+			"defence_form":      []int{4, 6},
+			"defence_attackers": signedPairs(tblDrillDefence, 3),
+			"keeper_attackers":  signedPairs(tblDrillKeeper, 2),
+			"texts":             drillTexts(),
+			"note": "restart_setup_practice ($01418C), drill g_training_drill: 0 free (the practice team, $2A, stays off; " +
+				"kick-off), 1 defence (home role-2 players at left + defence_x + form_x * 4, middle + form_y * 6; " +
+				"away players 10, 9, 8 at defence_attackers, x16 px from the left line and the middle, 8 with the " +
+				"ball), 2 free kick (home 0-4 and away 7-10 off, a free kick for home where the ball is), 3 keeper " +
+				"(home keeper only, under the pad; away 10, 9 at keeper_attackers, 9 with the ball). A drill starts " +
+				"again reset_frames after the ball goes out, or the home side has it (1, 3), or the other side (2)",
 		},
 		"knocked_over": []float64{fix(tblKnockedOverSpeed), fix(tblKnockedOverLift)},
 		"simulate": map[string]any{
@@ -181,10 +229,46 @@ func bytesAt(a uint32, n int) []int {
 	return out
 }
 
+func signedPairs(a uint32, n int) [][2]int {
+	var out [][2]int
+	for i := 0; i < n; i++ {
+		out = append(out, [2]int{int(int8(rom[a+uint32(2*i)])), int(int8(rom[a+uint32(2*i+1)]))})
+	}
+	return out
+}
+
 func pairsAt(a uint32, n int) [][2]int {
 	var out [][2]int
 	for i := 0; i < n; i++ {
 		out = append(out, [2]int{int(rom[a+uint32(2*i)]), int(rom[a+uint32(2*i+1)])})
+	}
+	return out
+}
+
+// textLines reads n $FF-terminated lines of menu text ('@' is a space).
+func textLines(t uint32, n int) []string {
+	var lines []string
+	for k := 0; k < n; k++ {
+		var b []byte
+		for rom[t] != 0xFF {
+			c := rom[t]
+			if c == '@' {
+				c = ' '
+			}
+			b = append(b, c)
+			t++
+		}
+		t++
+		lines = append(lines, strings.TrimSpace(string(b)))
+	}
+	return lines
+}
+
+// drillTexts reads the four training drills' descriptions (screen_training_select_menu).
+func drillTexts() [][]string {
+	var out [][]string
+	for i := uint32(0); i < 4; i++ {
+		out = append(out, textLines(be32(tblDrillTexts+4*i), 4))
 	}
 	return out
 }
@@ -195,21 +279,7 @@ func scenarios() []map[string]any {
 	for i := uint32(0); i < 12; i++ {
 		r := be32(tblScenarios + 4*i)
 		clock := int(rom[r])*60 + int(rom[r+1])*10 + int(rom[r+2])
-		t := be32(tblScenarioTexts + 4*i)
-		var lines []string
-		for k := 0; k < 8; k++ {
-			var b []byte
-			for rom[t] != 0xFF {
-				c := rom[t]
-				if c == '@' {
-					c = ' '
-				}
-				b = append(b, c)
-				t++
-			}
-			t++
-			lines = append(lines, strings.TrimSpace(string(b)))
-		}
+		lines := textLines(be32(tblScenarioTexts+4*i), 8)
 		out = append(out, map[string]any{
 			"clock_seconds": clock, "home": int(rom[r+4]), "away": int(rom[r+5]),
 			"home_score": int(rom[r+6]), "away_score": int(rom[r+7]),

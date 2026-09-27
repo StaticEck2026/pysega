@@ -5,7 +5,8 @@ extends Node2D
 ## Cup, World Series, password, scenario, PK, training, options), the match
 ## type (screen 1: open game, short league, short tournament), player select
 ## (screen 2), team selection, the strategy screen ($0A), options ($11) and
-## rules ($12), scenario select ($24), the competition tables and the result.
+## rules ($12), scenario select ($24), training select ($18), the
+## competition tables and the result.
 ## The port saves competitions instead of showing passwords: "CONTINUE"
 ## picks a saved one up. Menus are driven by player 1's pad: the d-pad
 ## moves, pass (Z) or Start confirms, shoot (X) goes back.
@@ -13,7 +14,7 @@ extends Node2D
 signal start_match(home: int, away: int, options: Dictionary)
 
 enum Page { MAIN, MATCH_TYPE, PLAYERS, TEAMS, PICK_TEAM, OPTIONS, RULES, STRATEGY, RESULT,
-	COMP_SETUP, COMP_TABLE, SCENARIO, MESSAGE }
+	COMP_SETUP, COMP_TABLE, SCENARIO, MESSAGE, TRAINING }
 
 const SCREENS := "res://assets/iss/screens/"
 const MAIN_ITEMS := ["MATCH", "INTERNATIONAL CUP", "WORLD SERIES", "CONTINUE", "SCENARIO", "PK",
@@ -45,6 +46,8 @@ static var comp_kind := "league"
 static var comp_humans := 1
 static var comp_teams: Array = [0, 1, 2, 6, 7, 30, 31, 3]
 static var scenario := 0
+## The training drill (g_training_drill): 0 free, 1 defence, 2 free kick, 3 keeper.
+static var drill := 0
 
 var page := Page.MAIN
 var cursor := 0
@@ -76,7 +79,12 @@ func _ready() -> void:
 		_flags.append(f)
 	add_child(_sound)
 	# Song 3 is the main menu's (screen_main_menu), 16 the final whistle's.
-	_sound.play_music(16 if not result.is_empty() else 3)
+	var training := result.has("training_menu")
+	_sound.play_music(16 if not result.is_empty() and not training else 3)
+	if training:
+		# Start in training: the training menu (match_rules_update_3).
+		show_page(Page.TRAINING)
+		return
 	if not result.is_empty():
 		_after_match()
 	show_page(Page.RESULT if not result.is_empty() else Page.MAIN)
@@ -118,7 +126,8 @@ func show_page(p: int) -> void:
 	cursor = 0
 	var screen: String = {Page.MAIN: "00", Page.MATCH_TYPE: "01", Page.PLAYERS: "02", Page.TEAMS: "33",
 		Page.PICK_TEAM: "33", Page.OPTIONS: "11", Page.RULES: "12", Page.STRATEGY: "0A", Page.RESULT: "33",
-		Page.COMP_SETUP: "33", Page.COMP_TABLE: "33", Page.SCENARIO: "24", Page.MESSAGE: "33"}[p]
+		Page.COMP_SETUP: "33", Page.COMP_TABLE: "33", Page.SCENARIO: "24", Page.MESSAGE: "33",
+		Page.TRAINING: "18"}[p]
 	_backdrop.texture = load(SCREENS + "screen_%s.png" % screen)
 	queue_redraw()
 
@@ -183,6 +192,13 @@ func _physics_process(_delta: float) -> void:
 		Page.MESSAGE:
 			if ok or back:
 				show_page(_back_to)
+		Page.TRAINING:
+			# screen_training_select: up and down wrap round.
+			drill = posmod(drill + moved.y, 4)
+			if back:
+				show_page(Page.MAIN)
+			elif ok:
+				_start_training()
 	if moved != Vector2i.ZERO or ok or back:
 		_sound.play_sfx(0x5E)
 	queue_redraw()
@@ -211,9 +227,9 @@ func _main(moved: Vector2i, ok: bool) -> void:
 			players_mode = 0
 			show_page(Page.TEAMS)
 		6:
+			# mode_start_training: one team, then free training ($13BC = 0).
 			game = "training"
-			players_mode = 0
-			show_page(Page.TEAMS)
+			show_page(Page.PICK_TEAM)
 		7:
 			show_page(Page.OPTIONS)
 
@@ -269,15 +285,14 @@ func _teams(moved: Vector2i, ok: bool, back: bool) -> void:
 		# Open games are knockout matches ($1274 = 1): extra time, then penalties.
 		opts["knockout"] = true
 		opts["pk_only"] = game == "pk"
-		if game == "training":
-			opts["training"] = true
-			opts["knockout"] = false
 		start_match.emit(home, away, opts)
 
 
-## The team page of the International Cup and the World Series: one side.
+## The team page of the International Cup, the World Series and training:
+## one side.
 func _pick_team(moved: Vector2i, ok: bool, back: bool) -> void:
-	var n := 36 # both competitions are between the 36 national teams
+	# Both competitions are between the 36 national teams.
+	var n := 36 if game != "training" else ISSMatchData.team_count() - 1
 	cursor = clampi(cursor + moved.y, 0, 3)
 	match cursor:
 		0:
@@ -290,11 +305,28 @@ func _pick_team(moved: Vector2i, ok: bool, back: bool) -> void:
 	elif ok and cursor == 2:
 		_back_to = Page.PICK_TEAM
 		show_page(Page.STRATEGY)
+	elif ok and cursor == 3 and game == "training":
+		drill = 0
+		_start_training()
 	elif ok and cursor == 3:
 		comp = ISSCompetition.international_cup(home) if game == "cup" else ISSCompetition.world_series(home)
 		comp.simulate_until_human()
 		comp.save()
 		show_page(Page.COMP_TABLE)
+
+
+## Training (menu_state_03E8F0_2): the chosen team against the practice
+## team ($2A) in stadium 0, fine weather, the computer at level 4.
+func _start_training() -> void:
+	var opts := _base_options()
+	opts["stadium"] = 0
+	opts["weather"] = 1
+	opts["level"] = 4
+	opts["pads"] = [1, 0]
+	opts["knockout"] = false
+	opts["formations"] = [home_formation, -1]
+	opts["training"] = drill
+	start_match.emit(home, int(ISSMatchData.consts["training"]["team"]), opts)
 
 
 ## The team's own formation (tbl_team_formations) unless one was picked.
@@ -436,14 +468,11 @@ func _draw() -> void:
 			for i in 3:
 				ISSText.draw_centred(self, PLAYER_MODES[i], 128, 76 + i * 24, true, i == cursor)
 		Page.TEAMS:
-			var title: String = {"open": "-TODAYS GAME-", "pk": "-PK-", "training": "-TRAINING-"}.get(game, "")
+			var title: String = {"open": "-TODAYS GAME-", "pk": "-PK-"}.get(game, "")
 			ISSText.draw_centred(self, title, 128, 8, true)
 			_team_row(0, home, 30, "HOME")
 			_formation_row(home, home_formation, 50, cursor == 1)
-			if game == "training":
-				ISSText.draw_centred(self, "AGAINST THE KEEPER OF", 128, 64, false)
-			else:
-				ISSText.draw_centred(self, "VS", 128, 64, false)
+			ISSText.draw_centred(self, "VS", 128, 64, false)
 			_team_row(1, away, 78, "AWAY")
 			_formation_row(away, away_formation, 98, cursor == 3)
 			ISSText.draw(self, "STADIUM %d" % (stadium + 1), Vector2(40, 116), true, cursor == 4)
@@ -453,7 +482,8 @@ func _draw() -> void:
 			if game == "open":
 				ISSText.draw_centred(self, PLAYER_MODES[players_mode], 128, 202, false)
 		Page.PICK_TEAM:
-			ISSText.draw_centred(self, "-INTERNATIONAL CUP-" if game == "cup" else "-WORLD SERIES-", 128, 16, true)
+			var title: String = {"cup": "-INTERNATIONAL CUP-", "world_series": "-WORLD SERIES-"}.get(game, "-TRAINING-")
+			ISSText.draw_centred(self, title, 128, 16, true)
 			_team_row(0, home, 60, "")
 			_formation_row(home, home_formation, 84, cursor == 1)
 			ISSText.draw(self, "STRATEGY", Vector2(80, 112), true, cursor == 2)
@@ -503,6 +533,16 @@ func _draw() -> void:
 			_draw_scenarios()
 		Page.MESSAGE:
 			ISSText.draw_centred(self, message, 128, 100, true, true)
+		Page.TRAINING:
+			# The drill's box (tbl_drill_boxes) and its description in the
+			# 8x8 font at (32, 152) (screen_training_select_menu).
+			_box(Rect2(88, 56 + 16 * drill, 80, 16), true)
+			# rect_fill clears the box under the text to the plain background.
+			draw_rect(Rect2(32, 152, 192, 32), Color8(73, 73, 255))
+			var y := 152
+			for line: String in ISSMatchData.consts["training"]["texts"][drill]:
+				ISSText.draw(self, line, Vector2(32, y), false)
+				y += 8
 
 
 func _team_row(i: int, team: int, y: float, side: String) -> void:

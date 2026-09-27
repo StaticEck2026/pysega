@@ -93,6 +93,7 @@ var ai_wait := 0
 var offside := false
 var protect := 0
 var dive_speed := -1.0
+var dive_lift := -1.0
 
 
 func is_keeper() -> bool:
@@ -251,6 +252,9 @@ func _move() -> void:
 	var run: float = ISSMatchData.consts["run_speed"]
 	if has_ball() and press & (PASS | LOFT | SHOOT):
 		_start_kick_from_press()
+		return
+	if human and is_keeper() and not has_ball() and press & (LOFT | SHOOT) and eng.ball_zone_team() == team:
+		_human_save()
 		return
 	if not has_ball() and press & LOFT and not is_keeper():
 		start_slide()
@@ -466,10 +470,31 @@ func _set_piece() -> void:
 # ---------------------------------------------------------------------------
 # Goalkeeper.
 
+## A human goalkeeper (keeper_update_1) with the ball in his half: lofted
+## with a direction dives that way (keeper_side_dive), lofted alone is
+## keeper_dive, shoot throws him at where the ball will be 8 frames later
+## (keeper_smother).
+func _human_save() -> void:
+	var k: Dictionary = ISSMatchData.consts["keeper"]
+	if press & LOFT:
+		if input_dir >= 0:
+			var d: Array = k["side_dive"]
+			start_dive(input_dir, float(d[0]), float(d[1]))
+		else:
+			start_dive(facing)
+		return
+	var b := eng.ball
+	var at := b.pos + b.velocity() * float(k["smother_lead"])
+	var s: Array = k["smother"]
+	start_dive(heading_to(pos, at), float(s[0]), float(s[1]))
+
+
 ## keeper_dive: a slow ball gets the full-length dive (action 22), a fast one
-## the jump (action 21); take-off two animation frames later.
-func start_dive(h: float, lateral := -1.0) -> void:
+## the jump (action 21); take-off two animation frames later. lateral and
+## lift override the dive's speed and lift.
+func start_dive(h: float, lateral := -1.0, lift := -1.0) -> void:
 	dive_speed = lateral
+	dive_lift = lift
 	var k: Dictionary = ISSMatchData.consts["keeper"]
 	var slow: bool = eng.ball.speed <= float(k["dive_slow_ball"])
 	set_state(S.KEEPER_DIVE, A_DIVING_HEADER if slow else A_JUMP_HEADER, 0)
@@ -486,7 +511,7 @@ func _keeper_dive() -> void:
 	if timer == 4:
 		var d: Array = k["dive"] if action == A_DIVING_HEADER else k["jump"]
 		speed = dive_speed if dive_speed > 0.0 else float(d[0])
-		vz = float(d[1])
+		vz = dive_lift if dive_lift >= 0.0 else float(d[1])
 	if timer >= 4:
 		_airborne(float(k["dive_gravity"]))
 	if eng.ball.owner == self:
