@@ -333,7 +333,19 @@ func _check_long_modes() -> void:
 			break
 		ws.record(2 if ws.is_human(g[0]) else 0, 0 if ws.is_human(g[0]) else 2)
 		mine += 1
-	_check(mine == 35 and ws.games.size() == 630 and ws.champion() == 4, "World Series: 35 games, 630 in all")
+	_check(mine == 70 and ws.season_winners == [4, 4] and ws.champion() == 4, "World Series: two seasons of 35 games won")
+	# Won the first season only: the Championship against the second's winner.
+	var ws2 := ISSCompetition.world_series(4)
+	while not ws2.finished():
+		ws2.simulate_until_human()
+		var g := ws2.next_game()
+		if g.is_empty():
+			break
+		var win := ws2.season == 0 or ws2.in_championship()
+		var human_home := ws2.is_human(g[0])
+		ws2.record(2 if human_home == win else 0, 0 if human_home == win else 2)
+	_check(ws2.season_winners.size() == 2 and ws2.season_winners[0] == 4 and ws2.season_winners[1] != 4 \
+		and ws2.games.size() == 1 and ws2.champion() == 4, "World Series: the Championship")
 	var e := ISSMatchEngine.new()
 	var sc: Dictionary = ISSMatchData.consts["scenarios"][0]
 	e.setup(int(sc["home"]), int(sc["away"]), {"pads": [0, 0], "scenario": sc})

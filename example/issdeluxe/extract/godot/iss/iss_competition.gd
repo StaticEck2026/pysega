@@ -70,8 +70,11 @@ static func world_series(team: int) -> ISSCompetition:
 	return c
 
 
-## World Series: the human's team number (its slot).
+## World Series: the human's team number (its slot), the season (0, 1) and
+## each season's winner ($127E, $1280).
 var human_team := -1
+var season := 0
+var season_winners: Array = []
 
 
 func _draw(n: int, pool: int) -> Array:
@@ -95,6 +98,10 @@ func knockout() -> bool:
 	return kind == "tournament" or kind == "world_series" or (kind == "cup" and stage == 2)
 
 
+func in_championship() -> bool:
+	return kind == "world_series" and stage == 2
+
+
 ## The next game as [home slot, away slot], or [] when it is over.
 func next_game() -> Array:
 	if eliminated:
@@ -104,9 +111,13 @@ func next_game() -> Array:
 			return []
 		var i := _round_games() * 2
 		return [alive[i], alive[i + 1]]
-	if games.size() >= fixtures.size():
+	if games.size() >= fixtures.size() or (kind == "world_series" and stage == 3):
 		return []
-	return [int(fixtures[games.size()][0]), int(fixtures[games.size()][1])]
+	var f: Array = fixtures[games.size()]
+	# The second World Series season swaps home and away.
+	if kind == "world_series" and stage == 0 and season == 1:
+		return [int(f[1]), int(f[0])]
+	return [int(f[0]), int(f[1])]
 
 
 func _round_games() -> int:
@@ -123,7 +134,9 @@ func round_name() -> String:
 		"league":
 			return "ROUND %d" % (games.size() / 3 + 1)
 		"world_series":
-			return "GAME %d" % (games.size() + 1)
+			if stage == 2:
+				return "CHAMPIONSHIP"
+			return "SEASON %d GAME %d" % [season + 1, games.size() + 1]
 		"cup":
 			if stage == 0:
 				return "ELIMINATION ROUND"
@@ -156,6 +169,30 @@ func record(hg: int, ag: int, pk: Array = []) -> void:
 			eliminated = true
 	if kind == "cup" and stage < 2 and next_game().is_empty() and not eliminated:
 		_next_stage()
+	if kind == "world_series" and stage == 0 and games.size() >= fixtures.size():
+		_end_season()
+
+
+## World Series: the season's winner is the table's leader. After the second
+## season a human side that won one of them plays the other season's winner
+## in the Championship (mode $A, one knockout match); winning neither is the
+## end, winning both makes it the champion.
+func _end_season() -> void:
+	season_winners.append(int(table()[0]["slot"]))
+	if season == 0:
+		season = 1
+		games = []
+		return
+	var won: Array = season_winners.filter(func(w): return w == human_team)
+	if won.size() == 2:
+		stage = 3 # champion without a play-off
+	elif won.size() == 1:
+		var other: int = season_winners[0] if int(season_winners[1]) == human_team else season_winners[1]
+		stage = 2
+		games = []
+		fixtures = [[human_team, other]]
+	else:
+		eliminated = true
 
 
 ## International Cup: from the elimination round to the group round (only
@@ -273,6 +310,12 @@ func champion() -> int:
 		return -1
 	if not alive.is_empty():
 		return alive[0] if alive.size() == 1 else -1
+	if kind == "world_series":
+		if stage == 3:
+			return human_team
+		if stage == 2 and not games.is_empty():
+			return _winner(games[0])
+		return -1
 	return table()[0]["slot"]
 
 
@@ -292,7 +335,8 @@ func save() -> void:
 		return
 	f.store_string(JSON.stringify({"kind": kind, "humans": humans, "teams": teams, "stage": stage,
 		"fixtures_key": _fixtures_key(), "games": games, "alive": alive, "eliminated": eliminated,
-		"met": met, "human_team": human_team}))
+		"met": met, "human_team": human_team, "season": season, "season_winners": season_winners,
+		"stage_fixtures": fixtures if kind == "world_series" and stage == 2 else []}))
 
 
 func _fixtures_key() -> String:
@@ -329,6 +373,10 @@ static func load_saved() -> ISSCompetition:
 	c.eliminated = d["eliminated"]
 	c.met = d["met"].map(func(v): return int(v))
 	c.human_team = int(d["human_team"])
+	c.season = int(d.get("season", 0))
+	c.season_winners = d.get("season_winners", []).map(func(v): return int(v))
+	if c.kind == "world_series" and c.stage == 2:
+		c.fixtures = d["stage_fixtures"]
 	return c
 
 
