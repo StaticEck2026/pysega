@@ -649,6 +649,22 @@ comments to `issdeluxe_symbols.txt` (`name = $ADDRESS ; comment`) — RAM
 addresses become equates, ROM addresses labels — and re-run the split. Labels
 must sit on instruction, hint or segment boundaries; `sega2asm` warns otherwise.
 
+Every routine and data block has a name. About 700 are named by hand; the rest
+come from `tools/name_routines.py`, which works from the listing: a routine
+only ever reached from one named routine (installed as its next state, called
+or jumped to) is `<owner>_<n>`, or `<owner>_<action>` when it starts one of the
+54 player actions; dispatch table entries are named after their slot; the
+remaining shared routines are `<area>_<category>_<address>` (for example
+`player_start_run_006046`, `menu_draw_01F4B2`) with their users in the comment;
+data blocks are named after the routine or table that uses them. When you name
+something by hand, remove the generated section at the end of the symbols
+file, re-run the split and the tool, and append its output again:
+
+```bash
+python3 example/issdeluxe/tools/name_routines.py example/issdeluxe/out/asm \
+    example/issdeluxe/issdeluxe_symbols.txt >> generated.txt
+```
+
 ## Status and next steps
 
 Done: full code/data separation, bit-exact rebuild, all compressed data decoded,
@@ -668,7 +684,9 @@ PCM effects exported, and every song and effect rendered by running the
 driver itself (`tools/render_sound.py`), all playable from Godot.
 
 Game modes, the main menu, the password restore paths, the penalty
-shoot-out state, the strategies and the small sprites are named.
+shoot-out state, the strategies, the small sprites and the 60 front-end
+screen handlers are named, and every routine and data block now has a name
+(hand-written or derived from its owner, see above).
 
 Open work, in rough order of value for a port:
 1. The HUD's banner text (`banner_draw` font) and the figures of the
