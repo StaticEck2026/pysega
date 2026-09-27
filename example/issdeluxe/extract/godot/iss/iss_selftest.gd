@@ -30,6 +30,7 @@ func _init() -> void:
 	var teams = _json("res://assets/iss/teams.json")
 	var flags = _json("res://assets/iss/flags/flags.json")
 	var hud = _json("res://assets/iss/hud/hud.json")
+	var sound = _json("res://assets/iss/sound/sound.json")
 	if _failures > 0:
 		quit(1)
 		return
@@ -42,6 +43,14 @@ func _init() -> void:
 	_check(teams != null and teams["teams"][0]["name"] == "England", "team names")
 	_check(hud["radar"]["mapping"].size() == 8, "radar mapping per stadium")
 	_check(ResourceLoader.exists("res://assets/iss/hud/flags/flag_41.png"), "team flags")
+	_check(sound["samples"].size() == 65 and sound["sfx"].size() == 126, "65 PCM samples, 126 effects")
+	for s: Dictionary in sound["samples"]:
+		_check(ResourceLoader.exists(s["wav"]), "sample " + s["wav"])
+	for id in [0x01, 0x2F, 0x4D]:
+		_check(sound["sfx"][id].has("wav") and ResourceLoader.exists(sound["sfx"][id]["wav"]), "effect %X" % id)
+	var crowd: AudioStreamWAV = load(sound["sfx"][0x62]["wav"])
+	_check(crowd != null and crowd.loop_mode == AudioStreamWAV.LOOP_FORWARD \
+		and crowd.loop_end == sound["sfx"][0x62]["loop"][1] - 1, "crowd loop points")
 	var counts := [32, 0, 16]
 	for w in 3:
 		_check(weather["weathers"][w]["frames"].size() == counts[w], "weather %d frame count" % w)
@@ -64,5 +73,9 @@ func _init() -> void:
 	_check(ISSProjection.heading_vector(16).is_equal_approx(Vector2(1, 0)), "heading 16 = right")
 	_check(ISSProjection.heading_vector(0).is_equal_approx(Vector2(0, -1)), "heading 0 = up")
 	_check(ISSProjection.direction(60) == 0 and ISSProjection.direction(20) == 3, "direction index")
+	var snd := ISSSound.new()
+	root.add_child(snd)
+	_check(snd.play_sfx(0x2F) and not snd.play_sfx(0x5F), "commentary plays, FM effect has no file")
+	_check(snd.speech_context(0x2F) == "goal", "speech context")
 	print("iss_selftest: ", "OK" if _failures == 0 else "%d failure(s)" % _failures)
 	quit(0 if _failures == 0 else 1)

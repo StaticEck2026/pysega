@@ -165,11 +165,11 @@ sound_init                  = $1FD954 ; Initialise the driver and upload the Z80
 sound_play_music            = $1FD958 ; Start song d0 (d2/d3 = start parameters)
 sound_api_nop_1             = $1FD95C ; No operation
 sound_api_nop_2             = $1FD960 ; No operation
-sound_music_playing         = $1FD964 ; Z clear while music is playing
-sound_music_stop            = $1FD968 ; Stop the current song
+sound_fade_active           = $1FD964 ; Tests the fade flag $91D(a6) (not called by the game)
+sound_process               = $1FD968 ; Run one driver frame: sound_frame, then the song unless it is stopped ($917 = 2)
 sound_play_sfx              = $1FD96C ; Play sound effect d0 (the most called routine in the game)
 sound_reset                 = $1FD970 ; Silence every channel and reset the driver state
-sound_play_pcm              = $1FD974 ; Play the PCM sample at a1 through the Z80 driver
+sound_play_pcm              = $1FD974 ; Unused leftover: writes the ROM bank of a1 to Z80 $0500 and restarts the Z80 (this driver streams PCM instead)
 sound_api_nop_3             = $1FD978 ; No operation
 sound_api_nop_4             = $1FD97C ; No operation
 sound_api_nop_5             = $1FD980 ; No operation
@@ -177,7 +177,59 @@ sound_api_nop_6             = $1FD984 ; No operation
 sound_api_nop_7             = $1FD988 ; No operation
 sound_update                = $1FD98C ; Per-frame tick (called from every VBlank handler)
 sound_play_music_ext        = $1FD990 ; Start song d0 in the alternate mode used by the menus
-z80_driver                  = $1FDC06 ; Z80 PCM playback program (248 bytes), copied to Z80 RAM $0000
+z80_driver                  = $1FDC06 ; Z80 program (248 bytes, copied to Z80 RAM $0000): drains the FM part 1/part 2/PSG write queues at $0200/$0300/$0400 when $04FF is set, and plays the 400-byte PCM ring buffer at $0504 (every other byte) through the DAC, one sample per 384 Z80 cycles (9237 Hz PAL, 9322 Hz NTSC); $0500 = play position
+; Driver internals. Songs: order list of 6-byte entries -> patterns of notes
+; -> notes start sound scripts on the 11 channels (0-5 FM1-6, 6-9 PSG,
+; 10 PCM voice 1). Effects start one script directly. Scripts are 4-byte
+; events [command, argument, word] run once per frame by script_run_events.
+z80_bus_request             = $1FDBDE ; Stop the Z80 and wait for the bus
+z80_bus_release             = $1FDBF2 ; Release the Z80 bus
+z80_flush_queues            = $1FDBFC ; Set Z80 $04FF: the Z80 drains the FM/PSG queues before the next sample
+z80_ram_write               = $1FDB66 ; Copy d0+1 bytes from a0 to Z80 RAM offset a1
+z80_load_driver             = $1FDB8E ; Upload z80_driver to Z80 RAM and restart the Z80
+pcm_buffer_reset            = $1FDCFE ; Mixer write position = start of the ring buffer ($0504)
+pcm_fill_buffer             = $1FDD06 ; Per frame: mix the PCM voices into the ring buffer up to the Z80 play position ($0500)
+pcm_copy_to_z80             = $1FDDCE ; Copy d0 mixed bytes to Z80 RAM a1 with the unrolled movem/movep block (every other byte)
+pcm_voices_reset            = $1FE0D2 ; Silence both PCM voices
+pcm_voices_apply            = $1FE102 ; Copy the pending start/length/step to the voices; restart the keyed ones
+pcm_mix                     = $1FE146 ; Mix d0 bytes of the 2 voices (signed 8-bit, saturated) into $6E0(a6); a voice steps its source when its 8-bit rate accumulator carries and reloads its loop region at the end
+sound_frame_music           = $1FE266 ; Per frame while a song plays: order list, patterns, note releases
+song_order_update           = $1FE270 ; Advance the song's order list (6-byte entries: delay.w, pattern, transpose, volume, track; $FF end, $FE jump)
+song_pattern_update         = $1FE314 ; Advance the 16 pattern tracks and queue their notes
+song_play                   = $1FE3EC ; sound_play_music: set up song d0 (header, tempo, order list)
+song_play_ext               = $1FE4DE ; sound_play_music_ext
+song_read_note              = $1FE5CC ; Decode one packed pattern note
+song_find_track             = $1FE64A ; Find a free pattern track slot
+sound_frame                 = $1FE6A2 ; Per frame: run the channel scripts, send the FM/PSG queues to the Z80, apply and mix PCM
+script_channels_update      = $1FE798 ; Run the script of each of the 11 channels
+script_run_events           = $1FEA7E ; Execute events until a frame-ending one (end, wait, FM patch, sustain)
+tbl_script_commands         = $1FEAB6 ; 38 event handlers, commands $00-$25 ($20 is invalid: unused)
+psg_queue_write             = $1FEB4E ; d0 = 4: queue PSG byte d1, else fm_queue_write
+fm_queue_write              = $1FEB64 ; Queue YM2612 register d1 = d2: part 2 queue when d0 = 2 and d1 >= $30, else part 1
+script_next_event           = $1FEB98 ; Fetch the next 4-byte event into $5E(a6)
+sound_driver_reset          = $1FEBAC ; Clear the driver RAM and silence the chips
+script_event_addr           = $1FEC4A ; a0 = address of event d1 of script d0
+script_addr                 = $1FEC58 ; a0 = address of sound script d0
+cmd_end                     = $1FEC68 ; Command $00: end of script
+cmd_wait                    = $1FEC86 ; Command $01: wait word+1 frames (0 = hold)
+cmd_fm_patch                = $1FED16 ; Command $02: load the FM patch that follows the event ($5C bytes)
+cmd_loop                    = $1FEDD4 ; Command $03: repeat from event hi(word), argument times (0 = forever)
+cmd_goto                    = $1FEE12 ; Command $04: continue in script word at event argument
+cmd_instrument              = $1FEE34 ; Command $05: call instrument script word (returns with $06)
+cmd_return                  = $1FEEE6 ; Command $06: return from an instrument script
+cmd_sustain                 = $1FF33C ; Command $12: wait until the note or effect is released
+cmd_pcm_start               = $1FF40E ; Command $1B: PCM voice argument starts at bank base + word
+cmd_pcm_length              = $1FF432 ; Command $1C: PCM voice argument length in bytes (1 = silence)
+cmd_pcm_step                = $1FF44C ; Command $1D: PCM voice argument rate step hi(word): rate = DAC rate * step / 256
+cmd_pcm_key                 = $1FF466 ; Command $1E: hi(word) != 0 restarts PCM voice argument; otherwise the new region plays when the current one ends
+cmd_pcm_bank                = $1FF4DC ; Command $21: PCM voice argument uses entry hi(word) & 31 of the current set
+cmd_pcm_set                 = $1FFABA ; Command $25: select PCM set argument (a window of 8 entries of the sample list)
+note_queue_push             = $1FF84A ; Queue a note (d0 volume, d1 pitch, d2 script) for note_queue_run
+note_queue_run              = $1FF886 ; Start the queued notes' scripts
+script_start                = $1FF8D0 ; Start a note's script on its channel if its priority allows
+sfx_start                   = $1FF9B8 ; sound_play_sfx: start effect d0's script (sfx_table) if its priority is at least the channel's
+sound_tick                  = $1FFAF2 ; Called by sound_update: PAL/NTSC tempo, then sound_process
+tbl_pcm_sets                = $1FFB88 ; 40 word offsets (from here) of the PCM sets; the sorted sample offset list (from pcm_bank) follows at $1FFBD8
 
 ; ═════════════════════════════════════════════════════════════════════════════
 ; RAM — globals block addressed through a6 = $FF0000

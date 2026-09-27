@@ -115,8 +115,12 @@ type Segment struct {
 	Heuristics *bool             `yaml:"heuristics"`
 	BaseRegs   map[string]HexInt `yaml:"base_regs"`
 	StructRegs map[string]string `yaml:"struct_regs"` // "" cancels a global entry
+	// Literal lists instruction addresses whose operands stay numeric.
+	Literal []HexInt `yaml:"literal"`
 
-	// table: format long|word, relative to Base (default: segment start)
+	// table: format long|word, relative to Base (default: segment start);
+	// z80: format bytes emits dc.b lines with the disassembly as comments.
+	// Signed also marks pcm samples as signed 8-bit.
 	Format   string `yaml:"format"`
 	Relative bool   `yaml:"relative"`
 	Signed   bool   `yaml:"signed"`

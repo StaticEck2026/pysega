@@ -131,6 +131,7 @@ func main() {
 	exportWeather(filepath.Join(*out, "assets", "iss", "weather"))
 	exportHUD(filepath.Join(*out, "assets", "iss", "hud"))
 	exportScreens(filepath.Join(*out, "assets", "iss", "screens"))
+	exportSound(filepath.Join(*out, "assets", "iss", "sound"))
 	exportTeams(filepath.Join(*out, "assets", "iss"))
 	writeScripts(*out)
 }
@@ -151,7 +152,7 @@ func writeScripts(out string) {
 		}
 		return os.WriteFile(t, b, 0644)
 	}))
-	fmt.Println("scripts: iss/ (ISSPitch, ISSWeather, ISSFlags, ISSHud, ISSPlayerSprite, ISSBallSprite, ISSNPCSprite, ISSProjection, iss_demo.tscn)")
+	fmt.Println("scripts: iss/ (ISSPitch, ISSWeather, ISSFlags, ISSHud, ISSPlayerSprite, ISSBallSprite, ISSNPCSprite, ISSProjection, ISSSound, iss_demo.tscn)")
 }
 
 // ---------------------------------------------------------------------------

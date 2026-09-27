@@ -6284,8 +6284,9 @@ segments:
     start: 0x1613EC
     end:   0x1EB45C
     subdir: sound
-    sample_rate: 8000
-    description: "8-bit PCM sample bank (addressed as offsets from its start by the sound driver)"
+    signed: true
+    sample_rate: 9237
+    description: "Signed 8-bit PCM samples, addressed by the offset list at $1FFBD8 (9237 Hz = the DAC rate on PAL)"
 
   - name: music_bank
     type: table
@@ -6294,7 +6295,7 @@ segments:
     subdir: sound
     format: long
     relative: true
-    description: "Music bank: 3 instrument/sample tables followed by 26 songs"
+    description: "Music bank: offsets of the sound script table, table 1 and the effect table (stored after the songs), then of songs 0-25"
 
   - name: song_1EB4D0
     type: bin
@@ -6452,11 +6453,12 @@ segments:
     end:   0x1F93B0
     subdir: sound
 
-  - name: music_table0
+  - name: sound_scripts
     type: bin
     start: 0x1F93B0
     end:   0x1FA3B0
     subdir: sound
+    description: "1024 long offsets (from here) of the sound scripts: [priority, $FF] then 4-byte events [command, argument, word]"
 
   - name: music_table1
     type: bin
@@ -6464,11 +6466,19 @@ segments:
     end:   0x1FA4B0
     subdir: sound
 
-  - name: music_table2
+  - name: sfx_table
     type: bin
     start: 0x1FA4B0
+    end:   0x1FA7A4
+    subdir: sound
+    description: "sound_play_sfx: 126 x [id, priority, duration.w (frames until release), script.w]"
+
+  - name: sound_script_data
+    type: bin
+    start: 0x1FA7A4
     end:   0x1FD954
     subdir: sound
+    description: "Sound scripts (see sound_scripts); effect n is script $300+n"
 
   - name: sound_1FD954
     type: m68k
@@ -6476,13 +6486,15 @@ segments:
     end:   0x1FDC06
     subdir: sound
     base_regs: {a6: 0x0}
+    literal: [0x1FE6D8, 0x1FE6F8]
     struct_regs: {a5: ""}
 
   - name: z80_driver
-    type: bin
+    type: z80
     start: 0x1FDC06
     end:   0x1FDCFE
     subdir: sound
+    format: bytes
     description: "Z80 PCM driver, copied to Z80 RAM $0000 by the sound driver"
 
   - name: sound_1FDCFE
@@ -6491,12 +6503,11 @@ segments:
     end:   0x1FFE4A
     subdir: sound
     base_regs: {a6: 0x0}
+    literal: [0x1FE6D8, 0x1FE6F8]
     struct_regs: {a5: ""}
     hints:
-      - {offset: 0x010A, type: data_word, length: 704}
       - {offset: 0x06CE, type: ptr_table, length: 4}
-      - {offset: 0x0DB8, type: ptr_table, length: 128}
-      - {offset: 0x0E38, type: data_word, length: 24}
+      - {offset: 0x0DB8, type: ptr_table, length: 152}
       - {offset: 0x10BE, type: data_word, length: 4}
       - {offset: 0x10C2, type: data_word, length: 20}
       - {offset: 0x1224, type: data_word, length: 8}
@@ -6505,7 +6516,7 @@ segments:
       - {offset: 0x1414, type: data_word, length: 192}
       - {offset: 0x19B0, type: data_word, length: 382}
       - {offset: 0x1B2E, type: data_word, length: 30}
-      - {offset: 0x1D7E, type: data_word, length: 118}
+      - {offset: 0x1D7E, type: data_word, length: 62}
       - {offset: 0x1E8A, type: data_word, length: 428}
 
   - name: sound_data_1FFE4A

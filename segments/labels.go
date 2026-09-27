@@ -11,10 +11,13 @@ import (
 
 // segmentDefinesStart reports whether a segment of this type emits a label
 // at its start address in the ROM address space.
-func segmentDefinesStart(typ string) bool {
-	switch strings.ToLower(typ) {
-	case "header", "z80":
+func segmentDefinesStart(seg types.Segment) bool {
+	switch strings.ToLower(seg.Type) {
+	case "header":
 		return false
+	case "z80":
+		// Only the dc.b form is assembled in the 68000 address space.
+		return strings.EqualFold(seg.Format, "bytes")
 	}
 	return true
 }
@@ -38,13 +41,14 @@ func CollectLabels(cfg *types.Config, rom *types.ROM, syms *types.SymbolTable, w
 
 	for _, seg := range cfg.Segments {
 		start := uint32(seg.Start)
-		if segmentDefinesStart(seg.Type) {
+		if segmentDefinesStart(seg) {
 			definable[start] = true
 		}
 		switch strings.ToLower(seg.Type) {
 		case "m68k":
 			items := disasmM68KSegment(rom.Data, seg, m68k.BlockOptions{
 				Heuristics: cfg.HeuristicsEnabled(seg),
+				Literal:    literalSet(seg),
 			})
 			for _, it := range items {
 				definable[it.Addr] = true
@@ -119,7 +123,7 @@ func CollectLabels(cfg *types.Config, rom *types.ROM, syms *types.SymbolTable, w
 	}
 	// 3. Segment names.
 	for _, seg := range cfg.Segments {
-		if seg.Name != "" && segmentDefinesStart(seg.Type) {
+		if seg.Name != "" && segmentDefinesStart(seg) {
 			if !l.Set(uint32(seg.Start), seg.Name, types.LabelSegment) {
 				if other, ok := l.ByName[seg.Name]; ok && other != uint32(seg.Start) {
 					warn("segment name %s is already used for $%06X", seg.Name, other)

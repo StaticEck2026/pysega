@@ -143,8 +143,9 @@ func (s *Splitter) Run() error {
 		ctx.Seg = seg
 		ctx.ExtraBins = nil
 
-		// Z80 lookahead: absorb consecutive bin segments as embedded data.
-		if strings.EqualFold(seg.Type, "z80") {
+		// Z80 lookahead: absorb consecutive bin segments as embedded data
+		// (the dc.b form stays in the 68000 address space and needs none).
+		if strings.EqualFold(seg.Type, "z80") && !strings.EqualFold(seg.Format, "bytes") {
 			var extraBins []segments.Include
 			for j := i + 1; j < len(segs); j++ {
 				next := segs[j]

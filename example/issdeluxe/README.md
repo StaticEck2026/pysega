@@ -86,9 +86,9 @@ out/build/issdeluxe.bin      rebuilt ROM
 | `$05DB50–$144318` | **Resource archive** (see formats): 87 groups |
 | `$144318–$14A150` | Boot module: Konami / Factor 5 / licence screens (`boot_main`, d0 = screen) |
 | `$14A150–$1613EC` | Boot module palettes and five resource groups |
-| `$1613EC–$1EB45C` | PCM sample bank (8-bit unsigned samples, addressed by offset) |
-| `$1EB45C–$1FD954` | Music bank: 29 offsets (3 instrument/sample tables + 26 songs) |
-| `$1FD954–$200000` | 68000 sound driver (16-entry `bra.w` API) with the 248-byte Z80 PCM driver at `$1FDC06` |
+| `$1613EC–$1EB45C` | PCM sample bank (signed 8-bit samples, addressed by the offset list at `$1FFBD8`) |
+| `$1EB45C–$1FD954` | Music bank: 29 offsets, 26 songs, the sound script table (1024 scripts), table 1 and the effect table |
+| `$1FD954–$200000` | 68000 sound driver (16-entry `bra.w` API, software PCM mixer) with the 248-byte Z80 program at `$1FDC06` |
 
 Archive groups of note: `res00` uncompressed sprite tiles (players, stored
 column-major per sprite), `res07`–`res14` the eight stadium sets
@@ -185,11 +185,81 @@ buttons in `g_pad_pressed_*` / `g_pad_held_*`) and keeps one control slot per
 controller (`g_control_slots`: controlled player, buttons, pad type,
 direction remap).
 
-**Sound.** The 68000 driver drives the YM2612/PSG itself; the Z80 only streams
-PCM samples. API (call through the `bra.w` table at `$1FD954`):
-`sound_init`, `sound_play_music` (d0 = song), `sound_play_sfx` (d0 = effect),
-`sound_play_pcm` (a1 = sample), `sound_music_stop`, `sound_update` (every
-frame), `sound_reset`. Work RAM is at `g_sound_ram` ($FF31A8).
+**Sound.** API (call through the `bra.w` table at `$1FD954`): `sound_init`,
+`sound_play_music` (d0 = song), `sound_play_sfx` (d0 = effect),
+`sound_update` (every frame), `sound_reset`. Work RAM is at `g_sound_ram`
+($FF31A8), addressed through a6. See [Sound driver](#sound-driver).
+
+## Sound driver
+
+Everything runs on the 68000; the Z80 program (`z80_driver`, disassembled as
+`dc.b` lines with Z80 mnemonics) only moves bytes:
+
+* **FM and PSG.** `fm_queue_write` / `psg_queue_write` append register
+  writes to buffers in driver RAM; `sound_frame` copies them to Z80 RAM
+  `$0200` (YM2612 part 1), `$0300` (part 2) and `$0400` (PSG) and sets
+  `$04FF`, and the Z80 writes them to the chips between two samples.
+* **PCM.** Two voices (0: music and crowd, 1: commentary) are mixed in
+  software by `pcm_mix`: signed 8-bit samples, summed with saturation. Each
+  voice has a loop region (start, length) and an 8-bit rate step; it moves to
+  the next source byte whenever its rate accumulator carries, so it plays at
+  `DAC rate × step / 256`, and at the end of the region it reloads the loop
+  region (length 1 = silence). `pcm_fill_buffer` mixes up to the Z80's play
+  position (`$0500`) into a 400-byte ring buffer at Z80 `$0504`, which
+  `pcm_copy_to_z80` fills with `movep` (every other byte). The Z80 plays one
+  byte every 384 cycles: **9237 Hz on PAL, 9322 Hz on NTSC**.
+* **Scripts.** All sound is made of scripts (`sound_scripts`, 1024 of them):
+  a priority byte, `$FF`, then 4-byte events `[command, argument, word]`
+  run once per frame by `script_run_events` through `tbl_script_commands`
+  (wait, loop, goto, instrument call/return, FM patch, volume, pitch, notes
+  and the PCM commands below). The first event's argument is the channel:
+  0–5 FM1–6, 6–9 PSG (tone 1–3, noise), 10 PCM voice 1.
+* **Effects.** `sound_play_sfx` d0 = n uses entry n of `sfx_table`:
+  `[n, priority, duration, script]`, script = `$300 + n`. The effect
+  replaces the channel's current sound unless that one has a higher
+  priority, and is released after `duration` frames (`cmd_sustain` then
+  continues, e.g. with the tail of a crowd cheer).
+* **Songs.** `song_play` reads the song header (16 track → script words),
+  the tempo and an order list of 6-byte entries (delay, pattern, transpose,
+  volume, track; `$FF` end, `$FE` jump); patterns hold packed notes
+  (`song_read_note`) that start scripts through the note queue.
+
+PCM commands: `$25` selects a set (a window of 8 entries of the sorted
+sample offset list, `tbl_pcm_sets`), `$21` picks an entry for a voice,
+`$1B` sets the start (entry + word), `$1C` the length, `$1D` the rate step
+and `$1E` restarts the voice; without `$1E` the new region becomes the loop
+that plays when the current one ends. Typical commentary line: set, bank,
+start 0, length, step `$FF` (9200 Hz), key, then length 1 (stop after it).
+The crowd is sample 0 played as intro `0–$63FF` looping `$2000–$63FF`,
+with a rising step for a swelling cheer.
+
+Of the 87 entries of the sample list, 22 are 1-byte placeholders. 28
+commentary lines point at a placeholder or play thousands of bytes past the
+end of their sample (effects `$0D`, `$10`, `$11`, `$15`–`$1B`, `$1D`, `$2B`,
+`$2D`, `$2E`, `$30`, `$31`, `$34`, `$36`–`$39`, `$3B`–`$3D`, `$3F`–`$41`,
+`$45`): their audio is not in this ROM, and the match code never queues
+them. Crowd effects `$69` and `$6B` also run 4.6 KB past the end of
+sample 1; like the lines above they are listed with `missing_sample` and
+not rendered.
+
+Commentary (`speech_queue_push` d5 = effect, played by
+`speech_queue_update` every `$40` frames, 4 queued at most):
+
+| Effect | Event | Effect | Event |
+|---|---|---|---|
+| `$01` / `$22` | corner kick (NTSC / PAL) | `$27` | kick-off |
+| `$02` / `$23` | goal kick | `$29`, `$2A` | card shown |
+| `$03` | throw in | `$2F` | goal (`$44` may precede it) |
+| `$04` / `$24` | free kick | `$32` | own goal |
+| `$05` / `$25` | penalty kick | `$42` | time up |
+| `$06` | offside | `$13`, `$14` | match result |
+| `$08` | half time | `$0E` | shot or header |
+| `$21` | keeper rushes out | `$09`, `$20` | referee decisions (`match_rules_update`) |
+
+Songs started by the game (`sound_play_music` d0, by caller): 1 and 2 in
+the boot module (logo screens), 25 by most front-end screens (with
+`sound_play_music_ext`), 3–9 and 11–14 by individual front-end and result
+screens, 15–18 in and around the match.
 
 ## Match engine
 
@@ -409,15 +479,28 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   screen $39 is only approximate (its backdrop group 25 changes with the
   weather and renders as a flat green block). `screens.json` lists screen
   number → groups.
+* `iss/sound/` — the sound: the 65 PCM samples (`samples/pcm_NN.wav`, at
+  the rate the scripts mostly play them) and 65 of the 95 effects that use
+  PCM (the other 30 have missing samples) rendered by a model of the
+  driver's mixer (`sfx/sfx_NN.wav`, 9237 Hz;
+  every commentary line, the ball kick `$4D`, the crowd loops `$62`–`$6A`,
+  `$78`, `$79` with their loop points in the WAV). `sound.json` lists every
+  effect (priority, duration, channel, commentary event, the PCM events
+  frame by frame), the PCM sets, the music instruments that use PCM and the
+  26 songs. FM/PSG effects and the songs are not rendered: record them from
+  the original (e.g. VGM logging in an emulator) and drop the songs in as
+  `res://assets/iss/music/song_NN.ogg`.
 * `iss/*.gd` — `ISSPitch` (a `TileMapLayer` building any stadium),
   `ISSWeather` (the animated overlay), `ISSFlags` (the six flags), `ISSHud`
   (flags, names, score, clock and a live radar), `ISSPlayerSprite` (animated player with
   kit swapping through the palette shader), `ISSBallSprite` (ball and shadow,
   size from the height), `ISSNPCSprite` (officials with kit variants, medics,
-  dog), `ISSProjection` (pitch ↔ map coordinates, heading vectors) and
+  dog), `ISSProjection` (pitch ↔ map coordinates, heading vectors),
+  `ISSSound` (`play_sfx` with the driver's priority rule, the commentary
+  queue `say`, `play_music` for your captures) and
   `iss/iss_demo.tscn`, a runnable demo: open the project in Godot 4.3+, open
   the scene and press F6 (arrows scroll, +/− change stadium, W the weather,
-  K the officials' kit, B kicks the ball).
+  K the officials' kit, B kicks the ball, G and C play commentary).
 
 The generated project has been checked with Godot 4.3: it imports without
 errors, and the demo runs headless and renders under Xvfb (OpenGL). To check
@@ -449,7 +532,7 @@ Suggested mapping of the original systems:
 | Plane A weather overlay | `ISSWeather`: repeating `Sprite2D` region above the players |
 | CRAM + fades | Palette textures + `md_indexed.gdshader` uniforms |
 | Oblique pitch projection | `screen = Vector2(x + y/2, y/2 - z)` |
-| Sound driver | `AudioStreamPlayer`s; songs recorded from the original or re-sequenced from the music bank |
+| Sound driver | `ISSSound`: rendered PCM effects on two `AudioStreamPlayer`s; FM effects and songs captured from the original |
 
 ## Assembler notes
 
@@ -489,7 +572,9 @@ weather (palettes, tile patch, animated plane A overlay) and the match's
 shadow/highlight and backdrop rules reproduced in Godot. Match engine
 architecture named: AI scheduler, player and goalkeeper AI, team state and
 strategies, referee rules (clock, out of play, goals, fouls, offside, cards),
-restart scripts, statistics and commentary.
+restart scripts, statistics and commentary. Sound driver decoded (Z80
+program, software PCM mixer, script and song formats); all PCM samples and
+PCM effects exported and playable from Godot.
 
 Open work, in rough order of value for a port:
 1. The remaining small sprites in `$02D4B2`–`$02D7DA` (ball marker, the
@@ -501,4 +586,5 @@ Open work, in rough order of value for a port:
    formations (`$037E0E`) and tactics.
 4. Match engine, remaining: the individual goalkeeper states, strategy
    names, game modes 0–12, the state_result scene (16 × 16 ball), camera.
-5. Music bank format and sample boundaries inside the PCM bank.
+5. Sound: the note and pattern encoding in full (to convert songs to MIDI
+   instead of capturing them) and the FM patch format.

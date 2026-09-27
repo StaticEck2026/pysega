@@ -1,8 +1,9 @@
 extends Node2D
 ## Demo of the exported ISS Deluxe assets: a stadium, players running in all
 ## directions with alternating kits, a bouncing ball, the officials and the
-## dog. Arrow keys scroll, +/- change the stadium, W changes the weather,
-## K the officials' kit, B kicks the ball.
+## dog, with the crowd. Arrow keys scroll, +/- change the stadium, W changes
+## the weather, K the officials' kit, B kicks the ball, G and C play the
+## goal and corner-kick commentary.
 
 const SPEED := 60.0
 ## Ball physics per 60 Hz frame (NTSC values of ball_update / sub_00A1C6).
@@ -20,9 +21,12 @@ var _ball := ISSBallSprite.new()
 var _ball_pos := Vector2(820, 520)
 var _ball_vz := 0.0
 var _npcs: Array[ISSNPCSprite] = []
+var _sound := ISSSound.new()
 
 
 func _ready() -> void:
+	add_child(_sound)
+	_sound.play_sfx(0x62) # crowd ambience (loops)
 	add_child(_pitch)
 	var size := _pitch.pixel_size()
 	_weather.area = size
@@ -63,6 +67,7 @@ func _ready() -> void:
 ## Kick the ball up and back the way it came.
 func _kick() -> void:
 	_ball_vz = 3.0
+	_sound.play_sfx(0x4D) # ball kick
 	_ball.facing = (_ball.facing + 28 + randi() % 9) & 63
 
 
@@ -116,3 +121,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					n.set_kit((n.kit + 1) % 4)
 			KEY_B:
 				_kick()
+			KEY_G:
+				_sound.say(0x2F) # goal
+			KEY_C:
+				_sound.say(0x01) # corner kick

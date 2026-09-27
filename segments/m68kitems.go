@@ -78,3 +78,15 @@ func disasmM68KSegment(rom []byte, seg types.Segment, o m68k.BlockOptions) []m68
 	code(cur, end)
 	return items
 }
+
+// literalSet returns the segment's literal instruction addresses as a set.
+func literalSet(seg types.Segment) map[uint32]bool {
+	if len(seg.Literal) == 0 {
+		return nil
+	}
+	m := make(map[uint32]bool, len(seg.Literal))
+	for _, a := range seg.Literal {
+		m[uint32(a)] = true
+	}
+	return m
+}

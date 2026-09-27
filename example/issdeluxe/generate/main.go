@@ -38,6 +38,9 @@ const (
 	z80Start     = 0x1FDC06 // Z80 PCM driver uploaded to $A00000
 	z80End       = 0x1FDCFE
 	romEnd       = 0x200000
+
+	soundBufferCopy  = 0x1FDE08 // 32 x (movem.l, 4 x movep.l) copying the mix into Z80 RAM
+	soundSeqCommands = 0x1FEAB6 // sequence event handlers, commands $00-$25
 )
 
 var rom []byte
@@ -94,6 +97,11 @@ func main() {
 		// the VDP / channel data.
 		s.BaseRegs = map[string]types.HexInt{"a6": 0}
 		s.StructRegs = map[string]string{"a5": ""}
+		for _, a := range soundZ80Offsets {
+			if a >= uint32(s.Start) && a < uint32(s.End) {
+				s.Literal = append(s.Literal, types.HexInt(a))
+			}
+		}
 		segs = append(segs, splitZ80(s)...)
 	}
 
@@ -111,11 +119,21 @@ func fail(err error) {
 	os.Exit(1)
 }
 
+// soundZ80Offsets are sound driver instructions whose absolute short
+// operands are Z80 RAM offsets (the FM write queues at $0200 and $0300),
+// not ROM addresses.
+var soundZ80Offsets = []uint32{0x1FE6D8, 0x1FE6F8}
+
 // traceOptions returns the tracer configuration: data-only regions are
 // forced so pointer candidates never land in graphics or sound data.
 func traceOptions() analysis.Options {
 	return analysis.Options{
 		Orphans: true,
+		// The sound driver's PCM buffer fill jumps into an unrolled
+		// movem/movep block, and its sequence commands are dispatched
+		// through a 38-entry table.
+		Entries: []uint32{soundBufferCopy},
+		Tables:  []analysis.Table{{Addr: soundSeqCommands, Kind: analysis.TableLong, Count: 38}},
 		Data: []analysis.Range{
 			{Start: archiveStart, End: archiveEnd},
 			{Start: bootCodeEnd, End: soundStart},
@@ -368,8 +386,8 @@ func bootDataSegments() []types.Segment {
 // soundDataSegments describes the PCM sample bank and the music bank.
 func soundDataSegments() []types.Segment {
 	segs := []types.Segment{
-		{Name: "pcm_bank", Type: "pcm", SampleRate: 8000, Start: samplesStart, End: musicStart, SubDir: "sound",
-			Description: "8-bit PCM sample bank (addressed as offsets from its start by the sound driver)"},
+		{Name: "pcm_bank", Type: "pcm", SampleRate: 9237, Signed: true, Start: samplesStart, End: musicStart, SubDir: "sound",
+			Description: "Signed 8-bit PCM samples, addressed by the offset list at $1FFBD8 (9237 Hz = the DAC rate on PAL)"},
 	}
 	// Music bank: 29 long offsets relative to the bank start.
 	n := be32(musicStart+4*3) / 4 // first song offset marks the end of the table
@@ -380,7 +398,7 @@ func soundDataSegments() []types.Segment {
 	segs = append(segs, types.Segment{
 		Name: "music_bank", Type: "table", Format: "long", Relative: true,
 		Start: musicStart, End: types.HexInt(musicStart + n*4), SubDir: "sound",
-		Description: "Music bank: 3 instrument/sample tables followed by 26 songs",
+		Description: "Music bank: offsets of the sound script table, table 1 and the effect table (stored after the songs), then of songs 0-25",
 	})
 	var addrs []uint32
 	for a := range offs {
@@ -397,11 +415,20 @@ func soundDataSegments() []types.Segment {
 		if i+1 < len(addrs) {
 			end = addrs[i+1]
 		}
-		name := fmt.Sprintf("song_%06X", a)
-		if i >= len(addrs)-3 {
-			name = fmt.Sprintf("music_table%d", i-(len(addrs)-3))
+		name, desc := fmt.Sprintf("song_%06X", a), ""
+		switch i - (len(addrs) - 3) {
+		case 0:
+			name, desc = "sound_scripts", "1024 long offsets (from here) of the sound scripts: [priority, $FF] then 4-byte events [command, argument, word]"
+		case 1:
+			name = "music_table1"
+		case 2:
+			// 126 effects of 6 bytes, then the script data.
+			fx := a + 6*126
+			segs = append(segs, types.Segment{Name: "sfx_table", Type: "bin", Start: types.HexInt(a), End: types.HexInt(fx), SubDir: "sound",
+				Description: "sound_play_sfx: 126 x [id, priority, duration.w (frames until release), script.w]"})
+			name, desc, a = "sound_script_data", "Sound scripts (see sound_scripts); effect n is script $300+n", fx
 		}
-		segs = append(segs, types.Segment{Name: name, Type: "bin", Start: types.HexInt(a), End: types.HexInt(end), SubDir: "sound"})
+		segs = append(segs, types.Segment{Name: name, Type: "bin", Start: types.HexInt(a), End: types.HexInt(end), SubDir: "sound", Description: desc})
 		cur = end
 	}
 	return segs
@@ -420,7 +447,7 @@ func splitZ80(s types.Segment) []types.Segment {
 		a.Hints = clipHints(s.Hints, st, st, z80Start)
 		out = append(out, a)
 	}
-	out = append(out, types.Segment{Name: "z80_driver", Type: "bin", Start: z80Start, End: z80End, SubDir: "sound",
+	out = append(out, types.Segment{Name: "z80_driver", Type: "z80", Format: "bytes", Start: z80Start, End: z80End, SubDir: "sound",
 		Description: "Z80 PCM driver, copied to Z80 RAM $0000 by the sound driver"})
 	if en > z80End {
 		b := s
@@ -480,6 +507,9 @@ func writeYAML(segs []types.Segment) string {
 		if s.Relative {
 			b.WriteString("    relative: true\n")
 		}
+		if s.Signed && s.Type == "pcm" {
+			b.WriteString("    signed: true\n")
+		}
 		if s.Width != 0 {
 			fmt.Fprintf(&b, "    width: %d\n", s.Width)
 		}
@@ -490,6 +520,13 @@ func writeYAML(segs []types.Segment) string {
 			if v, ok := s.BaseRegs[k]; ok {
 				fmt.Fprintf(&b, "    base_regs: {%s: 0x%X}\n", k, uint32(v))
 			}
+		}
+		if len(s.Literal) > 0 {
+			var ls []string
+			for _, a := range s.Literal {
+				ls = append(ls, fmt.Sprintf("0x%06X", uint32(a)))
+			}
+			fmt.Fprintf(&b, "    literal: [%s]\n", strings.Join(ls, ", "))
 		}
 		if v, ok := s.StructRegs["a5"]; ok {
 			fmt.Fprintf(&b, "    struct_regs: {a5: %q}\n", v)

@@ -79,7 +79,12 @@ type Disassembler struct {
 	// offset: d16(An) is printed as name(An) when the offset is named.
 	StructRegs map[uint16]map[int32]string
 	// Instances are structures at fixed addresses (see types.StructInstance).
-	Instances  []types.InstanceInfo
+	Instances []types.InstanceInfo
+	// Literal lists instructions (by address) whose operands must stay
+	// numeric: absolute addresses that name another address space, such as
+	// Z80 RAM offsets, and only coincide with ROM labels.
+	Literal    map[uint32]bool
+	insnPC     uint32
 	lastFlow   FlowKind
 	lastTarget uint32
 	hasTarget  bool
@@ -90,6 +95,21 @@ type Disassembler struct {
 	opPC       uint32
 	immSym     string // symbolised 32-bit immediate in the current insn
 	immVal     uint32
+}
+
+// literalRefs returns the operand references of the instruction at pc,
+// without the data references of a Literal instruction.
+func (d *Disassembler) literalRefs(pc uint32) []Ref {
+	if !d.Literal[pc] {
+		return d.refs
+	}
+	var out []Ref
+	for _, r := range d.refs {
+		if r.Kind == RefCode {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // New creates a Disassembler over data starting at baseAddr.
@@ -122,6 +142,7 @@ func (d *Disassembler) Next() Result {
 	d.bad = false
 	d.noncanon = false
 	d.opPC = startPC
+	d.insnPC = startPC
 	d.immSym = ""
 
 	text := d.decode()
@@ -168,7 +189,7 @@ func (d *Disassembler) Next() Result {
 		Flow:      d.lastFlow,
 		Target:    d.lastTarget,
 		HasTarget: d.hasTarget,
-		Refs:      d.refs,
+		Refs:      d.literalRefs(startPC),
 		Mnemonic:  mn,
 		Indirect:  d.indirect,
 	}
@@ -294,6 +315,9 @@ func (d *Disassembler) addrOperand(addr uint32) string {
 }
 
 func (d *Disassembler) lookup(addr uint32) (string, bool) {
+	if d.Literal[d.insnPC] {
+		return "", false
+	}
 	if name, ok := d.Labels[addr]; ok {
 		return name, true
 	}
@@ -1234,6 +1258,7 @@ type BlockOptions struct {
 	StructRegs map[uint16]map[int32]string
 	Instances  []types.InstanceInfo
 	Heuristics bool // enable linear-sweep jump table / dead data heuristics
+	Literal    map[uint32]bool
 }
 
 // DisassembleRange disassembles rom[start:end] (rom mapped at address 0).
@@ -1243,6 +1268,7 @@ func DisassembleRange(rom []byte, start, end uint32, o BlockOptions) []Result {
 	d.BaseRegs = o.BaseRegs
 	d.StructRegs = o.StructRegs
 	d.Instances = o.Instances
+	d.Literal = o.Literal
 	d.Pos = int(start)
 	var results []Result
 	for d.Remaining() >= 2 {

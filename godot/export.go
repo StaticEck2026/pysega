@@ -312,7 +312,11 @@ func (e *exporter) pcm(s types.Segment) error {
 	start, end := uint32(s.Start), uint32(s.End)
 	d := e.dir("sound", s.SubDir)
 	p := filepath.Join(d, s.Name+".wav")
-	if err := audio.WritePCMAsWAV(e.rom[start:end], p, s.SampleRate); err != nil {
+	data := e.rom[start:end]
+	if s.Signed {
+		data = audio.Unsigned(data)
+	}
+	if err := audio.WritePCMAsWAV(data, p, s.SampleRate); err != nil {
 		return err
 	}
 	e.add(s, "pcm", map[string]string{"wav": e.rel(p)}, nil)
