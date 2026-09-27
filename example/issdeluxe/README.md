@@ -649,8 +649,9 @@ comments to `issdeluxe_symbols.txt` (`name = $ADDRESS ; comment`) — RAM
 addresses become equates, ROM addresses labels — and re-run the split. Labels
 must sit on instruction, hint or segment boundaries; `sega2asm` warns otherwise.
 
-Every routine and data block has a name. About 700 are named by hand; the rest
-come from `tools/name_routines.py`, which works from the listing: a routine
+Every routine and data block has a name. About 520 names (routines, tables
+and RAM variables) are written by hand; the other 1918 come from
+`tools/name_routines.py`, which works from the listing: a routine
 only ever reached from one named routine (installed as its next state, called
 or jumped to) is `<owner>_<n>`, or `<owner>_<action>` when it starts one of the
 54 player actions; dispatch table entries are named after their slot; the
