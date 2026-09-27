@@ -104,7 +104,7 @@ jumps to the first game state.
 
 **States and frames.** A game state is a routine stored in `g_next_state` and
 entered through `main_loop_dispatch`. Each state (`state_menu`, `state_screen`,
-`state_match`, `state_result`) loads its resources, installs a VBlank handler
+`state_match`, `state_shootout`) loads its resources, installs a VBlank handler
 in `g_vblank_handler`, starts a palette fade-in and then *busy-waits* until
 `g_frame_state` returns to 0. **All game logic runs inside the VBlank
 interrupt**: the handler writes scroll registers, flushes the DMA queue, ticks
@@ -177,6 +177,29 @@ overlay) has the priority bit on every cell, so the pitch itself is never
 shadowed. An HBlank chain (`hblank_hud_split`) splits the screen at the HUD;
 below the split the backdrop colour (VDP register 7) is line 3 colour 0, the
 grass, which shows through every transparent pitch pixel.
+
+**Game modes.** The main menu (`g_menu_item`) leads to: 0 a match submenu
+(open game, short league, short tournament), 1 International Cup, 2 World
+Series, 3 password entry, 4 scenario, 5 PK, 6 training / challenge,
+7 options. `g_game_mode` records the choice (`mode_start_*` set it up;
+`mode_resume_*` restore it from a password, selected by the password's
+length `g_password_length`):
+
+| Mode | | Mode | |
+|---|---|---|---|
+| 0 | training (free, defence, free kick, keeper) | 7 | International Cup group (preliminary) round |
+| 1 | challenge (dribble, pass, shoot, defence, free kick, timed) | 8 | International Cup finals |
+| 2 | PK: penalty shoot-out only | 9 | World Series |
+| 3 | open game | `$A` | Championship |
+| 4 | short league | `$B` | attract demo (ends after 4 clock minutes) |
+| 5 | short tournament | `$C` | scenario (12 situations, screen `$24`) |
+| 6 | International Cup elimination round | | |
+
+A penalty shoot-out (PK mode uses one too) runs `state_shootout` once per
+kick while `g_shootout_kicks` is below 5: the kick is seen from behind the
+taker (screen `$26`, the 16 × 16 ball of `ball_update_large`). The options
+screens set the rules (fouls, yellow cards, offside, overtime or V-goal
+overtime) and the referee (Carlos, Heinz, Hasegawa or random).
 
 **Input.** `joypad_read_all` supports up to 8 controllers through a multitap
 (`g_pad_type`, `g_pad_state`). `match_players_update` merges them per team
@@ -296,9 +319,12 @@ area). Outfield players use `player_ai`:
    (role 2) out of their own, and nobody runs past the opponents' last
    defender (`tm_back`) minus 32 px.
 
-`tbl_team_strategies` holds the eight in-match strategies. They either move
+`tbl_team_strategies` holds the eight in-match strategies (`tm_strategy`):
+0 all-out attack, 1 push along centre, 2 push along wings, 3 counter attack,
+4 all-out defence, 5 press up, 6 zone press, 7 offside trap. They either move
 the team's three lines relative to the ball (all up, all back, forwards up
-with the defence back, ...) or send a player on a run.
+with the defence back, ...) or send a player on a run; while one runs its
+label (`hud/strategies/`) is shown in the window row 22.
 `tbl_kickoff_positions` gives each formation's kick-off layout.
 
 **Rules** (`match_rules_update`).
@@ -470,8 +496,11 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   frame each), tiled over the stadium from its origin.
 * `iss/hud/` — the match HUD: the window plane (`window.png`, 32 × 32
   cells), the 42 team flags and name plates, score / clock digits, the
-  radar background and, per stadium, the pitch → radar pixel mapping and the
-  dot colours (`hud.json` gives every item's cells).
+  strategy labels, the radar background and, per stadium, the pitch → radar
+  pixel mapping and the dot colours (`hud.json` gives every item's cells).
+* `iss/misc/` — the small sprites: rain drops and splashes, snowflakes,
+  confetti and sparkles (`particle_draw`), the landing-point marker of lofted
+  kicks and the practice goal target (`misc.json` says when each is used).
 * `iss/screens/` — the 57 front-end screens (menus, options, league and cup
   tables, mode title cards, game over, password), each a backdrop group
   under the screen's own group as the loader at `$01EB38` stacks them.
@@ -576,15 +605,19 @@ restart scripts, statistics and commentary. Sound driver decoded (Z80
 program, software PCM mixer, script and song formats); all PCM samples and
 PCM effects exported and playable from Godot.
 
+Game modes, the main menu, the password restore paths, the penalty
+shoot-out state, the strategies and the small sprites are named.
+
 Open work, in rough order of value for a port:
-1. The remaining small sprites in `$02D4B2`–`$02D7DA` (ball marker, the
-   flickering object of the state_result scene) and the HUD's banner text
-   (`banner_draw` font).
-2. The front-end logic itself: which object drives each menu screen, the
-   cursor sprites and how menu choices map to settings.
-3. Meaning of the eight player attribute bytes and the five team ratings;
-   formations (`$037E0E`) and tactics.
-4. Match engine, remaining: the individual goalkeeper states, strategy
-   names, game modes 0–12, the state_result scene (16 × 16 ball), camera.
+1. The HUD's banner text (`banner_draw` font) and the figures of the
+   presentation scenes (`flag_fans_draw`).
+2. The front-end logic in detail: the object behind each remaining menu
+   screen, the cursor sprites, the options and how the password bits map to
+   the competition state.
+3. Which player record bytes hold the nine attributes of the edit screen
+   ($0E: speed, dash, shot power, curl skill, intelligence, balance, jump,
+   dribble, stamina) and the five team ratings; formations (`$037E0E`).
+4. Match engine, remaining: the individual goalkeeper states, the
+   shoot-out's own logic, the camera.
 5. Sound: the note and pattern encoding in full (to convert songs to MIDI
    instead of capturing them) and the FM patch format.

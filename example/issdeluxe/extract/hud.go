@@ -29,7 +29,13 @@ const (
 	tblRadarDots   = 0x1BB90 // 6 dot patterns x 16 bytes
 	radarFirstTile = 2
 	hudTeams       = 42
+	entStrategies  = 5 // res04, raw: 9 blocks of 8 tiles, block s+1 = label of strategy s
 )
+
+// strategyNames are the team strategies in tm_strategy order (labels in
+// res04 entry 5 and on screen $0A).
+var strategyNames = []string{"all out attack", "push along centre", "push along wings", "counter attack",
+	"all out defence", "press up", "zone press", "offside trap"}
 
 // hudLine2 returns palette line 2 as used in a match.
 func hudLine2() []uint16 {
@@ -54,6 +60,7 @@ func cellsImage(words []uint16, w, h int, tiles []byte) *image.Gray {
 func exportHUD(dir string) {
 	must(os.MkdirAll(filepath.Join(dir, "flags"), 0755))
 	must(os.MkdirAll(filepath.Join(dir, "names"), 0755))
+	must(os.MkdirAll(filepath.Join(dir, "strategies"), 0755))
 	tiles := append([]byte(nil), unpack(entry(grpOverlay, entOverlayTiles))...)
 	radar := unpack(entry(grpMisc, entRadarTiles))
 	copy(tiles[radarFirstTile*32:], radar)
@@ -91,6 +98,19 @@ func exportHUD(dir string) {
 		}
 		must(types.WritePNG(filepath.Join(dir, "names", fmt.Sprintf("name_%02d.png", t)),
 			cellsImage(nw, 5, 1, names[t*5*32:t*5*32+5*32])))
+	}
+
+	// Strategy labels: shown in the window while a team's strategy runs
+	// (match_players_update streams block s+1 to overlay tile $107 / $10F).
+	labels := rom[entry(grpMisc, entStrategies):]
+	lw := make([]uint16, 8)
+	for c := range lw {
+		lw[c] = uint16(2<<13 | c)
+	}
+	for st := range strategyNames {
+		b := (st + 1) * 8 * 32
+		must(types.WritePNG(filepath.Join(dir, "strategies", fmt.Sprintf("strategy_%d.png", st)),
+			cellsImage(lw, 8, 1, labels[b:b+8*32])))
 	}
 
 	// Digits 0-9 (8x16 each), and the time-up cells.
@@ -168,8 +188,12 @@ func exportHUD(dir string) {
 			"half":       map[string]any{"cells": []int{25, 1}, "tiles": "$6C first half, $64 second half"},
 			"radar":      map[string]any{"cells": []int{11, 20}, "size_px": []int{80, 56}},
 			"banner":     map[string]any{"cells": []int{0, 24}, "size": []int{32, 2}, "note": "banner_draw text (THROW IN, ...)"},
+			"home_strategy": map[string]any{"cells": []int{2, 22}, "size": []int{8, 1},
+				"images": "strategies/strategy_N.png (tm_strategy N) while the strategy runs"},
+			"away_strategy": map[string]any{"cells": []int{22, 22}, "size": []int{8, 1}},
 		},
-		"digits": "digits.png: 10 digits of 8x16 pixels",
+		"strategy_names": strategyNames,
+		"digits":         "digits.png: 10 digits of 8x16 pixels",
 		"radar": map[string]any{
 			"background": "radar.png (index 32 + colour, line 2)",
 			"mapping":    maps,

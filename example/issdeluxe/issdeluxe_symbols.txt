@@ -80,7 +80,7 @@ ball_update_lob             = $00A0CA ; Ball in a lofted pass: rise/fall until o
 ball_update_high            = $00A134 ; Ball after a high kick (stronger gravity)
 tbl_ball_bounce_damp        = $00BD36 ; Per g_weather (snow, fine, rain) = 1, 2, 1: a bounce costs speed >> value
 tbl_ball_friction           = $00BD3C ; Per g_weather = 5, 5, 4: rolling friction shift (the ball stops soonest in the rain)
-ball_update_large           = $00A1AE ; 16x16 ball of state_result (action 4): bounce, friction; frame = spin 0-2, +3 below\ny $110 and +3 more below y $F0 as the ball travels away from the camera
+ball_update_large           = $00A1AE ; 16x16 ball of state_shootout (action 4): bounce, friction; frame = spin 0-2, +3 below\ny $110 and +3 more below y $F0 as the ball travels away from the camera
 velocity_from_heading       = $00BFA0 ; Set obj_vel_x / obj_vel_y from obj_speed and angle d5 (tbl_direction_x)
 obj_steer_idle              = $010D7C ; Think callback: stand still, remember the current position as the target
 obj_steer_to_target         = $010D98 ; Think callback: turn towards obj_target_x/y until within 16 pixels
@@ -108,8 +108,8 @@ state_screen                = $01FFF4 ; Full-screen presentation state (loads it
 state_screen_frame          = $02004C ; VBlank handler of state_screen
 state_match                 = $0200D2 ; Match state: loads stadium, teams and players, then plays the game
 state_match_frame           = $02014E ; VBlank handler of state_match: scroll, DMA, sound, pads, match logic, objects, sprites
-state_result                = $0201FE ; Post-match / presentation state
-state_result_frame          = $020274 ; VBlank handler of state_result
+state_shootout              = $0201FE ; Penalty shoot-out kick seen from behind the taker (screen $26 perspective pitch, 16x16 ball);\nthe match code enters it for each kick while g_shootout_kicks < 5 (also PK mode, g_game_mode 2)
+state_shootout_frame        = $020274 ; VBlank handler of state_shootout
 player_init_sprite          = $020BD4 ; Give player object a5 its draw routine and an empty animation state
 player_draw                 = $020BF0 ; Player draw callback: pick the frame from tbl_player_anims[action $6A][direction][frame $7A],\nDMA its body/head/hair/kit tiles into the player's VRAM slot ($78) and emit its sprite pieces
 tbl_player_anims            = $0210DE ; 54 actions -> 8 directions -> frame descriptor lists.\nDescriptor: +0 res00 entry*4, +2 tile offset, +4 tile bytes, +6 head, +8 kit, +A hair tile offsets,\n+C piece count-1, then 10-byte pieces: y, VDP size, attribute index, tile, x (right), x (left)
@@ -138,7 +138,7 @@ pitch_draw_column           = $01DE54 ; Draw pitch cell column d6 starting at ce
 flag_animate                = $01179C ; Corner / halfway flag update: action 0, frame + 1 every 6 frames (4 frames)
 match_create_objects        = $015A1A ; Match objects: pitch bounds for g_stadium (tbl_pitch_bounds), the ball (res04 entry 0\ntiles), the officials' kit (res04 entry 38, variant g_officials_kit or 3) into palette line 2\ncolours 0-7, the referee and the linesman
 tbl_pitch_bounds            = $016E62 ; Per stadium: left, right, top, bottom (signed words, pitch coordinates)
-ball_init_large             = $019BCE ; state_result: create the ball with the 16x16 tile set (res04 entry 1) and ball_update_large
+ball_init_large             = $019BCE ; state_shootout: create the ball with the 16x16 tile set (res04 entry 1) and ball_update_large
 match_init_hud              = $01ACCA ; Install the HUD HBlank chain, load the overlay / HUD tiles (res16 entry 5 at\ng_overlay_vram), the weather overlay map (res16 entry g_weather) into plane A with priority set on\nevery cell (so the pitch is never shadowed) and the HUD map (res16 entry 3) into the window plane
 hud_update                  = $01B2D4 ; Per-frame HUD update (state_match_frame): plane A follows the pitch scroll; weather\ntile animation into overlay tiles $103-$106 (snow: res04 entry 7 every 8 frames, rain: entry 8 every frame)
 hblank_hud_split            = $01CE88 ; HBlank chain for the HUD split; below the split the backdrop (VDP register 7) becomes\nline 3 colour 0, the stadium grass
@@ -285,7 +285,11 @@ g_director                  = $00FF1932 ; Invisible object whose update runs the
 g_team_home_info            = $00FF181E ; Home team match state (struct team, $88 bytes)
 g_team_away_info            = $00FF18A6 ; Away team match state (struct team)
 g_random                    = $00FF0044 ; Word: random number, stepped by rol #1 / eor #$37E8 on carry
-g_game_mode                 = $00FF1262 ; Word: game mode chosen in the front end (0-2 practice, 3-9 matches and cups,\n$A-$C special; $B = attract demo, ended after 4 clock minutes)
+g_game_mode                 = $00FF1262 ; Word: 0 training, 1 challenge, 2 PK (penalty shoot-out), 3 open game, 4 short league,\n5 short tournament, 6 International Cup elimination round, 7 its group (preliminary) round, 8 its finals,\n9 World Series, $A Championship, $B attract demo (ended after 4 clock minutes), $C scenario
+g_password_length           = $00FF13BA ; Word: bits in the entered password; selects the mode it restores (password_restore)
+g_shootout_kicks            = $00FF14F0 ; Word: penalties taken in the shoot-out
+g_next_screen               = $00FF175E ; Word: screen that state_menu shows next (g_screen)
+g_menu_item                 = $00FF1766 ; Word: menu cursor. Main menu: 0 match (open game, short league, short tournament),\n1 International Cup, 2 World Series, 3 password, 4 scenario, 5 PK, 6 training / challenge, 7 options
 g_player_status             = $00FF12E4 ; 2 x 20 bytes, one per squad player: bit 7 = booked, bits 0-2 = status
 g_pads_home                 = $00FF1540 ; Word: number of controllers playing for the home team
 g_pads_away                 = $00FF1542 ; Word: number of controllers playing for the away team
@@ -402,7 +406,7 @@ keeper_ai                   = $00FAEC ; Goalkeeper think: stand 32 px in front o
 keeper_save                 = $00FF62 ; Goalkeeper: ball within $50 pixels, go for it
 keeper_rush_out             = $010164 ; Goalkeeper: leave the line for a ball played into the area (speech $21)
 keeper_update               = $001DF0 ; Goalkeeper movement / action state machine (update callback)
-tbl_team_strategies         = $0135C0 ; 8 strategies, run for a team when its tm_strategy is set: 0 push all lines up to\nthe ball, 1 / 2 send a player on a run, 3 forwards up with the defence back, 4 all lines back, ...
+tbl_team_strategies         = $0135C0 ; 8 strategies, run for a team when its tm_strategy is set (names from screen $0A and the\nlabels in res04 entry 5): 0 all out attack (all lines up to the ball), 1 push along centre, 2 push along wings (1 / 2 send\na player on a run), 3 counter attack (forwards up, defence back), 4 all out defence (all lines back), 5 press up,\n6 zone press, 7 offside trap
 tbl_restart_setup           = $013834 ; 14 routines indexed by g_restart_type that move both teams into position for the restart
 tbl_kickoff_positions       = $037E0E ; 20 bytes per formation: (dx, dy) x 16 from the centre spot for 10 outfield players
 
@@ -467,3 +471,43 @@ tbl_hud_digits              = $01CD00 ; 10 digits x (top, bottom) window cells, 
 tbl_hud_time_up             = $01CD50 ; 4 x (top, bottom) cells shown instead of the clock at time up
 g_screen                    = $00FF175C ; Word: front-end screen number (group 27 + screen; backdrop group 23/24/25/26)
 screen_load                 = $01EB38 ; Load front-end screen g_screen: backdrop tiles, map (plane A) and palette lines 2-3,\nthe screen's tiles after them, its map as g_text_nametable (priority toggled) and palette lines 0-1
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Game modes: set g_game_mode and the competition state; *_resume restore a
+; mode from a password (dispatched by g_password_length)
+; ═════════════════════════════════════════════════════════════════════════════
+mode_start_open_game        = $05AE46 ; Mode 3, then the player select (screen 2)
+mode_start_short_league     = $05AF50 ; Mode 4 (title card $34)
+mode_resume_short_league    = $05AFA6 ; Mode 4 from a password (league table, screen $1D)
+mode_start_short_tournament = $05B366 ; Mode 5 (title card $35)
+mode_resume_short_tournament = $05B3BE ; Mode 5 from a password (tournament table, screen $22)
+mode_start_international    = $05B640 ; Mode 6: International Cup elimination round (title card $36)
+mode_resume_international   = $05B6A2 ; Mode 6 from a password (screen $29)
+mode_international_group    = $05BBA8 ; Mode 7: the group (preliminary) round (screen $2B)
+mode_resume_international_group = $05BC50 ; Mode 7 from a password
+mode_international_finals   = $05C03C ; Mode 8: the finals bracket (screen $2D)
+mode_resume_international_finals = $05C0DE ; Mode 8 from a password
+mode_start_world_series     = $05C378 ; Mode 9 (title card $37)
+mode_resume_world_series    = $05C440 ; Mode 9 from a password (screen $2F)
+mode_start_championship     = $05CF8E ; Mode $A (title card $38)
+mode_resume_championship    = $05CFE6 ; Mode $A from a password
+mode_start_training         = $05D184 ; Mode 0 (training menu: free, defence, free kick, keeper)
+mode_start_challenge        = $05D218 ; Mode 1 (dribble, pass, shoot, defence, free kick against the clock)
+mode_start_pk               = $05D2B2 ; Mode 2: penalty shoot-out only
+mode_start_scenario         = $05D3FC ; Mode $C: 12 scenarios (screen $24), each a match situation to turn round
+mode_resume_scenario        = $05D452 ; Mode $C from a password
+mode_start_demo             = $05D588 ; Mode $B: attract demo
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Small sprites
+; ═════════════════════════════════════════════════════════════════════════════
+landing_marker_init         = $02D4B2 ; Give object a5 the landing-point marker (created by the lofted kicks)
+landing_marker_draw         = $02D4BC ; One 8x8 sprite: tile $33 of the ball's tile set, palette line 3
+landing_marker_start        = $00C774 ; Follow the ball's target (g_ball obj_target_x/y)
+landing_marker_update       = $00C78C ; Stay on the target; freed when the ball is within 8 px of it or someone else touches it
+goal_target_init            = $01185A ; Practice: a panel over one half of the goal (x = goal line, y = centre +-$40 at random)
+goal_target_update          = $011870 ; On a goal ($179E = 1) within $20 of the panel: action 1 and $13CE = $B
+goal_target_draw            = $02D692 ; 7 pieces from res04 entry 18, every other frame so it looks see-through; colour $C, $D once hit
+flag_fans_draw              = $02D786 ; Presentation scene figures (13, positions at $03B6FC): two body variants and 3-frame waving\nflags, with the home and away flags streamed from res06 entry 2
+particle_draw               = $02D8F2 ; Small animated sprites (7 actions: streak, three 3-frame bursts, two 2-frame spins, a\nflicker): rain streaks and splashes (res04 entry 12) and snowflakes (entry 11) in bad weather; confetti (entry 13)\nand a sparkle above the referee (entry 14) in presentation scenes
+

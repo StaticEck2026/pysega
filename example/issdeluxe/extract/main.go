@@ -127,6 +127,7 @@ func main() {
 	exportBall(filepath.Join(*out, "assets", "iss", "ball"))
 	exportNPCs(filepath.Join(*out, "assets", "iss", "npc"))
 	exportFlags(filepath.Join(*out, "assets", "iss", "flags"))
+	exportMisc(filepath.Join(*out, "assets", "iss", "misc"))
 	exportStadiums(filepath.Join(*out, "assets", "iss", "stadiums"))
 	exportWeather(filepath.Join(*out, "assets", "iss", "weather"))
 	exportHUD(filepath.Join(*out, "assets", "iss", "hud"))

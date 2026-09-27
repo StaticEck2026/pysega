@@ -31,6 +31,7 @@ func _init() -> void:
 	var flags = _json("res://assets/iss/flags/flags.json")
 	var hud = _json("res://assets/iss/hud/hud.json")
 	var sound = _json("res://assets/iss/sound/sound.json")
+	var misc = _json("res://assets/iss/misc/misc.json")
 	if _failures > 0:
 		quit(1)
 		return
@@ -43,6 +44,9 @@ func _init() -> void:
 	_check(teams != null and teams["teams"][0]["name"] == "England", "team names")
 	_check(hud["radar"]["mapping"].size() == 8, "radar mapping per stadium")
 	_check(ResourceLoader.exists("res://assets/iss/hud/flags/flag_41.png"), "team flags")
+	_check(hud["strategy_names"].size() == 8 \
+		and ResourceLoader.exists("res://assets/iss/hud/strategies/strategy_7.png"), "strategy labels")
+	_check(misc["particles"]["rain"]["actions"]["1"].size() == 3 and misc["goal_target"].size() == 2, "small sprites")
 	_check(sound["samples"].size() == 65 and sound["sfx"].size() == 126, "65 PCM samples, 126 effects")
 	for s: Dictionary in sound["samples"]:
 		_check(ResourceLoader.exists(s["wav"]), "sample " + s["wav"])
@@ -77,5 +81,9 @@ func _init() -> void:
 	root.add_child(snd)
 	_check(snd.play_sfx(0x2F) and not snd.play_sfx(0x5F), "commentary plays, FM effect has no file")
 	_check(snd.speech_context(0x2F) == "goal", "speech context")
+	snd.stop_sfx()
+	snd.queue_free()
+	demo.queue_free()
+	await process_frame
 	print("iss_selftest: ", "OK" if _failures == 0 else "%d failure(s)" % _failures)
 	quit(0 if _failures == 0 else 1)

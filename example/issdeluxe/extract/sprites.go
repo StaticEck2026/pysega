@@ -21,7 +21,7 @@ const (
 	grpNPC            = 3  // res03: NPC body tiles, raw (long offsets)
 	grpMisc           = 4  // res04: ball tiles, NPC extras, officials' kits, ...
 	entBallTiles      = 0  // 52 tiles: 12 spin frames x 4 ball sizes + 3 shadows (match)
-	entBallLargeTiles = 1  // 16x16 ball used by action 4 (state_result)
+	entBallLargeTiles = 1  // 16x16 ball used by action 4 (state_shootout)
 	entNPCExtra       = 6  // raw: groups of 4 tiles (flags, cards) streamed into tile 18 of a slot
 	entOfficialKits   = 38 // 4 kit variants x 8 CRAM words for palette line 2 colours 0-7
 	npcSlotTiles      = 22
@@ -200,7 +200,7 @@ func exportBall(dir string) {
 			"1: z $40-$5F",
 			"2: z >= $60",
 			"3: lofted pass (ball_update_lob)",
-			"4: 16x16 ball of state_result (tiles res04 entry 1): frame = spin 0-2, + 3 when y < $110, + 3 more when y < $F0",
+			"4: 16x16 ball of the penalty shoot-out view, state_shootout (tiles res04 entry 1): frame = spin 0-2, + 3 when y < $110, + 3 more when y < $F0",
 		},
 		"spin":   "obj_anim_frame is 16.16: + speed/4 per frame on the ground, + $2000 per frame in the air, modulo 4",
 		"frames": frames,
@@ -380,4 +380,72 @@ func exportFlags(dir string) {
 		"actions":     actions,
 	})
 	fmt.Printf("flags: %d actions x 4 frames\n", len(actions))
+}
+
+// Small sprites: weather and celebration particles (particle_draw, one piece
+// per frame), the lofted ball's landing-point marker and the practice goal
+// target.
+const (
+	tblParticleAnims   = 0x02D946 // 7 actions -> frames -> one 8-byte piece
+	tblGoalTarget      = 0x02D6F2 // 2 actions x 7 pieces of 10 bytes
+	pieceLandingMarker = 0x02D502 // one piece, tiles of the ball (res04 entry 0)
+	entGoalTargetTiles = 18
+)
+
+var particleFrames = []uint32{1, 3, 3, 3, 2, 2, 4}
+
+func exportMisc(dir string) {
+	must(os.MkdirAll(dir, 0755))
+	sets := []struct {
+		name    string
+		entry   int
+		actions []uint32
+		note    string
+	}{
+		{"rain", 12, []uint32{0, 1}, "12 drops in rain: action 0 falls, then action 1 splashes (3 frames)"},
+		{"snow", 11, []uint32{2, 3}, "12 flakes in snow: action 2, then action 3"},
+		{"confetti", 13, []uint32{4, 5}, "presentation scenes: 14 pieces spinning (2 frames each)"},
+		{"sparkle", 14, []uint32{6}, "presentation scene: above the referee (4 frames)"},
+	}
+	particles := map[string]any{}
+	for _, st := range sets {
+		tiles := unpack(entry(grpMisc, st.entry))
+		acts := map[string][]*render{}
+		for _, a := range st.actions {
+			ap := be32(tblParticleAnims + 4*a)
+			var frames []*render
+			for f := uint32(0); f < particleFrames[a]; f++ {
+				p := tablePiece(be32(ap+4*f), false, 0, 0)
+				frames = append(frames, drawPieces([]piece{p}, tiles,
+					filepath.Join(dir, fmt.Sprintf("%s_%d_%d.png", st.name, a, f))))
+			}
+			acts[fmt.Sprint(a)] = frames
+		}
+		particles[st.name] = map[string]any{"tiles": fmt.Sprintf("res04 entry %d", st.entry), "use": st.note, "actions": acts}
+	}
+
+	marker := drawPieces([]piece{tablePiece(pieceLandingMarker, false, 0, 0)},
+		unpack(entry(grpMisc, entBallTiles)), filepath.Join(dir, "landing_marker.png"))
+
+	tiles := unpack(entry(grpMisc, entGoalTargetTiles))
+	var target []*render
+	for a := uint32(0); a < 2; a++ {
+		ap := be32(tblGoalTarget + 4*a)
+		var ps []piece
+		for k := uint32(0); k < 7; k++ {
+			ps = append(ps, tablePiece(ap+10*k, false, 0, 0))
+		}
+		target = append(target, drawPieces(ps, tiles, filepath.Join(dir, fmt.Sprintf("goal_target_%d.png", a))))
+	}
+
+	writeJSON(filepath.Join(dir, "misc.json"), map[string]any{
+		"description": "Small sprites (CRAM-index images, origin = object position). particles: particle_draw frames " +
+			"per tile set; landing_marker: shown at the ball's target after a lofted kick until the ball arrives " +
+			"within 8 px or another player touches it; goal_target: practice panel over one half of the goal, drawn " +
+			"every other frame (see-through), action 1 once a goal is scored through it.",
+		"particles":      particles,
+		"landing_marker": marker,
+		"goal_target":    target,
+	})
+	fmt.Printf("misc: particles (rain, snow, confetti, sparkle), landing marker, goal target\n")
 }

@@ -5,7 +5,7 @@ extends Node2D
 ## Put the node at the ball's ground position (ISSProjection.to_map(pitch)).
 ## As in ball_update ($009FA8) the ball's size follows its height,
 ## action = clamp((z - $20) >> 5, 0, 2); `lofted` selects the lofted-pass
-## ball (action 3) and `large` the 16x16 ball of state_result (action 4).
+## ball (action 3) and `large` the 16x16 ball of the penalty shoot-out view (state_shootout, action 4).
 ## `spin` is the rolling phase in frames: the game adds speed / 4 per frame
 ## on the ground and 1/8 per frame in the air.
 

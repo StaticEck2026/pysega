@@ -636,7 +636,7 @@ structs:
     - {offset: 0x04, name: tm_head_tiles, comment: "Long: head tiles recoloured with the team's head mask"}
     - {offset: 0x08, name: tm_hair_tiles, comment: "Long: hair tiles (ROM)"}
     - {offset: 0x1E, name: tm_ratings, comment: "5 bytes: tbl_team_ratings"}
-    - {offset: 0x24, name: tm_strategy, comment: "Word: strategy being applied (tbl_team_strategies index, -1 = none)"}
+    - {offset: 0x24, name: tm_strategy, comment: "Word: strategy being applied (-1 = none): 0 all out attack, 1 push along centre, 2 push along wings, 3 counter attack, 4 all out defence, 5 press up, 6 zone press, 7 offside trap"}
     - {offset: 0x26, name: tm_strategy_run, comment: "Word: run started by strategy 1 or 2"}
     - {offset: 0x36, name: tm_lines, comment: "3 words: X of the defence, midfield and attack lines (indexed by obj_role)"}
     - {offset: 0x5C, name: tm_formation, comment: "Word: formation (tbl_kickoff_positions index)"}
