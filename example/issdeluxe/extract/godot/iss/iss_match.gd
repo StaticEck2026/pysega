@@ -240,6 +240,13 @@ func _exit_tree() -> void:
 
 
 func result() -> Dictionary:
+	var r := _result_core()
+	if options.has("scenario_index"):
+		r["scenario"] = int(options["scenario_index"])
+	return r
+
+
+func _result_core() -> Dictionary:
 	return {"home": engine.teams[0].team_id, "away": engine.teams[1].team_id,
 		"home_score": engine.teams[0].score, "away_score": engine.teams[1].score,
 		"penalties": engine.pk_scores if engine.shootout else [],

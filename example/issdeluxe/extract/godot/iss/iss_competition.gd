@@ -1,22 +1,34 @@
 class_name ISSCompetition
 extends RefCounted
-## The short league (mode 4) and short tournament (mode 5).
-##
-## League: 6 teams, each plays each once in the order of the ROM's fixture
-## list ($05B17E, 15 games in 5 rounds); a win is worth 3 points and a draw 1
-## (screen_league_table). Tournament: 8 teams in a knockout bracket, every
-## game a knockout match (extra time, penalties). The first `humans` teams are
-## played by people; games between computer teams are decided by
-## match_simulate ($015442): the strength difference picks a row of the
-## goals table and a random column gives each side's goals.
+## The competitions, with the ROM's structure and fixture lists (match.json):
+## - short league (mode 4): 6 teams, the 15 fixtures of $05B17E, 3 points a
+##   win and 1 a draw (screen_league_table);
+## - short tournament (mode 5): 8 teams, knockout;
+## - International Cup (modes 6-8): an elimination round of 3 (the human's
+##   side and two of teams 0-23, fixtures $05B994) that only the winner
+##   leaves, a group round of 4 (three of teams 0-35, fixtures $05BE40) whose
+##   top two go through, and finals: a 16-team knockout of 15 games;
+## - World Series (mode 9): teams 0-35 play each other once in the order of
+##   $05C7B2 (630 games), every game with a winner; the table counts wins.
+## The first `humans` slots of a stage are played by people; games between
+## computer teams are decided by match_simulate ($015442).
 
 var kind := "league"
-var teams: Array = []
 var humans := 1
-## Played games: {home, away, hg, ag, pk: [h, a] or []} (slots into teams).
+## Team numbers of the current stage, by slot.
+var teams: Array = []
+## International Cup stage: 0 elimination, 1 group, 2 finals.
+var stage := 0
+## Round-robin fixtures of the stage (slot pairs), empty for a knockout.
+var fixtures: Array = []
+## Played games of the stage: {home, away, hg, ag, pk: [h, a] or []}.
 var games: Array = []
-## Tournament: slots still in, in bracket order.
+## Knockout: slots still in, in bracket order.
 var alive: Array = []
+## The human side is out (International Cup).
+var eliminated := false
+## International Cup: teams already met (not drawn again).
+var met: Array = []
 
 
 static func league(team_ids: Array, human_count: int) -> ISSCompetition:
@@ -24,6 +36,7 @@ static func league(team_ids: Array, human_count: int) -> ISSCompetition:
 	c.kind = "league"
 	c.teams = team_ids.duplicate()
 	c.humans = human_count
+	c.fixtures = ISSMatchData.consts["league_fixtures"]
 	return c
 
 
@@ -36,30 +49,69 @@ static func tournament(team_ids: Array, human_count: int) -> ISSCompetition:
 	return c
 
 
+static func international_cup(team: int) -> ISSCompetition:
+	var c := ISSCompetition.new()
+	c.kind = "cup"
+	c.humans = 1
+	c.met = [team]
+	c.teams = [team] + c._draw(2, 24)
+	c.fixtures = ISSMatchData.consts["cup_elimination_fixtures"]
+	return c
+
+
+static func world_series(team: int) -> ISSCompetition:
+	var c := ISSCompetition.new()
+	c.kind = "world_series"
+	c.humans = 1
+	# Slots are team numbers 0-35; the human's side plays as itself.
+	c.teams = range(36)
+	c.fixtures = ISSMatchData.consts["world_series_fixtures"]
+	c.human_team = team
+	return c
+
+
+## World Series: the human's team number (its slot).
+var human_team := -1
+
+
+func _draw(n: int, pool: int) -> Array:
+	var out := []
+	while out.size() < n:
+		var t := randi() % pool
+		if not met.has(t) and not out.has(t):
+			out.append(t)
+	met.append_array(out)
+	return out
+
+
 func is_human(slot: int) -> bool:
+	if kind == "world_series":
+		return slot == human_team
 	return slot < humans
 
 
-## The next game as [home slot, away slot], or [] when the competition is over.
+## Every game of this stage needs a winner (extra time and penalties).
+func knockout() -> bool:
+	return kind == "tournament" or kind == "world_series" or (kind == "cup" and stage == 2)
+
+
+## The next game as [home slot, away slot], or [] when it is over.
 func next_game() -> Array:
-	if kind == "league":
-		var f: Array = ISSMatchData.consts["league_fixtures"]
-		if games.size() >= f.size():
-			return []
-		return [int(f[games.size()][0]), int(f[games.size()][1])]
-	# Tournament: the next unplayed pair of this round.
-	if alive.size() <= 1:
+	if eliminated:
 		return []
-	var played := _round_games()
-	var i := played * 2
-	return [alive[i], alive[i + 1]]
+	if not alive.is_empty() or (kind == "tournament") or (kind == "cup" and stage == 2):
+		if alive.size() <= 1:
+			return []
+		var i := _round_games() * 2
+		return [alive[i], alive[i + 1]]
+	if games.size() >= fixtures.size():
+		return []
+	return [int(fixtures[games.size()][0]), int(fixtures[games.size()][1])]
 
 
 func _round_games() -> int:
-	# Games of the current round = games since the round began.
-	var total := teams.size()
 	var done := games.size()
-	var round_size := total / 2
+	var round_size := teams.size() / 2
 	while done >= round_size and round_size >= 1:
 		done -= round_size
 		round_size /= 2
@@ -67,14 +119,24 @@ func _round_games() -> int:
 
 
 func round_name() -> String:
-	if kind == "league":
-		return "ROUND %d" % (games.size() / 3 + 1)
+	match kind:
+		"league":
+			return "ROUND %d" % (games.size() / 3 + 1)
+		"world_series":
+			return "GAME %d" % (games.size() + 1)
+		"cup":
+			if stage == 0:
+				return "ELIMINATION ROUND"
+			if stage == 1:
+				return "GROUP ROUND"
 	match alive.size():
 		2:
 			return "FINAL"
 		4:
 			return "SEMI FINAL"
-	return "QUARTER FINAL"
+		8:
+			return "QUARTER FINAL"
+	return "FIRST ROUND"
 
 
 ## Record the result of the next game (from a match or a simulation).
@@ -83,13 +145,47 @@ func record(hg: int, ag: int, pk: Array = []) -> void:
 	if g.is_empty():
 		return
 	games.append({"home": g[0], "away": g[1], "hg": hg, "ag": ag, "pk": pk})
-	if kind == "tournament" and _round_games() == 0:
-		# The round is complete: keep the winners, in bracket order.
+	if not alive.is_empty() and _round_games() == 0:
+		# The round is over: the winners go on, in bracket order.
 		var n := alive.size() / 2
 		var winners := []
 		for r in games.slice(games.size() - n):
 			winners.append(_winner(r))
 		alive = winners
+		if kind == "cup" and not alive.has(0):
+			eliminated = true
+	if kind == "cup" and stage < 2 and next_game().is_empty() and not eliminated:
+		_next_stage()
+
+
+## International Cup: from the elimination round to the group round (only
+## the winner) and from the group round to the finals (the top two).
+func _next_stage() -> void:
+	var t := table()
+	var through: int = 1 if stage == 0 else 2
+	var ok := false
+	for i in through:
+		if int(t[i]["slot"]) == 0:
+			ok = true
+	if not ok:
+		eliminated = true
+		return
+	var me: int = teams[0]
+	stage += 1
+	games = []
+	if stage == 1:
+		teams = [me] + _draw(3, 36)
+		fixtures = ISSMatchData.consts["cup_group_fixtures"]
+	else:
+		met = [me]
+		teams = [me] + _draw(15, 36)
+		# The human's side meets a random first-round opponent.
+		teams.shuffle()
+		var at := teams.find(me)
+		teams[at] = teams[0]
+		teams[0] = me
+		fixtures = []
+		alive = range(16)
 
 
 static func _winner(r: Dictionary) -> int:
@@ -101,18 +197,18 @@ static func _winner(r: Dictionary) -> int:
 	return r["home"] if h >= a else r["away"]
 
 
-## Play the computer's games until one involves a human team (or the end).
+## Play the computer's games until one involves a human side (or the end).
 func simulate_until_human() -> void:
 	while true:
 		var g := next_game()
 		if g.is_empty() or is_human(g[0]) or is_human(g[1]):
 			return
-		var r := simulate(teams[g[0]], teams[g[1]], kind == "tournament")
+		var r := simulate(teams[g[0]], teams[g[1]], knockout())
 		record(r[0], r[1], r[2])
 
 
 ## match_simulate ($015442).
-static func simulate(home: int, away: int, knockout: bool) -> Array:
+static func simulate(home: int, away: int, ko: bool) -> Array:
 	ISSMatchData.ensure_loaded()
 	var sim: Dictionary = ISSMatchData.consts["simulate"]
 	var st: Array = sim["strength"]
@@ -123,7 +219,7 @@ static func simulate(home: int, away: int, knockout: bool) -> Array:
 	var hg := int(goals[dh + randi() % 8])
 	var ag := int(goals[da + randi() % 8])
 	var pk := []
-	if knockout and hg == ag:
+	if ko and hg == ag:
 		var ph := 3 + int(goals[dh + randi() % 8])
 		var pa := 3 + int(goals[da + randi() % 8])
 		if ph == pa:
@@ -132,7 +228,8 @@ static func simulate(home: int, away: int, knockout: bool) -> Array:
 	return [hg, ag, pk]
 
 
-## League standings: [{slot, w, d, l, p}] by points (ties keep slot order).
+## Standings of a round-robin stage: [{slot, w, d, l, p}] by points (ties keep
+## slot order, as the ROM's selection sort does).
 func table() -> Array:
 	var rows := []
 	for i in teams.size():
@@ -140,19 +237,20 @@ func table() -> Array:
 	for r: Dictionary in games:
 		var h: Dictionary = rows[r["home"]]
 		var a: Dictionary = rows[r["away"]]
-		if r["hg"] == r["ag"]:
+		var w := -1
+		if r["hg"] != r["ag"] or not r["pk"].is_empty():
+			w = _winner(r)
+		if w < 0:
 			h["d"] += 1
 			a["d"] += 1
 			h["p"] += 1
 			a["p"] += 1
-		elif r["hg"] > r["ag"]:
-			h["w"] += 1
-			h["p"] += 3
-			a["l"] += 1
 		else:
-			a["w"] += 1
-			a["p"] += 3
-			h["l"] += 1
+			var win: Dictionary = rows[w]
+			var lose: Dictionary = a if w == r["home"] else h
+			win["w"] += 1
+			win["p"] += 3
+			lose["l"] += 1
 	var out := []
 	var left := rows.duplicate()
 	while not left.is_empty():
@@ -169,8 +267,71 @@ func finished() -> bool:
 	return next_game().is_empty()
 
 
-## The champion's slot (league leader or tournament winner).
+## The champion's slot, or -1 (the human side was knocked out of the cup).
 func champion() -> int:
-	if kind == "league":
-		return table()[0]["slot"]
-	return alive[0] if alive.size() == 1 else -1
+	if eliminated:
+		return -1
+	if not alive.is_empty():
+		return alive[0] if alive.size() == 1 else -1
+	return table()[0]["slot"]
+
+
+func team_of(slot: int) -> int:
+	return int(teams[slot])
+
+
+# ---------------------------------------------------------------------------
+# Saving (the port's stand-in for the passwords).
+
+const SAVE := "user://iss_competition.json"
+
+
+func save() -> void:
+	var f := FileAccess.open(SAVE, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify({"kind": kind, "humans": humans, "teams": teams, "stage": stage,
+		"fixtures_key": _fixtures_key(), "games": games, "alive": alive, "eliminated": eliminated,
+		"met": met, "human_team": human_team}))
+
+
+func _fixtures_key() -> String:
+	match kind:
+		"league":
+			return "league_fixtures"
+		"world_series":
+			return "world_series_fixtures"
+		"cup":
+			return ["cup_elimination_fixtures", "cup_group_fixtures", ""][stage]
+	return ""
+
+
+static func load_saved() -> ISSCompetition:
+	if not FileAccess.file_exists(SAVE):
+		return null
+	var d = JSON.parse_string(FileAccess.get_file_as_string(SAVE))
+	if d == null:
+		return null
+	ISSMatchData.ensure_loaded()
+	var c := ISSCompetition.new()
+	c.kind = d["kind"]
+	c.humans = int(d["humans"])
+	c.teams = d["teams"].map(func(v): return int(v))
+	c.stage = int(d["stage"])
+	var key: String = d["fixtures_key"]
+	c.fixtures = ISSMatchData.consts[key] if key != "" else []
+	c.games = d["games"]
+	for g: Dictionary in c.games:
+		for k in ["home", "away", "hg", "ag"]:
+			g[k] = int(g[k])
+		g["pk"] = g["pk"].map(func(v): return int(v))
+	c.alive = d["alive"].map(func(v): return int(v))
+	c.eliminated = d["eliminated"]
+	c.met = d["met"].map(func(v): return int(v))
+	c.human_team = int(d["human_team"])
+	return c
+
+
+static func clear_saved() -> void:
+	if FileAccess.file_exists(SAVE):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE))

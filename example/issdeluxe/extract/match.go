@@ -5,7 +5,10 @@ package main
 // column of each (NTSC, PAL) pair; the PAL values are the same speeds per
 // second at 50 Hz).
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"strings"
+)
 
 const (
 	tblBallFriction     = 0x00BD3C // per weather: rolling friction shift
@@ -28,6 +31,11 @@ const (
 	tblTeamStrength     = 0x03B034     // match_simulate: strength per team
 	tblSimGoals         = 0x03B05E     // match_simulate: 8 rows (strength difference / 8) x 8 goal counts
 	tblLeagueFixtures   = 0x05B17E     // short league: 15 (home, away) pairs of league slots
+	tblCupElimFixtures  = 0x05B994     // International Cup elimination round: 3 pairs
+	tblCupGroupFixtures = 0x05BE40     // International Cup group round: 6 pairs
+	tblWorldSeries      = 0x05C7B2     // World Series: 630 pairs of team numbers (36 teams, each once)
+	tblScenarios        = 0x03AA92     // 12 pointers to scenario records
+	tblScenarioTexts    = 0x0529B6     // 12 pointers to 8 $FF-terminated lines
 	teamRunSpeed        = 0x01487E + 2 // move.l #$0001E000,$1814(a6)
 	keeperDiveSlowBall  = 0x00BC0E     // keeper_dive: full-length dive for balls up to this speed
 )
@@ -151,8 +159,16 @@ func exportMatch(dir string) {
 				"goals[(d & ~7) + random 0-7]; penalties when needed: 3 + another draw each, one more for the home " +
 				"side if level",
 		},
-		"league_fixtures": pairsAt(tblLeagueFixtures, 15),
-		"ai_slots":        16,
+		"scenarios":                scenarios(),
+		"league_fixtures":          pairsAt(tblLeagueFixtures, 15),
+		"cup_elimination_fixtures": pairsAt(tblCupElimFixtures, 3),
+		"cup_group_fixtures":       pairsAt(tblCupGroupFixtures, 6),
+		"world_series_fixtures":    pairsAt(tblWorldSeries, 630),
+		"competitions_note": "short league: 6 slots, 3 points a win, 1 a draw; short tournament: 8, knockout; " +
+			"International Cup: elimination round of 3 (the human's side and two of teams 0-23), group round of 4 " +
+			"(three of teams 0-35), finals: a 16-team knockout (15 games); World Series: teams 0-35 play each other " +
+			"once, every game a knockout match (win / lose table)",
+		"ai_slots": 16,
 	}
 	writeJSON(filepath.Join(dir, "match.json"), doc)
 }
@@ -169,6 +185,38 @@ func pairsAt(a uint32, n int) [][2]int {
 	var out [][2]int
 	for i := 0; i < n; i++ {
 		out = append(out, [2]int{int(rom[a+uint32(2*i)]), int(rom[a+uint32(2*i+1)])})
+	}
+	return out
+}
+
+// scenarios reads tbl_scenarios and their texts (scenario_setup, $05D4C2).
+func scenarios() []map[string]any {
+	var out []map[string]any
+	for i := uint32(0); i < 12; i++ {
+		r := be32(tblScenarios + 4*i)
+		clock := int(rom[r])*60 + int(rom[r+1])*10 + int(rom[r+2])
+		t := be32(tblScenarioTexts + 4*i)
+		var lines []string
+		for k := 0; k < 8; k++ {
+			var b []byte
+			for rom[t] != 0xFF {
+				c := rom[t]
+				if c == '@' {
+					c = ' '
+				}
+				b = append(b, c)
+				t++
+			}
+			t++
+			lines = append(lines, strings.TrimSpace(string(b)))
+		}
+		out = append(out, map[string]any{
+			"clock_seconds": clock, "home": int(rom[r+4]), "away": int(rom[r+5]),
+			"home_score": int(rom[r+6]), "away_score": int(rom[r+7]),
+			"stadium": int(rom[r+8]), "referee": int(rom[r+9]),
+			"restart": s16(r + 10), "restart_x": s16(r + 12), "restart_y": s16(r + 14),
+			"title": lines[:2], "text": lines[2:],
+		})
 	}
 	return out
 }

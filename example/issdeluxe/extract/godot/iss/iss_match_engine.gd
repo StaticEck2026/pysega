@@ -111,10 +111,42 @@ func setup(home: int, away: int, opts: Dictionary) -> void:
 	_place_for_kickoff(kickoff_side)
 	referee_pos = mid + Vector2(-48, 64)
 	linesman_pos = Vector2(mid.x, rect.position.y - 20)
+	if bool(opts.get("training", false)):
+		# Training: the other side only fields its goalkeeper.
+		for p in teams[1].players:
+			if not p.is_keeper():
+				p.set_state(ISSFootballer.S.SENT_OFF, ISSFootballer.A_STAND)
+				p.pos = Vector2(mid.x, rect.position.y - 300.0)
+		half = 1
+		kickoff_side = 0
 	if bool(opts.get("pk_only", false)):
 		_start_shootout() # PK mode (mode_start_pk)
+	elif opts.has("scenario"):
+		_start_scenario(opts["scenario"])
 	else:
 		start_restart(R.MATCH_START, kickoff_side, mid)
+
+
+## scenario_setup ($05D4C2): the second half with the score and time of the
+## scenario, the home side (the human's) defending the left goal, starting
+## with the scenario's restart for the home side.
+func _start_scenario(sc: Dictionary) -> void:
+	teams[0].score = int(sc["home_score"])
+	teams[1].score = int(sc["away_score"])
+	half = 1
+	left_goal_team = 0
+	clock = int(sc["clock_seconds"]) * 60
+	for t in teams:
+		t.reset_lines()
+	var pos := Vector2(int(sc["restart_x"]), int(sc["restart_y"]))
+	var type := int(sc["restart"])
+	for t in teams:
+		for p in t.active():
+			p.speed = 0.0
+			p.pos = t.home_position(p) if not p.is_keeper() else goal_center(t.side) + Vector2(attack_dir(t.side) * 32.0, 0)
+	ball.pos = pos
+	start_restart(type, 0, pos)
+	restart_timer = 30
 
 
 ## Frames in a half: 2 * g_game_time + 1 minutes (g_game_time is one less in
@@ -852,7 +884,7 @@ func _director() -> void:
 		banner_off.emit()
 		match restart_type:
 			R.GOAL, R.OWN_GOAL:
-				_start_kickoff(restart_side)
+				_start_kickoff(0 if bool(options.get("training", false)) else restart_side)
 			R.HALF_TIME:
 				half += 1
 				if half == 2:

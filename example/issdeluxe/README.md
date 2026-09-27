@@ -632,17 +632,32 @@ The extractor makes `iss/iss_game.tscn` the project's main scene: open
 Deluxe rebuilt in GDScript on the exported data, in a 256 × 224 viewport
 scaled by whole numbers:
 
-* **Front end** on the game's own screens and fonts: 1P vs COM, 1P vs 2P,
-  COM vs COM; team selection with flags, each side's formation (the team's
-  tuned default or any of the 16), stadium (8) and weather (snow, fine,
-  rain); PK (a shoot-out); the short league (6 teams, the ROM's 15
-  fixtures, 3 points a win, standings W / D / L / P) and short tournament
-  (8 teams, knockout), with 1 to 6 or 8 human teams and the computer's
-  games decided by `match_simulate` from each team's strength
-  (`tbl_team_strength`, `tbl_sim_goals`); the options screen (game level 1–5, game time
-  3, 5 or 7 minutes a half, sound) and the rules screen (fouls, yellow
-  cards, offside, V-goal or full extra time, the four referees); the result
-  with the scorers. Menu music is song 3.
+* **Front end** on the game's own screens and fonts, laid out like the
+  original main menu: *Match* (screen 1: open game — 1P vs COM, 1P vs 2P or
+  COM vs COM — short league or short tournament), *International Cup*,
+  *World Series*, *Continue* (the port saves competitions where the
+  original shows passwords), *Scenario*, *PK*, *Training* and *Options*
+  (game level 1–5, game time 3, 5 or 7 minutes a half, sound; the rules
+  screen: fouls, yellow cards, offside, V-goal or full extra time, the four
+  referees). Team pages choose the sides with their flags, each side's
+  formation (the team's tuned default or any of the 16), the stadium (8),
+  the weather (snow, fine, rain) and the strategies on the buttons. Menu
+  music is song 3.
+* **Competitions** (`ISSCompetition`, the ROM's structures and fixture
+  lists): the short league (6 teams, the 15 fixtures of `$05B17E`, 3 points
+  a win, W / D / L / P) and short tournament (8 teams, knockout) with 1 to
+  6 or 8 human teams; the International Cup (an elimination round of three
+  that only the winner leaves, a group round of four whose top two go
+  through, and a 16-team knockout final tournament); the World Series (the
+  36 national teams play each other once in the order of `$05C7B2`, every
+  game with a winner). The computer's games are decided by
+  `match_simulate` from each team's strength (`tbl_team_strength`,
+  `tbl_sim_goals`).
+* **Scenarios**: the 12 situations of `tbl_scenarios` with their stories
+  (`tbl_scenario_texts`): the score, the time left in the second half, the
+  stadium, the referee and the restart the human side starts with; only a
+  win clears one (the port remembers which are cleared).
+* **Training**: your side against the other team's goalkeeper alone.
 * **Controls** (`ISSInput`, the logical buttons of `tbl_button_layouts`):
   player 1 arrows, Z pass, X shoot, A lofted pass / sliding tackle,
   Left Shift dash, S switch player, D strategy, Enter pause; player 2 I J K
@@ -698,14 +713,15 @@ scaled by whole numbers:
   lofted balls, `camera_update`'s lead toward the attacking goal, the HUD
   with the live radar, banners, commentary, crowd and effects.
 
-Not reproduced (yet): the longer competitions (International Cup,
-World Series, championship), scenarios, training, challenges, passwords,
-the shoot-out's own view from behind the taker (the kicks are taken on the
-pitch), man-marking and the keeper's human control outside distribution.
-`iss_selftest.gd` plays a whole CPU match headless, drives a player through
-the pad input, plays a level knockout match to penalties, runs a league and
-a tournament, checks strategies and substitutions and starts a match in the
-game scene.
+Not reproduced (yet): the championship after the World Series, the
+training menu's drills and the timed challenges, the passwords themselves
+(the port saves instead), the shoot-out's own view from behind the taker
+(the kicks are taken on the pitch), man-marking and the keeper's human
+control outside distribution. `iss_selftest.gd` plays a whole CPU match
+headless, drives a player through the pad input, plays a level knockout
+match to penalties, runs a league, a tournament, the International Cup and
+the World Series, starts a scenario and training, checks strategies and
+substitutions and starts a match in the game scene.
 
 ### Rendering the music and FM effects
 
@@ -826,13 +842,14 @@ The options, the handicap settings, the password container, the
 goalkeeper's dive and distribution and the shoot-out keeper are decoded too.
 
 The game itself runs in Godot (see [Playing the game](#playing-the-game)):
-exhibition matches for one or two players or CPU against CPU, with the
-front end, the rules, the AI and the presentation rebuilt on the exported
-data.
+open games for one or two players or CPU against CPU, the short league and
+tournament, the International Cup, the World Series, the scenarios, PK and
+training, with the front end, the rules, the AI and the presentation
+rebuilt on the exported data.
 
 Open work, in rough order of value for a port:
-1. In the Godot game: the International Cup, World Series, scenarios and
-   training modes, and the shoot-out's own view.
+1. In the Godot game: the championship, the training drills and
+   challenges, and the shoot-out's own view.
 2. The figures of the presentation scenes (`flag_fans_draw`).
 3. The field layout of each mode's password and the object behind each
    remaining menu screen.

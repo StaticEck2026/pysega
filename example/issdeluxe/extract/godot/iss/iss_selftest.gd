@@ -104,6 +104,7 @@ func _init() -> void:
 	_check_knockout()
 	_check_competitions()
 	_check_strategies_and_subs()
+	_check_long_modes()
 	await _check_game()
 	print("iss_selftest: ", "OK" if _failures == 0 else "%d failure(s)" % _failures)
 	quit(0 if _failures == 0 else 1)
@@ -295,3 +296,51 @@ func _check_strategies_and_subs() -> void:
 	_check(t.substitute(6, 0) and t.players[6].name != before and t.subs_left == 2, "substitution")
 	_check(t.substitute(7, 0) and t.substitute(8, 0) and not t.substitute(9, 0), "three substitutions at most")
 	e.dispose()
+
+
+## The International Cup through to the final when the human side wins every
+## game, out in the first round when it loses; the World Series; a scenario
+## and training start.
+func _check_long_modes() -> void:
+	seed(12)
+	var cup := ISSCompetition.international_cup(0)
+	var played := 0
+	while not cup.finished() and played < 100:
+		cup.simulate_until_human()
+		var g := cup.next_game()
+		if g.is_empty():
+			break
+		cup.record(3 if cup.is_human(g[0]) else 0, 0 if cup.is_human(g[0]) else 3)
+		played += 1
+	_check(cup.finished() and cup.stage == 2 and cup.champion() == 0 and played == 2 + 3 + 4,
+		"International Cup: 2 + 3 + 4 games to win it (%d)" % played)
+	var out := ISSCompetition.international_cup(1)
+	out.simulate_until_human()
+	var g2 := out.next_game()
+	out.record(0 if out.is_human(g2[0]) else 5, 5 if out.is_human(g2[0]) else 0)
+	out.simulate_until_human()
+	g2 = out.next_game()
+	if not g2.is_empty():
+		out.record(0 if out.is_human(g2[0]) else 5, 5 if out.is_human(g2[0]) else 0)
+		out.simulate_until_human()
+	_check(out.finished() and out.champion() == -1, "International Cup: knocked out")
+	var ws := ISSCompetition.world_series(4)
+	var mine := 0
+	while not ws.finished():
+		ws.simulate_until_human()
+		var g := ws.next_game()
+		if g.is_empty():
+			break
+		ws.record(2 if ws.is_human(g[0]) else 0, 0 if ws.is_human(g[0]) else 2)
+		mine += 1
+	_check(mine == 35 and ws.games.size() == 630 and ws.champion() == 4, "World Series: 35 games, 630 in all")
+	var e := ISSMatchEngine.new()
+	var sc: Dictionary = ISSMatchData.consts["scenarios"][0]
+	e.setup(int(sc["home"]), int(sc["away"]), {"pads": [0, 0], "scenario": sc})
+	_check(e.teams[0].score == 1 and e.teams[1].score == 2 and e.half == 1 \
+		and e.restart_type == ISSMatchEngine.R.CORNER and e.clock == 74 * 60, "scenario 1: Italy 1-2 Croatia, 1:14, corner")
+	e.dispose()
+	var t := ISSMatchEngine.new()
+	t.setup(0, 1, {"pads": [1, 0], "training": true})
+	_check(t.teams[1].active().size() == 1 and t.teams[1].active()[0].is_keeper(), "training: only their keeper")
+	t.dispose()
