@@ -99,5 +99,109 @@ func _init() -> void:
 	snd.queue_free()
 	demo.queue_free()
 	await process_frame
+	_check_match_engine()
+	_check_human_control()
+	await _check_game()
 	print("iss_selftest: ", "OK" if _failures == 0 else "%d failure(s)" % _failures)
 	quit(0 if _failures == 0 else 1)
+
+
+## A whole CPU v CPU match with 1-minute halves: kick-offs, half time, time up,
+## restarts; the ball stays on or around the pitch and never dies for long.
+func _check_match_engine() -> void:
+	seed(7)
+	var match_json = _json("res://assets/iss/match.json")
+	_check(match_json["pitch_bounds"].size() == 8 and is_equal_approx(match_json["run_speed"], 1.875), "match constants")
+	var e := ISSMatchEngine.new()
+	e.setup(0, 1, {"stadium": 0, "weather": 1, "time": 1, "level": 2, "pads": [0, 0], "half_seconds": 60})
+	var frames := 0
+	var still := 0
+	var worst := 0
+	var outside := 0
+	while not e.over and frames < 60 * 60 * 10:
+		e.step([])
+		frames += 1
+		if e.restart_type == ISSMatchEngine.R.NONE and e.ball.live and e.ball.speed == 0.0 and e.ball.owner == null:
+			still += 1
+			worst = maxi(worst, still)
+		else:
+			still = 0
+		if not e.rect.grow(96.0).has_point(e.ball.pos):
+			outside += 1
+	_check(e.over, "match finishes (%d frames)" % frames)
+	_check(frames < 60 * 60 * 6, "match length %d frames" % frames)
+	_check(int(e.event_counts.get(ISSMatchEngine.R.HALF_TIME, 0)) == 1 \
+		and int(e.event_counts.get(ISSMatchEngine.R.TIME_UP, 0)) == 1, "half time and time up")
+	_check(int(e.event_counts.get(ISSMatchEngine.R.KICKOFF, 0)) >= 1, "kick-offs")
+	_check(worst < 60 * 20, "ball never left dead in play (%d frames)" % worst)
+	_check(outside < 60 * 3, "ball stays near the pitch (%d frames outside)" % outside)
+	var total := 0
+	for k in e.event_counts:
+		if k is int and k in [ISSMatchEngine.R.THROW_IN, ISSMatchEngine.R.GOAL_KICK, ISSMatchEngine.R.CORNER,
+				ISSMatchEngine.R.FREE_KICK, ISSMatchEngine.R.GOAL, ISSMatchEngine.R.OWN_GOAL]:
+			total += int(e.event_counts[k])
+	_check(total > 0, "restarts happen")
+	_check(e.scorers.size() == e.teams[0].score + e.teams[1].score, "every goal recorded")
+	print("iss_selftest: match ", e.teams[0].name, " ", e.teams[0].score, "-", e.teams[1].score, " ", e.teams[1].name,
+		" in ", frames, " frames, events ", e.event_counts)
+	e.dispose()
+
+
+## Player 1's pad drives the controlled player: run right with dash, then
+## pass; the kick-off taker is the human's when the home side kicks off.
+func _check_human_control() -> void:
+	seed(3)
+	var e := ISSMatchEngine.new()
+	e.setup(0, 1, {"stadium": 0, "weather": 1, "time": 1, "level": 2, "pads": [1, 0], "half_seconds": 60})
+	var idle := {"dir": -1, "press": 0, "held": 0}
+	var frames := 0
+	# Wait for the kick-off to be ready (the CPU may kick off).
+	while e.restart_type != ISSMatchEngine.R.NONE and frames < 600:
+		if e.restart_taker != null and e.restart_taker.team == 0 and e.restart_phase == 1:
+			e.step([{"dir": 16, "press": ISSFootballer.PASS, "held": 0}, null])
+		else:
+			e.step([idle, null])
+		frames += 1
+	_check(e.restart_type == ISSMatchEngine.R.NONE, "kick-off taken")
+	var c := e.teams[0].controlled
+	_check(c != null, "a controlled player")
+	if c == null:
+		e.dispose()
+		return
+	var x0 := c.pos.x
+	for i in 60:
+		e.step([{"dir": 16, "press": 0, "held": ISSFootballer.DASH}, null])
+	c = e.teams[0].controlled
+	_check(c != null and c.human, "human flag on the controlled player")
+	# Get the ball to a home player and pass it.
+	e.ball.owner = null
+	e.ball.stop()
+	var p := e.teams[0].players[6]
+	e.ball.pos = p.pos + Vector2(4, 0)
+	e.teams[0].controlled = p
+	for i in 4:
+		e.step([idle, null])
+	_check(e.ball.owner == p, "the controlled player picks up the ball")
+	var kicked := false
+	for i in 40:
+		e.step([{"dir": 16, "press": ISSFootballer.PASS if i == 0 else 0, "held": 0}, null])
+		if e.ball.owner == null and e.ball.kicker == p:
+			kicked = true
+	_check(kicked, "the pad's pass button kicks the ball")
+	_check(absf(x0) > 0.0, "controlled player moved")
+	e.dispose()
+
+
+## The game scene: front end first, then a match on screen.
+func _check_game() -> void:
+	var game: ISSGame = load("res://iss/iss_game.tscn").instantiate()
+	root.add_child(game)
+	for i in 5:
+		await process_frame
+	game._start_match(3, 4, {"stadium": 2, "weather": 2, "time": 1, "level": 2, "pads": [0, 0], "half_seconds": 30})
+	for i in 120:
+		await physics_frame
+	var m := game._screen as ISSMatch
+	_check(m != null and m.engine.frame > 60, "match runs on screen")
+	game.queue_free()
+	await process_frame

@@ -134,6 +134,7 @@ func main() {
 	exportScreens(filepath.Join(*out, "assets", "iss", "screens"))
 	exportSound(filepath.Join(*out, "assets", "iss", "sound"))
 	exportTeams(filepath.Join(*out, "assets", "iss"))
+	exportMatch(filepath.Join(*out, "assets", "iss"))
 	writeScripts(*out)
 }
 
@@ -153,7 +154,26 @@ func writeScripts(out string) {
 		}
 		return os.WriteFile(t, b, 0644)
 	}))
-	fmt.Println("scripts: iss/ (ISSPitch, ISSWeather, ISSFlags, ISSHud, ISSPlayerSprite, ISSBallSprite, ISSNPCSprite, ISSProjection, ISSSound, iss_demo.tscn)")
+	fmt.Println("scripts: iss/ (the game: iss_game.tscn; ISSMatchEngine, ISSMatch, ISSFrontEnd; asset classes; iss_demo.tscn)")
+	setMainScene(out, "res://iss/iss_game.tscn")
+}
+
+// setMainScene makes the game the project's main scene (the asset browser
+// stays in md/).
+func setMainScene(out, scene string) {
+	p := filepath.Join(out, "project.godot")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return // no project yet: run sega2asm godot first
+	}
+	var lines []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(l, "run/main_scene=") {
+			l = fmt.Sprintf("run/main_scene=%q", scene)
+		}
+		lines = append(lines, l)
+	}
+	must(os.WriteFile(p, []byte(strings.Join(lines, "\n")), 0644))
 }
 
 // ---------------------------------------------------------------------------

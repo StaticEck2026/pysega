@@ -1,0 +1,146 @@
+package main
+
+// The match engine's constants, read from the ROM for the Godot port
+// (iss/iss_match_data.gd). Speeds are pixels per frame at 60 Hz (the NTSC
+// column of each (NTSC, PAL) pair; the PAL values are the same speeds per
+// second at 50 Hz).
+
+import "path/filepath"
+
+const (
+	tblBallFriction     = 0x00BD3C // per weather: rolling friction shift
+	tblBallBounceDamp   = 0x00BD36 // per weather: speed lost on a bounce (shift)
+	tblKickLofted       = 0x00B986 // per power: speed, vz (NTSC, PAL each)
+	tblKickRising       = 0x00BA16
+	tblLoftedTravel     = 0x00BAA6 // per power: distance of a lofted ball (16.16)
+	tblRisingTravel     = 0x00BACA // per power: distance of a rising kick
+	tblKickDrive        = 0x00BC1E
+	tblKickPass         = 0x00BC2E
+	tblKickSoft         = 0x00BD0E // ball_kick_soft: dribble push
+	tblReachDeflect     = 0x00BBF6 // ball_in_reach: faster balls are deflected
+	tblTeamLines        = 0x037DC6 // per role: (min, max) from the ball, own ball then theirs
+	tblRefereeStrict    = 0x016EA2
+	tblPressIntensity   = 0x00D504
+	tblKeeperDiving     = 0x00512C
+	tblKeeperJumping    = 0x00513C
+	tblKnockedOverSpeed = 0x009F20
+	tblKnockedOverLift  = 0x009F28
+	teamRunSpeed        = 0x01487E + 2 // move.l #$0001E000,$1814(a6)
+	keeperDiveSlowBall  = 0x00BC0E     // keeper_dive: full-length dive for balls up to this speed
+)
+
+func fix(a uint32) float64 { return float64(int32(be32(a))) / 65536 }
+
+// pairs reads n (speed, vz) NTSC entries of a per-power kick table laid out as
+// speed NTSC, speed PAL, vz NTSC, vz PAL.
+func kickTable(a uint32, n int) [][2]float64 {
+	var out [][2]float64
+	for i := 0; i < n; i++ {
+		b := a + uint32(16*i)
+		out = append(out, [2]float64{fix(b), fix(b + 8)})
+	}
+	return out
+}
+
+func exportMatch(dir string) {
+	type bounds struct {
+		Left   int `json:"left"`
+		Right  int `json:"right"`
+		Top    int `json:"top"`
+		Bottom int `json:"bottom"`
+	}
+	var pitch []bounds
+	for s := uint32(0); s < 8; s++ {
+		a := tblPitchBounds + 8*s
+		pitch = append(pitch, bounds{s16(a), s16(a + 2), s16(a + 4), s16(a + 6)})
+	}
+	words := func(a uint32, n int) []int {
+		var out []int
+		for i := 0; i < n; i++ {
+			out = append(out, s16(a+uint32(2*i)))
+		}
+		return out
+	}
+	longs := func(a uint32, n, stride int) []float64 {
+		var out []float64
+		for i := 0; i < n; i++ {
+			out = append(out, fix(a+uint32(stride*i)))
+		}
+		return out
+	}
+	lines := words(tblTeamLines, 12)
+	var strict [][]int
+	for k := uint32(0); k < 4; k++ {
+		var row []int
+		for i := uint32(0); i < 4; i++ {
+			row = append(row, int(rom[tblRefereeStrict+4*k+i]))
+		}
+		strict = append(strict, row)
+	}
+	var press []int
+	for i := uint32(0); i < 6; i++ {
+		press = append(press, int(rom[tblPressIntensity+i]))
+	}
+	doc := map[string]any{
+		"description": "Match engine constants (NTSC: pixels and frames at 60 Hz). Pitch coordinates: x along the pitch " +
+			"(goal lines at left / right), y across it (touchlines at top / bottom), z height; heading 0-63 with " +
+			"0 = -y, 16 = +x. See the README's Match engine section for the rules that use them.",
+		"frame_rate":   60,
+		"pitch_bounds": pitch,
+		"goal": map[string]any{
+			"post_inner": 92, "post_outer": 100, "bar": 0x3C, "bar_top": 0x40,
+			"note": "goal when |y - middle_y| < 92 and z < $3C past the goal line (match_rules_update); posts and bar rebound",
+		},
+		"penalty_distance": 0x180,
+		"restart": map[string]any{
+			"throw_in_outside": 24, "throw_in_clamp": 128,
+			"goal_kick_x": 128, "goal_kick_y": 192, "corner_inside": 8, "penalty_spot": 256,
+		},
+		"run_speed": fix(teamRunSpeed),
+		"ball": map[string]any{
+			"gravity":         float64(0x1400) / 65536,
+			"gravity_high":    float64(0x2800) / 65536,
+			"friction_shift":  words(tblBallFriction, 3),
+			"bounce_damp":     words(tblBallBounceDamp, 3),
+			"bounce_sound_vz": -3.0,
+			"bounce_stop":     float64(0x2000) / 65536,
+			"deflect_speed":   fix(tblReachDeflect),
+			"reach_below":     4,
+			"reach_above":     0x24,
+			"weather_note":    "friction and bounce tables are indexed by weather 0 snow, 1 fine, 2 rain; a ball at a player's feet uses index 1",
+		},
+		"kick": map[string]any{
+			"pass":          []float64{fix(tblKickPass), fix(tblKickPass + 8)},
+			"drive":         []float64{fix(tblKickDrive), fix(tblKickDrive + 8)},
+			"soft":          fix(tblKickSoft),
+			"rising":        kickTable(tblKickRising, 9),
+			"lofted":        kickTable(tblKickLofted, 9),
+			"lofted_travel": longs(tblLoftedTravel, 9, 4),
+			"rising_travel": longs(tblRisingTravel, 9, 4),
+			"note":          "[speed, vz] per kick; rising and lofted by power 0-8; *_travel = distance covered, for the landing marker and the AI",
+		},
+		"team_lines": map[string]any{
+			"own_ball":   [][]int{{lines[0], lines[1]}, {lines[2], lines[3]}, {lines[4], lines[5]}},
+			"their_ball": [][]int{{lines[6], lines[7]}, {lines[8], lines[9]}, {lines[10], lines[11]}},
+			"order":      []int{2, 2, 1, 0},
+			"note": "per role (attack, midfield, defence): the line X stays within [target + min, target + max] toward the " +
+				"opponents' goal, target = the ball's target X (restart X +- $200 on a dead ball); one role per frame in the " +
+				"order given (g_ai_slot & 3), home on slots 0-3, away on 4-7 of each 8",
+		},
+		"referee_strictness": strict,
+		"press_intensity":    press,
+		"keeper": map[string]any{
+			"line_offset":    32,
+			"save_range":     0x50,
+			"dive":           []float64{fix(tblKeeperDiving), fix(tblKeeperDiving + 8)},
+			"jump":           []float64{fix(tblKeeperJumping), fix(tblKeeperJumping + 8)},
+			"dive_gravity":   float64(0x5000) / 65536,
+			"hold_frames":    []int{64, 191},
+			"dive_note":      "a ball up to dive_slow_ball px/frame gets the full-length dive (action 22), a faster one the jump (21)",
+			"dive_slow_ball": fix(keeperDiveSlowBall),
+		},
+		"knocked_over": []float64{fix(tblKnockedOverSpeed), fix(tblKnockedOverLift)},
+		"ai_slots":     16,
+	}
+	writeJSON(filepath.Join(dir, "match.json"), doc)
+}

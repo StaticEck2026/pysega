@@ -153,4 +153,61 @@ func exportScreens(dir string) {
 		"screens": all,
 	})
 	fmt.Printf("screens: %d front-end screens\n", len(all))
+	exportFonts(dir)
+}
+
+// exportFonts renders the front-end fonts of text_draw_large ($01F29E: 8x16,
+// tiles $90 + c - '-' over $E0 + c - '-') and text_draw_small ($01F358: 8x8,
+// tiles $130 + c - '-') from the backdrop group's tiles, in palette line 2
+// (normal) and line 3 (rect_highlight sets the palette bit).
+func exportFonts(dir string) {
+	btiles := unpack(entry(grpBackdrop, 0))
+	pal := make([]color.RGBA, 64)
+	copy(pal[32:], cramLines(unpack(entry(grpBackdrop, 2))))
+	const first, count = 0x2D, 0x50
+	glyph := func(img *image.RGBA, t, ox, oy, line int) {
+		if t*32+32 > len(btiles) {
+			return
+		}
+		for y := 0; y < 8; y++ {
+			for x := 0; x < 8; x++ {
+				v := btiles[t*32+y*4+x/2]
+				if x&1 == 0 {
+					v >>= 4
+				}
+				v &= 15
+				if v != 0 {
+					img.SetRGBA(ox+x, oy+y, pal[line*16+int(v)])
+				}
+			}
+		}
+	}
+	for _, f := range []struct {
+		name   string
+		base   int
+		height int
+	}{{"font_large", 0x90, 16}, {"font_small", 0x130, 8}} {
+		for _, line := range []int{2, 3} {
+			img := image.NewRGBA(image.Rect(0, 0, count*8, f.height))
+			for i := 0; i < count; i++ {
+				glyph(img, f.base+i, i*8, 0, line)
+				if f.height == 16 {
+					glyph(img, f.base+0x50+i, i*8, 8, line)
+				}
+			}
+			suffix := ""
+			if line == 3 {
+				suffix = "_hi"
+			}
+			must(types.WritePNG(filepath.Join(dir, f.name+suffix+".png"), img))
+		}
+	}
+	writeJSON(filepath.Join(dir, "fonts.json"), map[string]any{
+		"description": "Front-end fonts (text_draw_large 8x16, text_draw_small 8x8): glyph i is character '-' + i " +
+			"(ASCII $2D-$7C, '@' is the space); *_hi.png is the highlighted colour (palette line 3).",
+		"first_char": first,
+		"count":      count,
+		"large":      map[string]any{"png": "res://assets/iss/screens/font_large.png", "hi": "res://assets/iss/screens/font_large_hi.png", "size": []int{8, 16}},
+		"small":      map[string]any{"png": "res://assets/iss/screens/font_small.png", "hi": "res://assets/iss/screens/font_small_hi.png", "size": []int{8, 8}},
+	})
 }

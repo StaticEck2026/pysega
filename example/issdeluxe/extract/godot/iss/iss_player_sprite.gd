@@ -18,6 +18,9 @@ static var _base_palette: Image
 @export var team: int = 0
 @export var second_kit: bool = false
 
+## Driven by set_pose() (the match engine) instead of its own clock.
+var manual := false
+
 var _frame := 0
 var _time := 0.0
 
@@ -58,7 +61,25 @@ func action_count() -> int:
 	return (_anims["actions"] as Array).size()
 
 
+## Show frame `frame` of `new_action` facing `new_facing`; looping actions
+## wrap, the others hold their last frame.
+func set_pose(new_action: int, frame: int, new_facing: int, loop: bool) -> void:
+	manual = true
+	action = new_action
+	facing = new_facing
+	var n := frame_count(new_action, ISSProjection.direction(new_facing))
+	_frame = frame % n if loop else mini(frame, n - 1)
+	_show()
+
+
+static func frame_count(act: int, dir: int) -> int:
+	var seq: Array = _anims["actions"][act]["directions"][dir]
+	return maxi(1, seq.size())
+
+
 func _process(delta: float) -> void:
+	if manual:
+		return
 	_time += delta
 	if _time >= 1.0 / frames_per_second:
 		_time = 0.0
