@@ -32,17 +32,43 @@ var _cam_z := 0.0
 var _end_wait := -1
 
 
-## "PAUSE" while the game is paused; the penalty tally during a shoot-out.
+## The pause menu (continue, substitutions) and the penalty tally during a
+## shoot-out.
 class PauseText:
 	extends Node2D
 	var on := false
 	var pk := ""
+	## 0 menu, 1 player coming off, 2 player coming on.
+	var menu := 0
+	var cursor := 0
+	var team: ISSTeam = null
+
+	func items() -> Array:
+		match menu:
+			1:
+				var out := []
+				for p in team.players:
+					out.append("%2d %-10s %2d" % [p.number, p.name.to_upper().left(10), p.energy])
+				return out
+			2:
+				var out := []
+				for rec: Dictionary in team.bench:
+					out.append("%2d %-10s %s" % [int(rec["number"]), str(rec["name"]).to_upper().left(10), rec["position"].left(3).to_upper()])
+				return out
+		return ["CONTINUE", "SUBSTITUTE %d" % team.subs_left]
 
 	func _draw() -> void:
-		if on:
-			ISSText.draw_centred(self, "PAUSE", 128, 104, true, true)
 		if pk != "":
 			ISSText.draw_centred(self, pk, 128, 36, false, true)
+		if not on:
+			return
+		var list := items()
+		var h := 20 + list.size() * 10
+		var top := maxf(34.0, 112.0 - h / 2.0)
+		draw_rect(Rect2(16, top, 224, h), Color(0, 0, 0.25, 0.85))
+		ISSText.draw_centred(self, ["PAUSE", "SUBSTITUTE WHO    ENERGY", "BRING ON"][menu], 128, top + 4, false, true)
+		for i in list.size():
+			ISSText.draw(self, list[i], Vector2(24, top + 16 + i * 10), false, i == cursor)
 
 
 ## Arrow over the controlled players (home / away colours).
@@ -122,12 +148,18 @@ func start(home: int, away: int, opts: Dictionary) -> void:
 func _physics_process(_delta: float) -> void:
 	if engine.teams.is_empty():
 		return
-	for i in 2:
-		if ISSInput.start_pressed(i) and int(engine.options.get("pads", [1, 0])[i]) > 0:
+	var sides := _human_sides()
+	for i in sides.size():
+		if ISSInput.start_pressed(i):
 			paused = not paused
 			_pause.on = paused
+			_pause.menu = 0
+			_pause.cursor = 0
+			_pause_pad = i
+			_pause.team = engine.teams[sides[i]]
 			_pause.queue_redraw()
 	if paused:
+		_pause_menu(ISSInput.read(_pause_pad))
 		return
 	if _end_wait >= 0:
 		_end_wait -= 1
@@ -136,14 +168,71 @@ func _physics_process(_delta: float) -> void:
 		_sync()
 		return
 	var pads: Array = [null, null]
-	var p: Array = engine.options.get("pads", [1, 0])
-	var next := 0
-	for side in 2:
-		if int(p[side]) > 0:
-			pads[side] = ISSInput.read(next)
-			next += 1
+	for i in sides.size():
+		pads[sides[i]] = ISSInput.read(i)
 	engine.step(pads)
 	_sync()
+
+
+var _pause_pad := 0
+var _menu_hold := 0
+
+
+## Pad n (in order) plays for side _human_sides()[n].
+func _human_sides() -> Array:
+	var out := []
+	var p: Array = engine.options.get("pads", [1, 0])
+	for side in 2:
+		if int(p[side]) > 0:
+			out.append(side)
+	return out
+
+
+func _pause_menu(pad: Dictionary) -> void:
+	var dir: int = pad["dir"]
+	var step := 0
+	if dir < 0:
+		_menu_hold = 0
+	else:
+		_menu_hold += 1
+		if _menu_hold == 1 or (_menu_hold > 20 and _menu_hold % 6 == 0):
+			var v := ISSProjection.heading_vector(dir)
+			step = roundi(v.y)
+	var ok: bool = pad["press"] & (ISSFootballer.PASS | ISSFootballer.LOFT)
+	var back: bool = pad["press"] & ISSFootballer.SHOOT
+	var n := _pause.items().size()
+	_pause.cursor = clampi(_pause.cursor + step, 0, maxi(0, n - 1))
+	var t := _pause.team
+	match _pause.menu:
+		0:
+			if ok and _pause.cursor == 0:
+				paused = false
+				_pause.on = false
+			elif ok and t.subs_left > 0 and not t.bench.is_empty():
+				_pause.menu = 1
+				_pause.cursor = 1
+		1:
+			if back:
+				_pause.menu = 0
+				_pause.cursor = 1
+			elif ok:
+				_sub_out = _pause.cursor
+				_pause.menu = 2
+				_pause.cursor = 0
+		2:
+			if back:
+				_pause.menu = 1
+				_pause.cursor = _sub_out
+			elif ok:
+				if t.substitute(_sub_out, _pause.cursor):
+					_sound.play_sfx(0x48) # whistle
+				_pause.menu = 0
+				_pause.cursor = 0
+	if step != 0 or ok or back:
+		_pause.queue_redraw()
+
+
+var _sub_out := -1
 
 
 func _exit_tree() -> void:
@@ -209,6 +298,8 @@ func _sync() -> void:
 	_hud.away_score = e.teams[1].score
 	_hud.clock_seconds = e.clock_seconds()
 	_hud.second_half = e.half > 0
+	_hud.home_strategy = e.teams[0].strategy
+	_hud.away_strategy = e.teams[1].strategy
 	_hud.set_radar(dots)
 	var pk := "PK %d-%d" % [e.pk_scores[0], e.pk_scores[1]] if e.shootout else ""
 	if pk != _pause.pk:

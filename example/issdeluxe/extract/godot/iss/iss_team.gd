@@ -7,7 +7,7 @@ extends RefCounted
 ## and ai_carrier. Decisions run once every 16 frames per player (g_ai_slot);
 ## steering toward the chosen target runs every frame.
 
-enum AI { FORMATION, CHASE, PRESS, CARRY, KEEPER, RUSH, SET_PIECE, WAIT }
+enum AI { FORMATION, CHASE, PRESS, CARRY, KEEPER, RUSH, SET_PIECE, WAIT, RUN }
 
 var eng: ISSMatchEngine
 var side := 0
@@ -33,6 +33,16 @@ var second: ISSFootballer
 var front: ISSFootballer
 var back: ISSFootballer
 var cover: ISSFootballer
+
+## tm_strategy (-1 = none) and tm_strategy_run (the run of strategies 1 and
+## 2); the four strategies a human assigned to dash, pass, lofted and shoot
+## ($184C: Mode + button selects one).
+var strategy := -1
+var strategy_run := -1
+var strategy_slots := [-1, -1, -1, -1]
+
+## Substitutions left (screen_select_squad: up to 3).
+var subs_left := 3
 
 var score := 0
 var stats := {"shots": 0, "fouls": 0, "corners": 0, "free_kicks": 0, "penalties": 0,
@@ -78,6 +88,28 @@ func setup(engine: ISSMatchEngine, s: int, team: int, level: int, kit2: bool, fo
 		if i == 0:
 			p.ai_mode = AI.KEEPER
 		players.append(p)
+
+
+## Send bench player bench_index on for the player at pitch index i; he
+## takes over the place in the formation. False if not allowed.
+func substitute(i: int, bench_index: int) -> bool:
+	if subs_left <= 0 or bench_index < 0 or bench_index >= bench.size() or i < 0 or i >= players.size():
+		return false
+	var p := players[i]
+	if p.state == ISSFootballer.S.SENT_OFF or eng.ball.owner == p:
+		return false
+	var rec: Dictionary = bench[bench_index]
+	bench.remove_at(bench_index)
+	p.name = rec["name"]
+	p.number = int(rec["number"])
+	p.hair = int(rec["hair"])
+	p.position = ["forward", "midfielder", "defender", "goalkeeper", "attacking type 4", "defensive type 5"].find(rec["position"])
+	p.attr = rec["attributes"]
+	p.energy = 10
+	p.energy_ticks = 0
+	p.booked = false
+	subs_left -= 1
+	return true
 
 
 func dir() -> float:
@@ -192,6 +224,67 @@ func update_line(role: int) -> void:
 	lines[role] = v
 
 
+## tbl_team_strategies: strategies 0, 3, 4, 5 and 7 set the lines from the
+## ball each frame, 1 and 2 send a player on a run, 6 (zone press) changes
+## how close the pressing players go.
+func apply_strategy() -> void:
+	if strategy < 0:
+		return
+	var r := eng.rect
+	var bx := eng.ball.pos.x
+	var own := eng.ball.team == side
+	var d := dir()
+	var mx := r.get_center().x
+	# Positions measured from the goal this side attacks (+1) or defends.
+	var far := maxf(r.end.x - 384.0, bx) if d > 0.0 else minf(r.position.x + 384.0, bx)
+	var near := minf(r.position.x + 384.0, bx) if d > 0.0 else maxf(r.end.x - 384.0, bx)
+	match strategy:
+		0: # all out attack
+			lines[0] = far
+			lines[1] = far - 256.0 * d
+			if own:
+				lines[2] = far - 512.0 * d
+		3: # counter attack
+			lines[0] = far
+			lines[1] = far - 256.0 * d
+			lines[2] = (r.position.x + 384.0) if d > 0.0 else (r.end.x - 384.0)
+		4: # all out defence
+			lines[2] = near
+			lines[1] = near + 256.0 * d
+			if not own:
+				lines[0] = near + 512.0 * d
+		5: # press up: the defence no further back than the ball
+			lines[2] = maxf(lines[2], near) if d > 0.0 else minf(lines[2], near)
+		7: # offside trap: everybody up to the halfway line
+			if not own:
+				lines[0] = mx + 192.0 * d
+				lines[1] = mx
+				lines[2] = mx - 192.0 * d
+		1, 2: # push along the centre / the wings: one player runs forward
+			if own and strategy_run < 0:
+				_start_run(strategy)
+
+
+func _start_run(kind: int) -> void:
+	var order := []
+	if kind == 1 and second != null:
+		order.append(second)
+	for i in range(10, 0, -1):
+		order.append(players[i])
+	for p: ISSFootballer in order:
+		if p.human or p.busy() or p.state == ISSFootballer.S.SENT_OFF or eng.ball.owner == p:
+			continue
+		var goal := their_goal()
+		var mid_y := eng.rect.get_center().y
+		if kind == 1:
+			p.ai_target = Vector2(goal.x - dir() * 200.0, mid_y + (p.pos.y - mid_y) * 0.3)
+		else:
+			p.ai_target = Vector2(goal.x - dir() * 160.0, mid_y + (360.0 if p.pos.y > mid_y else -360.0))
+		p.ai_mode = AI.RUN
+		strategy_run = kind
+		return
+
+
 func reset_lines() -> void:
 	var mid_x := eng.rect.get_center().x
 	var d := dir()
@@ -244,9 +337,11 @@ func think(p: ISSFootballer) -> void:
 	if not b.live or eng.restart_type != ISSMatchEngine.R.NONE:
 		p.ai_mode = AI.FORMATION
 		return
+	if p.ai_mode == AI.RUN and has_ball() and b.owner != p:
+		return # still on the strategy's run
 	if b.is_loose() and p == nearest:
 		p.ai_mode = AI.CHASE
-	elif b.owner != null and b.owner.team != side and (p == nearest or (p == second and p != cover)):
+	elif b.owner != null and b.owner.team != side and (p == nearest or (p == second and (p != cover or strategy == 6))):
 		p.ai_mode = AI.PRESS
 	else:
 		p.ai_mode = AI.FORMATION
@@ -299,7 +394,11 @@ func steer(p: ISSFootballer) -> void:
 			# Tackle: slide in when close and facing the ball.
 			if dist < 22.0 and absf(ISSFootballer.angle_diff(ISSFootballer.heading_to(p.pos, b.pos), p.facing)) < 6.0:
 				var press_delay: int = ISSMatchData.consts["press_intensity"][clampi(ai_level, 0, 5)]
-				if randi() % (40 + press_delay * 2) == 0:
+				# Zone press (strategy 6) closes in harder.
+				var odds := 40 + press_delay * 2
+				if strategy == 6:
+					odds /= 2
+				if randi() % odds == 0:
 					p.press |= ISSFootballer.LOFT
 		AI.CARRY:
 			if b.owner != p:
@@ -307,6 +406,12 @@ func steer(p: ISSFootballer) -> void:
 				return
 			target = p.ai_target
 			dash = p.ai_dash
+		AI.RUN:
+			target = p.ai_target
+			dash = true
+			if not has_ball() or (target - p.pos).length() < 24.0:
+				p.ai_mode = AI.FORMATION
+				strategy_run = -1
 		AI.KEEPER:
 			target = _keeper_spot(p)
 			_keeper_save(p)

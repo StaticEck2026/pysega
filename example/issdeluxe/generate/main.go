@@ -642,6 +642,9 @@ structs:
     - {offset: 0x1E, name: tm_ratings, comment: "5 bytes: tbl_team_ratings"}
     - {offset: 0x24, name: tm_strategy, comment: "Word: strategy being applied (-1 = none): 0 all out attack, 1 push along centre, 2 push along wings, 3 counter attack, 4 all out defence, 5 press up, 6 zone press, 7 offside trap"}
     - {offset: 0x26, name: tm_strategy_run, comment: "Word: run started by strategy 1 or 2"}
+    - {offset: 0x2A, name: tm_strategy_on, comment: "Word: 1 = the team's controller may pick strategies (set at match start)"}
+    - {offset: 0x2C, name: tm_strategy_label, comment: "Word: label mode of the strategy window (2 = the strategy's own label)"}
+    - {offset: 0x2E, name: tm_strategy_slots, comment: "4 words: strategies on dash, pass, lofted and shoot (Mode + that button picks it; -1 = none; screen_strategy assigns them)"}
     - {offset: 0x36, name: tm_lines, comment: "3 words: X of the attack, midfield and defence lines (indexed by obj_role)"}
     - {offset: 0x5C, name: tm_formation, comment: "Word: formation 0-15 (tbl_formations: 4-5-1, 4-4-2, 4-3-3, 4-2-4, 3-5-2, 3-4-3, 3-3-4, 3-2-5, 2-5-3, 2-4-4, 2-3-5, 5-4-1, 5-3-2, 5-2-3, 1-5-4, 1-4-5)"}
     - {offset: 0x5E, name: tm_condition, comment: "Word: handicap condition 0-4 copied to every player's obj_energy, 5 = random per player"}

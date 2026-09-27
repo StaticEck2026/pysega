@@ -103,6 +103,7 @@ func _init() -> void:
 	_check_human_control()
 	_check_knockout()
 	_check_competitions()
+	_check_strategies_and_subs()
 	await _check_game()
 	print("iss_selftest: ", "OK" if _failures == 0 else "%d failure(s)" % _failures)
 	quit(0 if _failures == 0 else 1)
@@ -263,3 +264,34 @@ func _check_competitions() -> void:
 	mine.record(2, 1)
 	mine.simulate_until_human()
 	_check(mine.games.size() == 3 and mine.next_game() == [0, 4], "league: computer games played in between")
+
+
+## Strategy button + dash picks the strategy on the dash slot; the offside
+## trap puts the lines round the halfway line; three substitutions.
+func _check_strategies_and_subs() -> void:
+	seed(8)
+	var e := ISSMatchEngine.new()
+	e.setup(0, 1, {"pads": [1, 0], "half_seconds": 60, "strategies": [7, 1, 4, 0]})
+	var idle := {"dir": -1, "press": 0, "held": 0}
+	for i in 200:
+		e.step([idle, null])
+	var t := e.teams[0]
+	e.step([{"dir": -1, "press": ISSFootballer.STRATEGY, "held": ISSFootballer.STRATEGY}, null])
+	e.step([{"dir": -1, "press": ISSFootballer.DASH, "held": ISSFootballer.STRATEGY | ISSFootballer.DASH}, null])
+	_check(t.strategy == 7, "strategy button + dash picks slot 0")
+	# Give the ball to the opponents: the trap moves the lines up.
+	e.restart_type = ISSMatchEngine.R.NONE
+	e.ball.live = true
+	e.ball.owner = e.teams[1].players[5]
+	e.ball.team = 1
+	t.apply_strategy()
+	var mx := e.rect.get_center().x
+	var d := e.attack_dir(0)
+	_check(is_equal_approx(t.lines[1], mx) and is_equal_approx(t.lines[2], mx - 192.0 * d), "offside trap lines")
+	e.step([{"dir": -1, "press": ISSFootballer.STRATEGY, "held": ISSFootballer.STRATEGY}, null])
+	_check(t.strategy == -1, "strategy button alone switches it off")
+	e.ball.owner = null
+	var before := t.players[6].name
+	_check(t.substitute(6, 0) and t.players[6].name != before and t.subs_left == 2, "substitution")
+	_check(t.substitute(7, 0) and t.substitute(8, 0) and not t.substitute(9, 0), "three substitutions at most")
+	e.dispose()

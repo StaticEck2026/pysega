@@ -11,6 +11,8 @@ const LOFT := 0x20
 const DASH := 0x40
 const SHOOT := 0x100
 const SWITCH := 0x200
+## The Mode button of a 6-button pad: strategies.
+const STRATEGY := 0x800
 
 enum S { MOVE, KICK, SLIDE, SIT, GET_UP, HEADER, FALL, LIE, TRAP, CELEBRATE, DEJECTED,
 	KEEPER_DIVE, KEEPER_HOLD, SET_PIECE, STUMBLE, SENT_OFF }

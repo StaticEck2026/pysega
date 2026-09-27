@@ -9,7 +9,7 @@ extends Node2D
 
 signal start_match(home: int, away: int, options: Dictionary)
 
-enum Page { MAIN, TEAMS, OPTIONS, RULES, RESULT, COMP_SETUP, COMP_TABLE }
+enum Page { MAIN, TEAMS, OPTIONS, RULES, RESULT, COMP_SETUP, COMP_TABLE, STRATEGY }
 
 const SCREENS := "res://assets/iss/screens/"
 const MODES := ["1P VS COM", "1P VS 2P", "COM VS COM", "PK", "LEAGUE", "TOURNAMENT", "OPTIONS", "RULES"]
@@ -32,6 +32,11 @@ static var comp: ISSCompetition = null
 static var comp_kind := "league"
 static var comp_humans := 1
 static var comp_teams: Array = [0, 1, 2, 6, 7, 30, 31, 3]
+## Strategies on dash, pass, lofted and shoot (with the strategy button).
+static var strategy_slots: Array = [0, 2, 4, 7]
+const STRATEGY_NAMES := ["ALL OUT ATTACK", "PUSH ALONG CENTRE", "PUSH ALONG WINGS", "COUNTER ATTACK",
+	"ALL OUT DEFENCE", "PRESS UP", "ZONE PRESS", "OFFSIDE TRAP"]
+const SLOT_BUTTONS := ["DASH", "PASS", "LOFT", "SHOOT"]
 
 var page := Page.MAIN
 var cursor := 0
@@ -72,7 +77,7 @@ func show_page(p: int) -> void:
 	page = p
 	cursor = 0
 	var screen: String = {Page.MAIN: "00", Page.TEAMS: "33", Page.OPTIONS: "11", Page.RULES: "12",
-		Page.RESULT: "33", Page.COMP_SETUP: "33", Page.COMP_TABLE: "33"}[p]
+		Page.RESULT: "33", Page.COMP_SETUP: "33", Page.COMP_TABLE: "33", Page.STRATEGY: "0A"}[p]
 	_backdrop.texture = load(SCREENS + "screen_%s.png" % screen)
 	queue_redraw()
 
@@ -106,6 +111,13 @@ func _physics_process(_delta: float) -> void:
 			_comp_setup(moved, ok, back)
 		Page.COMP_TABLE:
 			_comp_table(ok, back)
+		Page.STRATEGY:
+			cursor = clampi(cursor + moved.y, 0, 3)
+			if moved.x != 0:
+				strategy_slots[cursor] = posmod(int(strategy_slots[cursor]) + 1 + moved.x, 9) - 1
+			if ok or back:
+				show_page(Page.TEAMS)
+				cursor = 6
 	if moved != Vector2i.ZERO or ok or back:
 		_sound.play_sfx(0x5E)
 	queue_redraw()
@@ -191,7 +203,7 @@ func _comp_table(ok: bool, back: bool) -> void:
 
 func _teams(moved: Vector2i, ok: bool, back: bool) -> void:
 	var n := ISSMatchData.team_count() - 1 # the practice team stays out
-	cursor = clampi(cursor + moved.y, 0, 6)
+	cursor = clampi(cursor + moved.y, 0, 7)
 	match cursor:
 		0:
 			home = posmod(home + moved.x, n)
@@ -210,11 +222,14 @@ func _teams(moved: Vector2i, ok: bool, back: bool) -> void:
 	if back:
 		show_page(Page.MAIN)
 	elif ok and cursor == 6:
+		show_page(Page.STRATEGY)
+	elif ok and cursor == 7:
 		var opts := settings.duplicate()
 		opts["stadium"] = stadium
 		opts["weather"] = weather
 		opts["pads"] = PADS[mode]
 		opts["formations"] = [home_formation, away_formation]
+		opts["strategies"] = strategy_slots.duplicate()
 		# Open games are knockout matches ($1274 = 1): extra time, then penalties.
 		opts["knockout"] = true
 		opts["pk_only"] = mode == 3
@@ -297,10 +312,22 @@ func _draw() -> void:
 			ISSText.draw_centred(self, "VS", 128, 64, false)
 			_team_row(1, away, 78)
 			_formation_row(away, away_formation, 98, cursor == 3)
-			ISSText.draw(self, "STADIUM %d" % (stadium + 1), Vector2(40, 120), true, cursor == 4)
-			ISSText.draw(self, "WEATHER " + WEATHERS[weather], Vector2(40, 140), true, cursor == 5)
-			ISSText.draw_centred(self, "GAME START", 128, 168, true, cursor == 6)
-			ISSText.draw_centred(self, MODES[mode], 128, 200, false)
+			ISSText.draw(self, "STADIUM %d" % (stadium + 1), Vector2(40, 116), true, cursor == 4)
+			ISSText.draw(self, "WEATHER " + WEATHERS[weather], Vector2(40, 134), true, cursor == 5)
+			ISSText.draw(self, "STRATEGY", Vector2(40, 152), true, cursor == 6)
+			ISSText.draw_centred(self, "GAME START", 128, 176, true, cursor == 7)
+			ISSText.draw_centred(self, MODES[mode], 128, 202, false)
+		Page.STRATEGY:
+			draw_rect(Rect2(16, 16, 124, 96), Color(0, 0, 0.3, 0.6))
+			ISSText.draw(self, "STRATEGY +", Vector2(20, 20), false)
+			for i in 4:
+				var st := int(strategy_slots[i])
+				ISSText.draw(self, SLOT_BUTTONS[i], Vector2(20, 36 + i * 18), false, cursor == i)
+				var label: String = "-" if st < 0 else STRATEGY_NAMES[st]
+				ISSText.draw(self, label.left(15), Vector2(20, 45 + i * 18), false, cursor == i)
+			var cur := int(strategy_slots[cursor])
+			if cur >= 0:
+				_box(Rect2(22 + 120 * (cur / 4), 136 + 16 * (cur % 4), 100, 16), true)
 		Page.OPTIONS:
 			var level := int(settings["level"])
 			_box(Rect2(120 + 24 * level, 40, 8, 16), cursor == 0)

@@ -6,22 +6,24 @@ extends RefCounted
 ## player). The d-pad is read as 8 directions, like the Mega Drive pad.
 ##
 ##   Player 1: arrows, Z pass, X shoot, A lofted / slide, Left Shift dash,
-##             S switch, Enter start; or the first joypad.
+##             S switch, D strategy (held with dash / pass / lofted / shoot),
+##             Enter start; or the first joypad (LB strategy).
 ##   Player 2: I J K L, U pass, O shoot, Y lofted / slide, H dash, N switch,
-##             Backspace start; or the second joypad.
+##             B strategy, Backspace start; or the second joypad.
 
 const KEYS := [
 	{"up": KEY_UP, "down": KEY_DOWN, "left": KEY_LEFT, "right": KEY_RIGHT, "pass": KEY_Z,
-		"shoot": KEY_X, "loft": KEY_A, "dash": KEY_SHIFT, "switch": KEY_S, "start": KEY_ENTER},
+		"shoot": KEY_X, "loft": KEY_A, "dash": KEY_SHIFT, "switch": KEY_S, "strategy": KEY_D, "start": KEY_ENTER},
 	{"up": KEY_I, "down": KEY_K, "left": KEY_J, "right": KEY_L, "pass": KEY_U,
-		"shoot": KEY_O, "loft": KEY_Y, "dash": KEY_H, "switch": KEY_N, "start": KEY_BACKSPACE},
+		"shoot": KEY_O, "loft": KEY_Y, "dash": KEY_H, "switch": KEY_N, "strategy": KEY_B, "start": KEY_BACKSPACE},
 ]
 const PAD_BUTTONS := {"pass": JOY_BUTTON_A, "shoot": JOY_BUTTON_B, "loft": JOY_BUTTON_X,
-	"switch": JOY_BUTTON_Y, "dash": JOY_BUTTON_RIGHT_SHOULDER, "start": JOY_BUTTON_START,
+	"switch": JOY_BUTTON_Y, "dash": JOY_BUTTON_RIGHT_SHOULDER, "strategy": JOY_BUTTON_LEFT_SHOULDER,
+	"start": JOY_BUTTON_START,
 	"up": JOY_BUTTON_DPAD_UP, "down": JOY_BUTTON_DPAD_DOWN, "left": JOY_BUTTON_DPAD_LEFT,
 	"right": JOY_BUTTON_DPAD_RIGHT}
 const BITS := {"pass": ISSFootballer.PASS, "shoot": ISSFootballer.SHOOT, "loft": ISSFootballer.LOFT,
-	"dash": ISSFootballer.DASH, "switch": ISSFootballer.SWITCH}
+	"dash": ISSFootballer.DASH, "switch": ISSFootballer.SWITCH, "strategy": ISSFootballer.STRATEGY}
 
 
 static func action(player: int, name: String) -> StringName:

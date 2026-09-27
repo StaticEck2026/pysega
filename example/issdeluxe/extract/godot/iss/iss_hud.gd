@@ -15,6 +15,15 @@ const DIR := "res://assets/iss/hud/"
 @export var clock_seconds: float = 300.0
 @export var second_half := false
 @export_range(0, 7) var stadium: int = 0
+## tm_strategy of each side (-1 = none): its label shows in window row 22.
+var home_strategy := -1:
+	set(v):
+		home_strategy = v
+		_show_strategy("home_strategy", v)
+var away_strategy := -1:
+	set(v):
+		away_strategy = v
+		_show_strategy("away_strategy", v)
 
 var _doc: Dictionary
 var _mat := ShaderMaterial.new()
@@ -85,7 +94,7 @@ func _ready() -> void:
 	for i in 16:
 		_radar.line2.append(pal.get_pixel(i, 2))
 	_radar.hud = self
-	for item in ["home_flag", "home_name", "away_flag", "away_name"]:
+	for item in ["home_flag", "home_name", "away_flag", "away_name", "home_strategy", "away_strategy"]:
 		var sp := Sprite2D.new()
 		sp.centered = false
 		sp.use_parent_material = true
@@ -99,6 +108,8 @@ func _ready() -> void:
 	add_child(_banner)
 	set_teams(home_team, away_team)
 	set_stadium(stadium)
+	_show_strategy("home_strategy", home_strategy)
+	_show_strategy("away_strategy", away_strategy)
 
 
 func set_teams(home: int, away: int) -> void:
@@ -111,6 +122,13 @@ func set_teams(home: int, away: int) -> void:
 		var name_plate: Sprite2D = _team_sprites[side[0] + "_name"]
 		flag.texture = load(DIR + "flags/flag_%02d.png" % team) if ok else null
 		name_plate.texture = load(DIR + "names/name_%02d.png" % team) if ok else null
+
+
+func _show_strategy(item: String, strategy: int) -> void:
+	if not _team_sprites.has(item):
+		return
+	var sp: Sprite2D = _team_sprites[item]
+	sp.texture = load(DIR + "strategies/strategy_%d.png" % strategy) if strategy >= 0 else null
 
 
 func set_stadium(index: int) -> void:

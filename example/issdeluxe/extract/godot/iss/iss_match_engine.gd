@@ -96,6 +96,9 @@ func setup(home: int, away: int, opts: Dictionary) -> void:
 		t.setup(self, s, home if s == 0 else away, 2 if human else level,
 			s == 1 and (home == away or clash_home == clash_away), int(formations[s]))
 		t.pads = int(pads[s])
+		if human:
+			var slots: Array = opts.get("strategies", [0, 2, 4, 7])
+			t.strategy_slots = slots.duplicate()
 		teams.append(t)
 	knockout = bool(opts.get("knockout", false))
 	game_time = int(opts.get("time", 2))
@@ -206,6 +209,8 @@ func step(pads: Array = []) -> void:
 	teams[(slot >> 2) & 1].update_line(int(order[slot & 3]))
 	for t in teams:
 		t.analyse()
+		if restart_type == R.NONE:
+			t.apply_strategy()
 	for t in teams:
 		var pad: Dictionary = pads[t.side] if t.side < pads.size() and pads[t.side] != null else {}
 		_control(t, pad)
@@ -263,13 +268,29 @@ func _control(t: ISSTeam, pad: Dictionary) -> void:
 	t.controlled = c
 	if c == null:
 		return
+	# Strategies: the strategy button (Mode) switches the current one off;
+	# held with dash, pass, lofted or shoot it picks the strategy assigned
+	# to that button ($184C). The kick buttons do nothing else meanwhile.
+	var pressed := int(pad.get("press", 0))
+	var held := int(pad.get("held", 0))
+	if pressed & ISSFootballer.STRATEGY:
+		t.strategy = -1
+		t.strategy_run = -1
+	if held & ISSFootballer.STRATEGY:
+		var slot_of := {ISSFootballer.DASH: 0, ISSFootballer.PASS: 1, ISSFootballer.LOFT: 2, ISSFootballer.SHOOT: 3}
+		for bit: int in slot_of:
+			if pressed & bit:
+				t.strategy = int(t.strategy_slots[slot_of[bit]])
+				t.strategy_run = -1
+		pressed &= ~(ISSFootballer.DASH | ISSFootballer.PASS | ISSFootballer.LOFT | ISSFootballer.SHOOT)
+		held &= ~(ISSFootballer.DASH | ISSFootballer.PASS | ISSFootballer.LOFT | ISSFootballer.SHOOT)
 	# During a restart only the taker is the human's; the rest walk into place.
 	if restart_type != R.NONE and c != restart_taker:
 		return
 	c.human = true
 	c.input_dir = int(pad.get("dir", -1))
-	c.press |= int(pad.get("press", 0))
-	c.held = int(pad.get("held", 0))
+	c.press |= pressed
+	c.held = held
 
 
 func _nearest_to_ball(t: ISSTeam, not_this: ISSFootballer) -> ISSFootballer:

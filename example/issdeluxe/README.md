@@ -645,9 +645,9 @@ scaled by whole numbers:
   with the scorers. Menu music is song 3.
 * **Controls** (`ISSInput`, the logical buttons of `tbl_button_layouts`):
   player 1 arrows, Z pass, X shoot, A lofted pass / sliding tackle,
-  Left Shift dash, S switch player, Enter pause; player 2 I J K L, U, O, Y, H,
-  N, Backspace; or two joypads (A pass, B shoot, X lofted, Y switch, RB or
-  RT dash, Start). Holding the lofted or shoot button builds the kick's
+  Left Shift dash, S switch player, D strategy, Enter pause; player 2 I J K
+  L, U, O, Y, H, N, B, Backspace; or two joypads (A pass, B shoot, X lofted,
+  Y switch, RB or RT dash, LB strategy, Start). Holding the lofted or shoot button builds the kick's
   power, the d-pad aims passes (a team-mate in the aimed direction receives
   it) and picks the post for shots; without the ball pass or shoot heads a
   high ball.
@@ -682,6 +682,16 @@ scaled by whole numbers:
     penalty shoot-out, five kicks each and sudden death, with the keeper
     diving where the defending human's pad points; PK mode on the main
     menu is a shoot-out on its own;
+* **Strategies and substitutions**: the team page assigns four of the
+  eight strategies (`tbl_team_strategies`) to dash, pass, lofted and shoot;
+  in the match the strategy button (D, player 2 B, joypad LB) held with one
+  of them picks it (`tm_strategy_slots`, Mode + button on a 6-button pad)
+  and pressed alone switches it off. The strategies move the lines exactly
+  as the ROM's routines do (all out attack and defence, counter attack,
+  press up, offside trap), send a player on a run (push along the centre or
+  the wings) or press harder (zone press), and their label shows in the
+  HUD. Pausing (Start) opens a menu with up to three substitutions from the
+  bench.
 * **On screen** (`ISSMatch`): the stadium, weather and flags, sprites from
   the exported frames with the teams' kits (the away side changes kit on a
   clash), the referee and linesman following play, the landing marker of
@@ -689,12 +699,13 @@ scaled by whole numbers:
   with the live radar, banners, commentary, crowd and effects.
 
 Not reproduced (yet): the longer competitions (International Cup,
-World Series, championship), scenarios, training, challenges, passwords, the shoot-out's own view from
-behind the taker (the kicks are taken on the pitch), substitutions, the
-in-match strategies, man-marking and the keeper's human control outside
-distribution. `iss_selftest.gd` plays a
-whole CPU match headless, drives a player through the pad input and starts
-a match in the game scene.
+World Series, championship), scenarios, training, challenges, passwords,
+the shoot-out's own view from behind the taker (the kicks are taken on the
+pitch), man-marking and the keeper's human control outside distribution.
+`iss_selftest.gd` plays a whole CPU match headless, drives a player through
+the pad input, plays a level knockout match to penalties, runs a league and
+a tournament, checks strategies and substitutions and starts a match in the
+game scene.
 
 ### Rendering the music and FM effects
 
@@ -821,8 +832,7 @@ data.
 
 Open work, in rough order of value for a port:
 1. In the Godot game: the International Cup, World Series, scenarios and
-   training modes, the shoot-out's own view, substitutions and the
-   in-match strategies.
+   training modes, and the shoot-out's own view.
 2. The figures of the presentation scenes (`flag_fans_draw`).
 3. The field layout of each mode's password and the object behind each
    remaining menu screen.
