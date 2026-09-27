@@ -547,17 +547,20 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   `$78`, `$79` with their loop points in the WAV). `sound.json` lists every
   effect (priority, duration, channel, commentary event, the PCM events
   frame by frame), the PCM sets, the music instruments that use PCM and the
-  26 songs. FM/PSG effects and the songs are not rendered: record them from
-  the original (e.g. VGM logging in an emulator) and drop the songs in as
-  `res://assets/iss/music/song_NN.ogg`.
+  26 songs.
+* `iss/sound/rendered/` (optional, see below) — all 25 songs and the 112
+  valid effects rendered by running the game's own sound driver: Ogg Vorbis
+  files, the VGM logs they came from and `rendered.json` (loop offsets,
+  lengths; effects that hold forever are marked `held`).
 * `iss/*.gd` — `ISSPitch` (a `TileMapLayer` building any stadium),
   `ISSWeather` (the animated overlay), `ISSFlags` (the six flags), `ISSHud`
   (flags, names, score, clock and a live radar), `ISSPlayerSprite` (animated player with
   kit swapping through the palette shader), `ISSBallSprite` (ball and shadow,
   size from the height), `ISSNPCSprite` (officials with kit variants, medics,
   dog), `ISSProjection` (pitch ↔ map coordinates, heading vectors),
-  `ISSSound` (`play_sfx` with the driver's priority rule, the commentary
-  queue `say`, `play_music` for your captures) and
+  `ISSSound` (`play_sfx` per hardware channel with the driver's priority
+  rule, the commentary queue `say`, `play_music` with the songs' loop
+  points) and
   `iss/iss_demo.tscn`, a runnable demo: open the project in Godot 4.3+, open
   the scene and press F6 (arrows scroll, +/− change stadium, W the weather,
   K the officials' kit, B kicks the ball, G and C play commentary).
@@ -570,6 +573,33 @@ your own extraction:
 godot --headless --path example/issdeluxe/out/godot --import
 godot --headless --path example/issdeluxe/out/godot -s res://iss/iss_selftest.gd   # prints "iss_selftest: OK"
 ```
+
+### Rendering the music and FM effects
+
+The songs and most effects are FM and PSG. `tools/render_sound.py` renders
+them by running the game's own 68000 sound driver in the Unicorn CPU
+emulator, 50 times a second as the VBlank handler does, and logging what it
+hands to the Z80: the YM2612 and PSG write queues and the PCM it mixes for
+the DAC. The logs are written as VGM files and rendered with libvgm's
+`vgm2wav`, then saved as Ogg Vorbis. Songs are rendered to the end of their
+first loop, with the loop start taken from the song's order list.
+
+```bash
+pip install unicorn soundfile numpy
+git clone https://github.com/ValleyBell/libvgm && cmake -S libvgm -B libvgm/build \
+    -DBUILD_LIBAUDIO=OFF -DBUILD_PLAYER=OFF -DBUILD_VGM2WAV=ON && make -C libvgm/build vgm2wav
+python3 example/issdeluxe/tools/render_sound.py --rom "<rom>" \
+    --out example/issdeluxe/out/godot/assets/iss/sound/rendered \
+    --vgm2wav libvgm/build/bin/vgm2wav
+```
+
+It takes under a minute. Song 25 is silence (the menus play it to stop the
+music); effect 0 and `$6C`–`$77` are not valid scripts (the driver would run
+into data) and effect `$1E` is silent. The commentary lines whose samples
+are missing render as whatever data follows, so `ISSSound` skips them.
+`ISSSound` prefers your own
+`res://assets/iss/music/song_NN.ogg`, then the rendered files, then the
+extractor's PCM renders (which keep exact loop points for the crowd).
 
 **Stadium format.** Each stadium group (`res07`–`res14`) holds a metatile map
 (`width, height` in 16 × 16 metatiles, then one word per metatile), a metatile
@@ -592,7 +622,7 @@ Suggested mapping of the original systems:
 | Plane A weather overlay | `ISSWeather`: repeating `Sprite2D` region above the players |
 | CRAM + fades | Palette textures + `md_indexed.gdshader` uniforms |
 | Oblique pitch projection | `screen = Vector2(x + y/2, y/2 - z)` |
-| Sound driver | `ISSSound`: rendered PCM effects on two `AudioStreamPlayer`s; FM effects and songs captured from the original |
+| Sound driver | `ISSSound`: rendered songs and effects on one `AudioStreamPlayer` per hardware channel |
 
 ## Assembler notes
 
@@ -634,7 +664,8 @@ architecture named: AI scheduler, player and goalkeeper AI, team state and
 strategies, referee rules (clock, out of play, goals, fouls, offside, cards),
 restart scripts, statistics and commentary. Sound driver decoded (Z80
 program, software PCM mixer, script and song formats); all PCM samples and
-PCM effects exported and playable from Godot.
+PCM effects exported, and every song and effect rendered by running the
+driver itself (`tools/render_sound.py`), all playable from Godot.
 
 Game modes, the main menu, the password restore paths, the penalty
 shoot-out state, the strategies and the small sprites are named.
@@ -650,5 +681,5 @@ Open work, in rough order of value for a port:
    byte 3 was found yet).
 4. Match engine, remaining: the individual goalkeeper states, the
    shoot-out's own logic, the camera.
-5. Sound: the note and pattern encoding in full (to convert songs to MIDI
-   instead of capturing them) and the FM patch format.
+5. Sound: the note and pattern encoding in full (to convert songs to MIDI)
+   and the FM patch format; the rendered audio already covers playback.

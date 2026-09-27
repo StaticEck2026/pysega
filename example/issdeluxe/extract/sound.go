@@ -522,9 +522,8 @@ func exportSound(dir string) {
 
 	writeJSON(filepath.Join(dir, "sound.json"), map[string]any{
 		"description": "ISS Deluxe sound: the PCM samples (samples/, signed 8-bit in ROM, written as unsigned WAV) " +
-			"and every effect that uses them rendered through a model of the driver's mixer (sfx/). FM and PSG " +
-			"parts are not rendered: effects without a wav and the songs need a YM2612/SN76489 capture (e.g. VGM " +
-			"logging in an emulator).",
+			"and every effect that uses them rendered through a model of the driver's mixer (sfx/). Songs and FM / " +
+			"PSG effects are rendered by tools/render_sound.py (runs the driver itself) into rendered/.",
 		"driver": map[string]any{
 			"dac_rate_hz":  map[string]float64{"pal": round1(z80ClockPAL / dacCycles), "ntsc": round1(z80ClockNTS / dacCycles)},
 			"pcm_rate":     "dac_rate * step / 256, step from command $1D; files use the PAL rate",
