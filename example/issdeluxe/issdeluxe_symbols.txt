@@ -1,0 +1,513 @@
+; sega2asm symbols — International Superstar Soccer Deluxe (Europe)
+; SHA-1: CCC60352B43F8C3D536267DD05A8F2C0F3B73DF6
+;
+; Format: name = $ADDRESS ; comment
+; The comment is written above the label in the generated assembly
+; (use \n for line breaks). RAM variables are emitted as equates in
+; asm/include/variables.asm and used symbolically, e.g. (g_next_state-$FF0000)(a6).
+;
+; Naming: functions are snake_case, RAM globals g_*, ROM data tables tbl_* /
+; dat_*. Addresses without a curated name keep their sub_/loc_/dat_ names.
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Reset / boot
+; ═════════════════════════════════════════════════════════════════════════════
+reset                       = $000200 ; Reset vector: standard Sega TMSS / VDP / Z80 initialisation (ICD_BLK4)
+reset_init_table            = $00028E ; Register values, VDP register list and Z80 stub used by reset
+vblank_irq                  = $000312 ; Level 6 interrupt: calls the handler stored in g_vblank_handler
+hblank_irq                  = $000320 ; Level 4 interrupt: calls the handler stored in g_hblank_handler
+install_irq_vectors_unused  = $00032E ; Unreferenced: writes the IRQ vectors into low memory and unlocks TMSS
+main_init                   = $000358 ; Cold start: runs the four boot screens (Konami, Factor 5, ...) then warm starts
+warm_start                  = $0003B8 ; Re-entry point: boot module screen 1 decides between the game and the demo path
+main_loop_dispatch          = $000460 ; Jump to g_next_state (also remembered as g_current_state).\nEvery game state ends by setting g_next_state and jumping here.
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Sprite attribute buffer (64 hardware sprites, DMA'd to VRAM $1C00)
+; ═════════════════════════════════════════════════════════════════════════════
+sprites_init                = $00046A ; Clear the sprite buffer (link fields 1..64) and queue its DMA to VRAM $1C00
+sprites_end_frame           = $0004B4 ; Hide unused sprite slots, rewind the buffer and queue a priority DMA to VRAM $1C00
+sprite_alloc                = $0004F8 ; Return a1 = next free sprite slot (d1 = -1 when all 64 are used)
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Palette fades (implemented as objects; target palette g_palette_target,
+; working copy g_palette_current, step counter g_fade_step)
+; ═════════════════════════════════════════════════════════════════════════════
+fade_out_start              = $000514 ; Start a fade to black (object) if no fade is running; d0 = -1 when busy
+fade_out_step               = $000568 ; Fade object callback: darken g_palette_current one step per frame
+fade_in_start               = $0005DA ; Start a fade from black to g_palette_target
+fade_in_step                = $000618 ; Fade object callback: brighten towards g_palette_target
+fade_white_start            = $0006E4 ; Start a fade to white
+fade_white_step             = $00071A ; Fade object callback: brighten every colour towards white
+fade_white_back_step        = $000796 ; Fade object callback: from white back to g_palette_target
+
+; ═════════════════════════════════════════════════════════════════════════════
+; DMA queue (64 entries x 20 bytes at g_dma_queue, flushed during VBlank
+; with a per-frame budget of $1392 words)
+; ═════════════════════════════════════════════════════════════════════════════
+dma_queue_init              = $000846 ; Reset the DMA queue read / write pointers
+dma_queue_flush             = $00085C ; Execute queued DMA transfers until the frame budget is used up
+dma_queue_add               = $00092C ; Queue a VRAM DMA: d0 = auto-increment, d1 = length (bytes), d2 = source,\nd3 = VRAM destination, d4 = cost. Splits transfers crossing a 128 KB boundary.
+dma_queue_add_front         = $000B30 ; Like dma_queue_add but inserts in front of the queue (runs first)
+dma_queue_add_cram          = $000BD0 ; Queue a CRAM DMA (palette upload): d1 = length, d2 = source, d3 = CRAM address
+
+; ═════════════════════════════════════════════════════════════════════════════
+; System initialisation and VDP
+; ═════════════════════════════════════════════════════════════════════════════
+system_init                 = $000C6E ; Clear work RAM, VRAM and CRAM, validate the saved settings checksum and\nreset the options / team tables to their defaults
+settings_checksum           = $000D92 ; Recompute the checksum of the settings block at $FFFFF0 into $FFFFEE
+vdp_init_game               = $000DAE ; Install the default IRQ handlers and program the VDP for the game:\nH32 (256 px), 64x32 planes, plane A $2000, plane B $0000, window $1000,\nsprites $1C00, hscroll $1800, shadow/highlight enabled
+vblank_default              = $000E5C ; Default VBlank handler: tick the sound driver
+hblank_default              = $000E94 ; Default HBlank handler
+vdp_write_scroll            = $000E9E ; Write the plane A/B horizontal and vertical scroll values, then wait so the\nframe takes the same time on 50 and 60 Hz machines
+debug_color_red             = $000F0A ; Debug: set CRAM colour $20 (profiling bar colours)
+decompress_factor5          = $000F82 ; Unpack a Factor 5 "P1"/"P2"/"P3" stream: a0 = source, a1 = destination.\nOn return a1 points past the unpacked data.
+joypad_read_all             = $00102A ; Read both controller ports (with multitap support) into g_pad_type / g_pad_state
+joypad_read_port            = $00106C ; Identify and read the device on the port at a0 (3/6-button pad, multitap)
+joypad_th_toggle            = $0011C4 ; Toggle the TH line of the port at a0 and read the data register
+joypad_th_handshake         = $0011F2 ; TH/TR handshake used by the multitap protocol (d7 = timeout)
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Maths and steering. Angles are 0-63: 0 = up the pitch (-Y), 16 = right (+X),
+; 32 = down, 48 = left. Speeds are 16.16 pixels per frame and come in
+; (NTSC, PAL) pairs, the PAL value being 1.2x the NTSC one.
+; ═════════════════════════════════════════════════════════════════════════════
+tbl_speed_ntsc_pal          = $00BBEE ; (NTSC, PAL) pairs of 16.16 speeds, indexed by g_is_pal
+direction_to                = $00BDAC ; d0 = angle 0-63 from object a5 to point (d0, d1): table-driven atan2
+tbl_atan_octants            = $00BEAE ; Angle results for direction_to, one block per quadrant
+tbl_direction_x             = $00BFCA ; 64 signed 8.8 X components of the unit vector for each angle;\nthe Y components follow 64 entries later (shaped for the oblique pitch)
+ball_update                 = $009FA8 ; Ball on the ground or bouncing: gravity, bounce (vz = -vz/2, SFX 88), rolling friction\n(speed -= speed >> tbl_ball_friction[g_weather]), then move by the velocity from obj_heading
+ball_update_lob             = $00A0CA ; Ball in a lofted pass: rise/fall until obj_distance is used up
+ball_update_high            = $00A134 ; Ball after a high kick (stronger gravity)
+tbl_ball_bounce_damp        = $00BD36 ; Per g_weather (snow, fine, rain) = 1, 2, 1: a bounce costs speed >> value
+tbl_ball_friction           = $00BD3C ; Per g_weather = 5, 5, 4: rolling friction shift (the ball stops soonest in the rain)
+ball_update_large           = $00A1AE ; 16x16 ball of state_shootout (action 4): bounce, friction; frame = spin 0-2, +3 below\ny $110 and +3 more below y $F0 as the ball travels away from the camera
+velocity_from_heading       = $00BFA0 ; Set obj_vel_x / obj_vel_y from obj_speed and angle d5 (tbl_direction_x)
+obj_steer_idle              = $010D7C ; Think callback: stand still, remember the current position as the target
+obj_steer_to_target         = $010D98 ; Think callback: turn towards obj_target_x/y until within 16 pixels
+obj_steer_ahead             = $010E02 ; Think callback: project the target obj_travel pixels ahead along obj_facing
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Object system (doubly linked lists; +0 next, +4 prev, +$34 update callback)
+; ═════════════════════════════════════════════════════════════════════════════
+obj_alloc                   = $00C124 ; Take an object from the free list into the active list (a5 = object)
+obj_link_active             = $00C156 ; Insert object a5 at the head of the active list
+obj_free                    = $00C174 ; Unlink object a5 from the active list and return it to the free list
+objects_update              = $00C0CA ; Run every active object's think (+$38) and update (+$34) callbacks.\nWhile a fade is running only objects without a draw callback are updated.
+objects_draw                = $00C1DC ; Depth-sort the active list by +$14 (pitch Y) and call each draw callback (+$66).\nScreen position: x' = x + y/2 - hscroll, y' = y/2 - z - vscroll (oblique pitch projection).
+objects_draw_menu           = $00C2A4 ; Same as objects_draw for front-end screens
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Game states. Each state initialises the hardware and its resources, installs
+; a VBlank handler that runs the whole frame (the game logic runs inside the
+; VBlank interrupt), fades in, then waits until g_frame_state returns to 0
+; (fade-out finished) and jumps to g_next_state.
+; ═════════════════════════════════════════════════════════════════════════════
+state_menu                  = $01FF16 ; Front-end state: menu screens are built from objects
+state_menu_frame            = $01FF6E ; VBlank handler of state_menu
+state_screen                = $01FFF4 ; Full-screen presentation state (loads its screen with sub_01E294)
+state_screen_frame          = $02004C ; VBlank handler of state_screen
+state_match                 = $0200D2 ; Match state: loads stadium, teams and players, then plays the game
+state_match_frame           = $02014E ; VBlank handler of state_match: scroll, DMA, sound, pads, match logic, objects, sprites
+state_shootout              = $0201FE ; Penalty shoot-out kick seen from behind the taker (screen $26 perspective pitch, 16x16 ball);\nthe match code enters it for each kick while g_shootout_kicks < 5 (also PK mode, g_game_mode 2)
+state_shootout_frame        = $020274 ; VBlank handler of state_shootout
+player_init_sprite          = $020BD4 ; Give player object a5 its draw routine and an empty animation state
+player_draw                 = $020BF0 ; Player draw callback: pick the frame from tbl_player_anims[action $6A][direction][frame $7A],\nDMA its body/head/hair/kit tiles into the player's VRAM slot ($78) and emit its sprite pieces
+tbl_player_anims            = $0210DE ; 54 actions -> 8 directions -> frame descriptor lists.\nDescriptor: +0 res00 entry*4, +2 tile offset, +4 tile bytes, +6 head, +8 kit, +A hair tile offsets,\n+C piece count-1, then 10-byte pieces: y, VDP size, attribute index, tile, x (right), x (left)
+tbl_sprite_attr_right       = $020F5E ; Sprite attribute words (palette line / flips) indexed by piece attribute byte, right-facing
+tbl_sprite_attr_left        = $02101E ; Same with horizontal flip toggled, used for left-facing directions
+tbl_player_names            = $035916 ; 43 pointers (one per team) to 20 x 8-character player names ('@' = space)
+tbl_player_data             = $038140 ; 43 pointers to 20 x 12-byte player records, copied to player object +$5A..+$65\n(8 attribute bytes, body type, face style, hair style, extra)
+tbl_team_ratings            = $03AB82 ; 5 rating bytes per team (copied to $183C / $18C4)
+tbl_kit_clash               = $0374AE ; Word per team: when home and away values match, the away team wears its second kit
+tbl_head_mask_home          = $037402 ; Per-team AND masks applied to head tiles (skin / hair colours), home team
+tbl_head_mask_away          = $037458 ; Same for the away team
+ball_init_sprite            = $020318 ; Install ball_draw as the draw callback of object a5
+ball_draw                   = $020322 ; Ball draw callback: tbl_ball_anims[action][direction][frame] -> the ball piece (h-flipped\nwhen obj_facing >= $28) and a shadow piece drawn obj_z pixels lower, on the ground
+tbl_ball_anims              = $020408 ; 5 actions (0-2: size by height, 3: lofted pass, 4: 16x16 ball) -> 8 directions -> 4 or 9\nframes of two 10-byte pieces: y, size, tile word (ORed with obj_attr), x right, x left
+npc_init_sprite             = $033018 ; Install npc_draw and npc_null_frame on object a5 (referee, linesman, medic, stretcher, dog)
+npc_draw                    = $033034 ; NPC draw callback: tbl_npc_anims[action][direction][frame]; takes a VRAM slot from\ng_npc_vram_slots, DMAs the body tiles from res03 and, for flags and cards, 4 tiles of res04 entry 6\n(group + obj_anim_frame & 3) into slot tile 18; left-facing frames set h-flip on every piece
+tbl_npc_anims               = $033244 ; 21 actions (0-4 officials, 5-7 linesman flag, 8-9 cards, 10 whistle, 11-12 medic,\n13 stretcher, 14-20 dog) -> 8 directions -> frames. Descriptor: +0 res03 entry*4, +2 offset, +4 bytes,\n+6 extra tile group or -1, +8 piece count-1, then 10-byte pieces (y, size, tile word, x right, x left)
+npc_null_frame              = $0358B8 ; Empty frame of an NPC without a VRAM slot
+match_stats_clear           = $0358CC ; Clear the practice flags and both teams' match statistics
+flag_draw                   = $02D50C ; Corner / halfway flag draw callback: tbl_flag_anims[action][frame], pieces\n(y, size, tile word, x, unused); tiles res04 entry 16 loaded by load_stadium_tiles
+tbl_flag_anims              = $02D56A ; 2 actions x 4 frames: count - 1, then 10-byte pieces (pole, cloth, shadow)
+load_stadium_tiles          = $01D7BA ; Load stadium group 7 + g_stadium: tiles (entries 3, 4; patch 5 replaces the snow clumps unless g_weather = 0), metatile map (1)\nand table (2) into RAM, palette line 3 for g_weather (6-8); create the corner-flag objects
+camera_update               = $01DBBE ; Per-frame camera: ease towards g_camera_focus, clamp to the pitch and stream\nnew metatile rows / columns into plane B
+pitch_draw_row              = $01DD88 ; Draw pitch cell row d7 starting at cell column d6 into plane B (via the DMA queue)
+pitch_draw_column           = $01DE54 ; Draw pitch cell column d6 starting at cell row d7 into plane B
+flag_animate                = $01179C ; Corner / halfway flag update: action 0, frame + 1 every 6 frames (4 frames)
+match_create_objects        = $015A1A ; Match objects: pitch bounds for g_stadium (tbl_pitch_bounds), the ball (res04 entry 0\ntiles), the officials' kit (res04 entry 38, variant g_officials_kit or 3) into palette line 2\ncolours 0-7, the referee and the linesman
+tbl_pitch_bounds            = $016E62 ; Per stadium: left, right, top, bottom (signed words, pitch coordinates)
+ball_init_large             = $019BCE ; state_shootout: create the ball with the 16x16 tile set (res04 entry 1) and ball_update_large
+match_init_hud              = $01ACCA ; Install the HUD HBlank chain, load the overlay / HUD tiles (res16 entry 5 at\ng_overlay_vram), the weather overlay map (res16 entry g_weather) into plane A with priority set on\nevery cell (so the pitch is never shadowed) and the HUD map (res16 entry 3) into the window plane
+hud_update                  = $01B2D4 ; Per-frame HUD update (state_match_frame): plane A follows the pitch scroll; weather\ntile animation into overlay tiles $103-$106 (snow: res04 entry 7 every 8 frames, rain: entry 8 every frame)
+hblank_hud_split            = $01CE88 ; HBlank chain for the HUD split; below the split the backdrop (VDP register 7) becomes\nline 3 colour 0, the stadium grass
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Front-end text and tilemap helpers. They draw into the off-screen nametable
+; pointed to by $1762(a6) (64 cells wide, $80 bytes per row); coordinates are
+; given in pixels. Glyph tile = character - '-' ($2D) + font base tile.
+; ═════════════════════════════════════════════════════════════════════════════
+rect_highlight              = $01F076 ; Set the palette bit ($2000) of every cell in the rectangle d0..d1 x d2..d3
+rect_unhighlight            = $01F0DC ; Clear the palette bit of every cell in the rectangle
+text_draw_large             = $01F29E ; Draw the $FF-terminated string at a0 at (d0,d1) with the 8x16 font
+text_draw_small             = $01F358 ; Draw the $FF-terminated string at a0 at (d0,d1) with the 8x8 font
+rect_fill_tiles             = $01F38A ; Fill the rectangle d0..d1 x d2..d3 with consecutive tiles starting at d4 (column-major)
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Modules
+; ═════════════════════════════════════════════════════════════════════════════
+boot_main                   = $144318 ; Boot module entry: d0 = screen number (0-4). Runs one boot/logo screen.
+
+; Sound driver (68000 side). Public API = 16 bra.w entries; the driver's work
+; RAM is pointed to by g_sound_ram and addressed through a6.
+sound_init                  = $1FD954 ; Initialise the driver and upload the Z80 PCM program
+sound_play_music            = $1FD958 ; Start song d0 (d2/d3 = start parameters)
+sound_api_nop_1             = $1FD95C ; No operation
+sound_api_nop_2             = $1FD960 ; No operation
+sound_fade_active           = $1FD964 ; Tests the fade flag $91D(a6) (not called by the game)
+sound_process               = $1FD968 ; Run one driver frame: sound_frame, then the song unless it is stopped ($917 = 2)
+sound_play_sfx              = $1FD96C ; Play sound effect d0 (the most called routine in the game)
+sound_reset                 = $1FD970 ; Silence every channel and reset the driver state
+sound_play_pcm              = $1FD974 ; Unused leftover: writes the ROM bank of a1 to Z80 $0500 and restarts the Z80 (this driver streams PCM instead)
+sound_api_nop_3             = $1FD978 ; No operation
+sound_api_nop_4             = $1FD97C ; No operation
+sound_api_nop_5             = $1FD980 ; No operation
+sound_api_nop_6             = $1FD984 ; No operation
+sound_api_nop_7             = $1FD988 ; No operation
+sound_update                = $1FD98C ; Per-frame tick (called from every VBlank handler)
+sound_play_music_ext        = $1FD990 ; Start song d0 in the alternate mode used by the menus
+z80_driver                  = $1FDC06 ; Z80 program (248 bytes, copied to Z80 RAM $0000): drains the FM part 1/part 2/PSG write queues at $0200/$0300/$0400 when $04FF is set, and plays the 400-byte PCM ring buffer at $0504 (every other byte) through the DAC, one sample per 384 Z80 cycles (9237 Hz PAL, 9322 Hz NTSC); $0500 = play position
+; Driver internals. Songs: order list of 6-byte entries -> patterns of notes
+; -> notes start sound scripts on the 11 channels (0-5 FM1-6, 6-9 PSG,
+; 10 PCM voice 1). Effects start one script directly. Scripts are 4-byte
+; events [command, argument, word] run once per frame by script_run_events.
+z80_bus_request             = $1FDBDE ; Stop the Z80 and wait for the bus
+z80_bus_release             = $1FDBF2 ; Release the Z80 bus
+z80_flush_queues            = $1FDBFC ; Set Z80 $04FF: the Z80 drains the FM/PSG queues before the next sample
+z80_ram_write               = $1FDB66 ; Copy d0+1 bytes from a0 to Z80 RAM offset a1
+z80_load_driver             = $1FDB8E ; Upload z80_driver to Z80 RAM and restart the Z80
+pcm_buffer_reset            = $1FDCFE ; Mixer write position = start of the ring buffer ($0504)
+pcm_fill_buffer             = $1FDD06 ; Per frame: mix the PCM voices into the ring buffer up to the Z80 play position ($0500)
+pcm_copy_to_z80             = $1FDDCE ; Copy d0 mixed bytes to Z80 RAM a1 with the unrolled movem/movep block (every other byte)
+pcm_voices_reset            = $1FE0D2 ; Silence both PCM voices
+pcm_voices_apply            = $1FE102 ; Copy the pending start/length/step to the voices; restart the keyed ones
+pcm_mix                     = $1FE146 ; Mix d0 bytes of the 2 voices (signed 8-bit, saturated) into $6E0(a6); a voice steps its source when its 8-bit rate accumulator carries and reloads its loop region at the end
+sound_frame_music           = $1FE266 ; Per frame while a song plays: order list, patterns, note releases
+song_order_update           = $1FE270 ; Advance the song's order list (6-byte entries: delay.w, pattern, transpose, volume, track; $FF end, $FE jump)
+song_pattern_update         = $1FE314 ; Advance the 16 pattern tracks and queue their notes
+song_play                   = $1FE3EC ; sound_play_music: set up song d0 (header, tempo, order list)
+song_play_ext               = $1FE4DE ; sound_play_music_ext
+song_read_note              = $1FE5CC ; Decode one packed pattern note
+song_find_track             = $1FE64A ; Find a free pattern track slot
+sound_frame                 = $1FE6A2 ; Per frame: run the channel scripts, send the FM/PSG queues to the Z80, apply and mix PCM
+script_channels_update      = $1FE798 ; Run the script of each of the 11 channels
+script_run_events           = $1FEA7E ; Execute events until a frame-ending one (end, wait, FM patch, sustain)
+tbl_script_commands         = $1FEAB6 ; 38 event handlers, commands $00-$25 ($20 is invalid: unused)
+psg_queue_write             = $1FEB4E ; d0 = 4: queue PSG byte d1, else fm_queue_write
+fm_queue_write              = $1FEB64 ; Queue YM2612 register d1 = d2: part 2 queue when d0 = 2 and d1 >= $30, else part 1
+script_next_event           = $1FEB98 ; Fetch the next 4-byte event into $5E(a6)
+sound_driver_reset          = $1FEBAC ; Clear the driver RAM and silence the chips
+script_event_addr           = $1FEC4A ; a0 = address of event d1 of script d0
+script_addr                 = $1FEC58 ; a0 = address of sound script d0
+cmd_end                     = $1FEC68 ; Command $00: end of script
+cmd_wait                    = $1FEC86 ; Command $01: wait word+1 frames (0 = hold)
+cmd_fm_patch                = $1FED16 ; Command $02: load the FM patch that follows the event ($5C bytes)
+cmd_loop                    = $1FEDD4 ; Command $03: repeat from event hi(word), argument times (0 = forever)
+cmd_goto                    = $1FEE12 ; Command $04: continue in script word at event argument
+cmd_instrument              = $1FEE34 ; Command $05: call instrument script word (returns with $06)
+cmd_return                  = $1FEEE6 ; Command $06: return from an instrument script
+cmd_sustain                 = $1FF33C ; Command $12: wait until the note or effect is released
+cmd_pcm_start               = $1FF40E ; Command $1B: PCM voice argument starts at bank base + word
+cmd_pcm_length              = $1FF432 ; Command $1C: PCM voice argument length in bytes (1 = silence)
+cmd_pcm_step                = $1FF44C ; Command $1D: PCM voice argument rate step hi(word): rate = DAC rate * step / 256
+cmd_pcm_key                 = $1FF466 ; Command $1E: hi(word) != 0 restarts PCM voice argument; otherwise the new region plays when the current one ends
+cmd_pcm_bank                = $1FF4DC ; Command $21: PCM voice argument uses entry hi(word) & 31 of the current set
+cmd_pcm_set                 = $1FFABA ; Command $25: select PCM set argument (a window of 8 entries of the sample list)
+note_queue_push             = $1FF84A ; Queue a note (d0 volume, d1 pitch, d2 script) for note_queue_run
+note_queue_run              = $1FF886 ; Start the queued notes' scripts
+script_start                = $1FF8D0 ; Start a note's script on its channel if its priority allows
+sfx_start                   = $1FF9B8 ; sound_play_sfx: start effect d0's script (sfx_table) if its priority is at least the channel's
+sound_tick                  = $1FFAF2 ; Called by sound_update: PAL/NTSC tempo, then sound_process
+tbl_pcm_sets                = $1FFB88 ; 40 word offsets (from here) of the PCM sets; the sorted sample offset list (from pcm_bank) follows at $1FFBD8
+
+; ═════════════════════════════════════════════════════════════════════════════
+; RAM — globals block addressed through a6 = $FF0000
+; ═════════════════════════════════════════════════════════════════════════════
+g_vblank_handler            = $00FF0000 ; Long: routine called by the VBlank interrupt
+g_hblank_handler            = $00FF0004 ; Long: routine called by the HBlank interrupt
+g_sound_ram                 = $00FF0008 ; Long: base of the sound driver's work RAM ($FF31A8)
+g_sound_disabled            = $00FF000C ; Word: negative while the sound driver must not be ticked
+g_vblank_busy               = $00FF000E ; Word: re-entrancy guard for the VBlank handler
+g_vdp_mode2                 = $00FF0010 ; Word: shadow of VDP register 1 (mode register 2)
+g_frame_state               = $00FF0012 ; Word: 0 = normal, 1 = palette fade running, 2 = fade finished
+g_current_state             = $00FF0018 ; Long: game state routine currently running
+g_next_state                = $00FF001C ; Long: game state routine to run next (see main_loop_dispatch)
+g_is_pal                    = $00FF0020 ; Word: 1 on 50 Hz (PAL) consoles
+g_pad_type                  = $00FF0022 ; 8 words: device type per controller (multitap aware)
+g_pad_state                 = $00FF0032 ; 8 words: buttons held per controller
+g_frame_counter             = $00FF0042 ; Word: incremented every frame while g_frame_state == 2
+g_dma_pending               = $00FF0046 ; Word: total cost of the queued DMA transfers
+g_dma_read                  = $00FF0048 ; Long: DMA queue read pointer
+g_dma_write                 = $00FF004C ; Long: DMA queue write pointer
+g_dma_queue                 = $00FF0050 ; 64 x 20-byte DMA requests (up to $FF0550)
+g_sprite_ptr                = $00FF0550 ; Long: next free entry in g_sprite_buffer
+g_sprite_count              = $00FF0554 ; Word: sprites used this frame
+g_sprite_buffer             = $00FF0556 ; 64 x 8-byte VDP sprite attribute entries
+g_palette_target            = $00FF0756 ; 64 CRAM words: palette being faded towards
+g_palette_current           = $00FF07D6 ; 64 CRAM words: palette uploaded to CRAM every frame
+g_fade_step                 = $00FF0856 ; Word: fade progress (0..$18 / $30)
+g_plane_b_hscroll           = $00FF0858 ; Word: plane B horizontal scroll (negated when written)
+g_plane_b_vscroll           = $00FF085C ; Word: plane B vertical scroll
+g_plane_a_hscroll           = $00FF0864 ; Word: plane A horizontal scroll (negated when written)
+g_plane_a_vscroll           = $00FF0868 ; Word: plane A vertical scroll
+g_stadium_vram              = $00FF0874 ; Word: VRAM address of the stadium's first tile
+g_pitch_map                 = $00FF0908 ; Long: unpacked metatile map (width, height, then metatile indices)
+g_pitch_metatiles           = $00FF090C ; Long: unpacked metatile table (4 nametable words each)
+g_camera_x                  = $00FF0910 ; Long: camera X on the pitch (16.16 fixed point)
+g_camera_y                  = $00FF0914 ; Long: camera Y on the pitch (16.16)
+g_camera_lead_x             = $00FF091C ; Long: camera lead in X, eased towards 0
+g_camera_lead_y             = $00FF0920 ; Long: camera lead in Y
+g_camera_target             = $00FF0924 ; Long: object the camera currently follows
+g_camera_focus              = $00FF0928 ; Long: object the camera should follow (ball / player)
+g_pitch_left                = $00FF092C ; Word: pitch bounds used for the camera and corner flags
+g_pitch_right               = $00FF092E ; Word
+g_pitch_top                 = $00FF0930 ; Word
+g_pitch_bottom              = $00FF0932 ; Word
+g_pitch_middle_x            = $00FF0934 ; Word: halfway line X
+g_pitch_middle_y            = $00FF0936 ; Word: pitch centre Y
+g_overlay_vram              = $00FF0876 ; Word: VRAM address of the overlay / HUD tiles (res16 entry 5)
+g_stadium                   = $00FF162C ; Word: stadium 0-7
+g_weather                   = $00FF162E ; Word: 0 snow, 1 fine (front-end default), 2 rain: pitch palette and tiles, plane A\nweather animation (res04 entry 7 snow / 8 rain), ball friction and bounce
+g_ball                      = $00FF19C0 ; Ball object
+g_referee                   = $00FF1A4E ; Referee object (npc_draw)
+g_director                  = $00FF1932 ; Invisible object whose update runs the current restart script (tbl_restart_setup)
+g_team_home_info            = $00FF181E ; Home team match state (struct team, $88 bytes)
+g_team_away_info            = $00FF18A6 ; Away team match state (struct team)
+g_random                    = $00FF0044 ; Word: random number, stepped by rol #1 / eor #$37E8 on carry
+g_game_mode                 = $00FF1262 ; Word: 0 training, 1 challenge, 2 PK (penalty shoot-out), 3 open game, 4 short league,\n5 short tournament, 6 International Cup elimination round, 7 its group (preliminary) round, 8 its finals,\n9 World Series, $A Championship, $B attract demo (ended after 4 clock minutes), $C scenario
+g_password_length           = $00FF13BA ; Word: bits in the entered password; selects the mode it restores (password_restore)
+g_shootout_kicks            = $00FF14F0 ; Word: penalties taken in the shoot-out
+g_next_screen               = $00FF175E ; Word: screen that state_menu shows next (g_screen)
+g_menu_item                 = $00FF1766 ; Word: menu cursor. Main menu: 0 match (open game, short league, short tournament),\n1 International Cup, 2 World Series, 3 password, 4 scenario, 5 PK, 6 training / challenge, 7 options
+g_player_status             = $00FF12E4 ; 2 x 20 bytes, one per squad player: bit 7 = booked, bits 0-2 = status
+g_pads_home                 = $00FF1540 ; Word: number of controllers playing for the home team
+g_pads_away                 = $00FF1542 ; Word: number of controllers playing for the away team
+g_pad_pressed_any           = $00FF154A ; Word: buttons newly pressed on any controller (g_pad_held_any: held)
+g_pad_held_any              = $00FF154C ; Word
+g_pad_pressed_home          = $00FF1550 ; Word: buttons newly pressed on the home team's controllers
+g_pad_held_home             = $00FF1552 ; Word
+g_pad_pressed_away          = $00FF1556 ; Word: buttons newly pressed on the away team's controllers
+g_pad_held_away             = $00FF1558 ; Word
+g_control_slots             = $00FF155C ; 8 x $1A bytes, one per controller: +0 controlled player (its obj_state = 1,\nobj_owner = the slot), +4 presses not yet consumed, +6 consumed latch (cleared on release), +8 pad type,\n+$A player switch mode, +$18 button layout (row offset into tbl_button_layouts)
+g_half                      = $00FF1632 ; Word: bit 0 = second half
+g_left_goal_team            = $00FF1636 ; Word: team defending the left goal (0 = home); ends swap at half time
+g_training                  = $00FF163A ; Word: practice rules: no fouls, restarts not given to a team
+g_no_restarts               = $00FF163C ; Word: no throw-ins, corners or goal kicks (practice)
+g_stats_home                = $00FF164E ; 8 words: shots, free kicks, corners, penalties, yellow cards, red cards,\noffsides, goals (home team)
+g_score_home                = $00FF165C ; Word: home goals (g_stats_home+$E)
+g_stats_away                = $00FF165E ; 8 words: the same for the away team
+g_score_away                = $00FF166C ; Word: away goals
+g_scorers                   = $00FF166E ; 32 x 6 bytes: minute (word), $1633, team credited, scorer's team,\nscorer's squad slot
+g_restart_type              = $00FF1796 ; Word: -1 = ball in play, else the restart being taken (tbl_restart_setup):\n0 throw-in, 1 goal kick, 2 corner, 3 kick-off, 4 match start, 5 free kick, 6 penalty,\n7 penalty kick from the spot, 8 own goal, 9 half time, $A time up, $B goal, $C/$D practice
+g_restart_setup             = $00FF1798 ; Word: restart type whose player positions are set up (-1 = none yet)
+g_ball_out                  = $00FF179C ; Word: 1 while the ball is out of play
+g_foul_player               = $00FF17A0 ; Long: player who committed a foul (-1 = none)
+g_foul_card                 = $00FF17A4 ; Word: card decision for the foul (1 = card, -1 = none; set by the foul\ndetection, then checked against g_player_status)
+g_offside_player            = $00FF17A6 ; Long: player caught offside when the pass was played
+g_offside_pending           = $00FF17AA ; Word: 1 = a pass was played to an offside player
+g_foul_victim               = $00FF17B0 ; Long: fouled player (loses a point of the record byte +$57 unless a goalkeeper)
+g_last_touch                = $00FF17BE ; Long: player who touched the ball last (goal scorer)
+g_ball_zone_team            = $00FF17C8 ; Word: team whose penalty-area depth ($180 from its goal line) holds the ball
+g_match_clock               = $00FF17CC ; 4 bytes counting down: minutes, tens of seconds, seconds, frames (59 / 49)
+g_restart_timer             = $00FF17D0 ; Word: frames since the restart began (to $780); delay before time up
+g_restart_team              = $00FF17D2 ; Word: team taking the restart (-1 = none / draw)
+g_restart_x                 = $00FF17D4 ; Word: restart position
+g_restart_y                 = $00FF17D6 ; Word
+g_speech_delay              = $00FF319A ; Word: frames until the next commentary sample may play
+g_speech_read               = $00FF319C ; Word: read index of g_speech_queue
+g_speech_write              = $00FF319E ; Word: write index of g_speech_queue
+g_speech_queue              = $00FF31A0 ; 4 words: commentary samples waiting to be played
+g_opt_fouls_off             = $00FFFFF6 ; Word (settings): 1 = fouls are not called
+g_opt_cards_off             = $00FFFFF8 ; Word (settings): 1 = no cards
+g_linesman                  = $00FF1ADC ; Linesman object (npc_draw)
+g_ai_slot                   = $00FF181C ; Word: round-robin AI slot, (slot + 1) & 15 every frame (match_players_update).\nPlayer i runs its heavy AI when the slot equals obj_ai_slot (i); slot 12 = referee, 13 = linesman,\n14 = ball / goal-mouth sprite priority
+g_team_home                 = $00FF163E ; Word: home team (0-42)
+g_team_away                 = $00FF1640 ; Word: away team (0-42)
+g_kit_home                  = $00FF1646 ; Word: home kit (0 = first, 1 = second, 2 = edited)
+g_kit_away                  = $00FF1648 ; Word: away kit
+g_player_tiles              = $00FF1810 ; Long: pointer to resource group res00 (player body tiles)
+g_npc_vram_slots            = $00FF17F6 ; Words up to g_player_tiles: free NPC VRAM slots (0 = taken)
+g_officials_kit             = $00FF164A ; Word: officials' kit variant 0-3 (res04 entry 38)
+g_npc_extra_tiles           = $00FF192E ; Long: pointer to res04 entry 6 (NPC flag and card tiles)
+g_team_home_players         = $00FF1B6A ; 20 player objects ($8E bytes each), home squad
+g_team_away_players         = $00FF2682 ; 20 player objects, away squad
+g_text_nametable            = $00FF1762 ; Long: off-screen nametable the text helpers draw into
+g_obj_free_list             = $00FF096E ; Long: head of the free object list (-1 = empty)
+g_obj_active_list           = $00FF0972 ; Long: head of the active object list (-1 = empty)
+g_unpack_buffer             = $00FF3E12 ; Long: destination buffer for decompress_factor5 when loading resources
+g_unpack_vram               = $00FF3E16 ; Word: VRAM address the next unpacked resource is uploaded to
+g_settings_checksum         = $00FFFFEE ; Word: checksum of the 8 settings words that follow
+g_settings                  = $00FFFFF0 ; 8 words: options kept across resets
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Match rules. match_rules_update runs every frame of state_match: it keeps the
+; clock, detects the ball leaving the pitch (throw-in, goal kick, corner),
+; goals (the posts are 92-100 pixels either side of the centre line, the bar
+; at height $3C-$40), fouls, offside and time up, records statistics, and starts
+; the matching restart script on g_director. Each script shows a banner
+; (banner_draw) and queues a commentary sample (speech_queue_push).
+; ═════════════════════════════════════════════════════════════════════════════
+match_players_update        = $01253E ; Per frame: merge the controllers per team, update the control slots, advance\ng_ai_slot and, for that slot's player, distances to the ball and the team's nearest / front / back players
+match_rules_update          = $015CE8 ; Referee logic, see above
+tbl_referee_strictness      = $016EA2 ; 4 bytes per officials' kit variant: foul seen when byte [random & 3] is non-zero
+restart_kickoff             = $016EAE ; Restart script: kick-off (speech $27)
+restart_corner              = $016F4A ; Restart script: CORNER KICK banner (speech 1)
+restart_corner_resume       = $016F32 ; Corner script entered when a saved match resumes (tbl_restart_resume)
+restart_offside             = $01712A ; OFFSIDE banner (speech 6), the linesman raises his flag; continues as a free kick
+restart_free_kick_resume    = $0171AC ; Free kick script entered when a saved match resumes
+restart_free_kick           = $0171C8 ; FREE KICK banner (speech 4, $24 on PAL)
+restart_free_kick_wait      = $017230 ; Free kick: wait for the kicker
+restart_goal_kick_resume    = $017356 ; Goal kick script entered when a saved match resumes
+restart_goal_kick           = $01736E ; GOAL KICK banner (speech 2, $23 on PAL), from 128 px in front of the goal
+restart_throw_in_resume     = $0174B4 ; Throw-in script entered when a saved match resumes
+restart_throw_in            = $0174DC ; THROW IN banner (speech 3), 24 px outside the touchline
+restart_foul                = $017628 ; FOUL banner and whistle (SFX 83), then card and free kick / penalty
+restart_card                = $0178A8 ; YELLOW CARD / RED CARD banners, g_stats cards
+restart_penalty             = $017A5C ; PENALTY KICK banner (speech 5, $25 on PAL)
+restart_penalty_spot        = $017B66 ; Penalty from the spot, 256 px in front of the goal (restart type 7)
+restart_own_goal            = $017B82 ; OWN GOAL banner (speech $32)
+restart_goal                = $017CB2 ; Goal: crowd cheer (SFX 100), scorer's name and goal count banner
+restart_half_time           = $01814E ; HALF TIME banner (speech 8)
+restart_time_up             = $018268 ; TIME UP banner (speech $42)
+match_result_banner         = $0183A2 ; MATCH DRAWN / YOU WIN / YOU LOSE / <team> WINS
+tbl_restart_resume          = $01975A ; match_create_objects: director script per restart type when a match resumes
+banner_draw                 = $019490 ; Draw the $FF-terminated banner text at a2 ('@' = space) in the 16x32 font of\ndat_0195AA into the HUD buffer at a1
+speech_queue_update         = $01A4EA ; Per frame: play the next queued commentary sample (sound_play_sfx), $40 frames apart
+speech_queue_push           = $01A530 ; Queue commentary sample d5
+ball_think_rebound          = $010F72 ; Ball hit a post or the bar: keep it on the pitch and let it bounce back
+ball_think_in_net           = $010FF8 ; Ball in the net: stop it behind the goal line and start the net animation
+ball_think_out              = $011108 ; Ball out of play: keep rolling until the restart script takes it
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Player AI. Outfield players think with player_ai, the goalkeeper with
+; keeper_ai. The expensive decisions run only in the player's g_ai_slot frame.
+; A player's home position is the X of its role's line (tm_lines) plus
+; obj_form_x * 8, and the pitch centre plus obj_form_y * 8 (x10 when its team
+; has the ball); roles 0 (defence) and 2 (attack) stay out of the far and own
+; penalty areas, and attackers stop 32 px short of the opponents' last defender.
+; ═════════════════════════════════════════════════════════════════════════════
+player_ai                   = $00CBBA ; Outfield think: chase a loose ball when nearest, press the carrier when nearest or\nsecond nearest, man-mark obj_mark, else move to the formation position
+player_ai_chase_ball        = $00D0BE ; Run to where the ball will land
+player_ai_press             = $00D322 ; Close down the opponent with the ball (intensity from dat_00D504)
+player_ai_mark              = $00DE2E ; Follow the opponent given by obj_mark
+player_update               = $00534C ; Outfield player movement / action state machine (update callback)
+keeper_ai                   = $00FAEC ; Goalkeeper think: stand 32 px in front of the goal line and slide along it with the\nangle to the ball; rush out or dive when the ball comes close
+keeper_save                 = $00FF62 ; Goalkeeper: ball within $50 pixels, go for it
+keeper_rush_out             = $010164 ; Goalkeeper: leave the line for a ball played into the area (speech $21)
+keeper_update               = $001DF0 ; Goalkeeper movement / action state machine (update callback)
+tbl_team_strategies         = $0135C0 ; 8 strategies, run for a team when its tm_strategy is set (names from screen $0A and the\nlabels in res04 entry 5): 0 all out attack (all lines up to the ball), 1 push along centre, 2 push along wings (1 / 2 send\na player on a run), 3 counter attack (forwards up, defence back), 4 all out defence (all lines back), 5 press up,\n6 zone press, 7 offside trap
+tbl_restart_setup           = $013834 ; 14 routines indexed by g_restart_type that move both teams into position for the restart
+tbl_kickoff_positions       = $037E0E ; 20 bytes per formation: (dx, dy) x 16 from the centre spot for 10 outfield players
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Controls and player actions. joypad_read_port packs every pad as
+; U D L R B C A Start (bits 0-7) plus Z Y X Mode (bits 8-11) on 6-button pads;
+; match_players_update maps B, C, A and Z through the controller's button layout
+; to the logical buttons pass $10, lofted $20, dash $40 and shoot $100, and the
+; controlled player copies them into obj_input. The action state machines
+; (player_update, keeper_update) read obj_input the same way for humans and AI.
+; ═════════════════════════════════════════════════════════════════════════════
+tbl_button_layouts          = $014FB2 ; 8 layouts x 16 bytes: logical buttons for each B/C/A/Z combination
+tbl_dpad_angles             = $0134FE ; 16 words: d-pad bits -> direction 0-63
+player_standing             = $00524C ; State: standing with the ball; pass / lofted pass with a direction, shoot, stop
+player_running              = $0053A6 ; State: running; by ball height and distance: jumping / diving / standing headers,\nvolleys, chips, sliding tackles
+player_stop_ball            = $0055DC ; Stop with the ball at the feet (dash button while standing)
+player_shoot                = $008C8C ; Shoot at the opponents' goal (power kick, action 14); a clearance in the own zone
+player_long_kick            = $0083A8 ; Power kick along obj_kick_dir with obj_kick_power (lofted)
+player_lofted_pass          = $00840C ; Lofted pass / cross in the d-pad direction, power from how long the button is held
+player_pass                 = $0089DE ; Ground pass in the d-pad direction
+player_set_piece_pass       = $008AAA ; Set-piece pass with fixed power; kick animation 15-18 by the angle to obj_facing
+player_header_shot          = $00766A ; Standing header / volley at goal (action 19)
+player_jump_header          = $007BF6 ; Jumping header at goal (action 21)
+player_dive_header          = $008074 ; Diving header (action 22)
+set_piece_aim               = $00E9DA ; Free kick / corner taker: turn obj_aim with the d-pad, a button starts the kick
+set_piece_kick              = $00EB0C ; Run up and kick: $100 long kick, $20 power kick, $10 pass (power grows while held)
+ball_launch_kick            = $00AC6E ; Launch the ball (tbl_kick_rising), keeper kicks
+ball_launch_shot            = $00AD1E ; Launch a shot (tbl_kick_rising): headers, volleys, overhead kicks (speech $E)
+ball_launch_lofted          = $00B40A ; Launch a lofted ball (tbl_kick_lofted)
+ball_launch_drive           = $00B536 ; Launch a fast low drive (tbl_kick_drive)
+ball_launch_pass            = $00B654 ; Launch a ground pass (tbl_kick_pass)
+tbl_kick_lofted             = $00B986 ; Per power: speed and vertical speed (16.16), NTSC and PAL: 2-6 px, rising 2.4-6.6
+tbl_kick_rising             = $00BA16 ; Per power: 2-4 px per frame, rising 1.5-3.5
+tbl_kick_drive              = $00BC1E ; 6 px per frame, rising 1
+tbl_kick_pass               = $00BC2E ; 3.5 px per frame, rising 1
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Match HUD (window plane): res16 entry 3 map over the overlay tiles, palette
+; line 2 colours 8-15 from res16 entry 9. Team flags (res06 entry 2) and names
+; (res06 entry 0) go to overlay tiles 72-93; the radar is a 10x7-tile bitmap in
+; tiles 2-71, redrawn in steps by the g_radar_step chain.
+; ═════════════════════════════════════════════════════════════════════════════
+g_hud_map                   = $00FF0946 ; Long: RAM copy of the window map (from row 1), uploaded after changes
+g_radar_bitmap              = $00FF094A ; Long: radar tile bitmap (the clean copy follows at +$8C0)
+g_hud_clock_fn              = $00FF094E ; Long: HUD routine run by hud_update (hud_draw_clock)
+g_radar_step                = $00FF0952 ; Long: next step of the radar chain, run by hud_update
+g_radar_col_table           = $00FF095A ; Long: this stadium's radar column table (tbl_radar_maps)
+g_radar_row_table           = $00FF095E ; Long: this stadium's radar row table
+hud_draw_clock              = $01C7A4 ; Draw the clock (M:SS, digits from tbl_hud_digits) at window row 1 column 27,\nor tbl_hud_time_up when it has run out; half marker at column 25
+radar_clear                 = $01B7EC ; Radar step: restore the clean bitmap (first half)
+radar_clear_2               = $01B816 ; Radar step: second half
+radar_plot_home             = $01B844 ; Radar step: plot the home players (2x2 dots, colour $D; $C when obj +$F is set)
+radar_plot_away             = $01B888 ; Radar step: plot the away players (colour $A)
+radar_plot_controlled_home  = $01B8CC ; Radar step: 4x4 markers for the home team's controlled players
+radar_plot_controlled_away  = $01B902 ; Radar step: the same for the away team
+radar_plot_ball             = $01B938 ; Radar step: ball marker, then upload the first half
+radar_upload                = $01B97C ; Radar step: upload the second half, restart the chain
+radar_plot                  = $01BAD0 ; Plot pattern a3 for object a5: column = table[(x - left) / 16], row = table[(y - top) / 16]
+tbl_radar_dots              = $01BB90 ; 6 x 16 bytes: home, away, flagged, controlled home / away, ball patterns
+tbl_radar_maps              = $01BBF0 ; Per stadium: column table (bitmap offset, pixel X per 16 pitch pixels), row table
+tbl_hud_digits              = $01CD00 ; 10 digits x (top, bottom) window cells, 8x16 pixels
+tbl_hud_time_up             = $01CD50 ; 4 x (top, bottom) cells shown instead of the clock at time up
+g_screen                    = $00FF175C ; Word: front-end screen number (group 27 + screen; backdrop group 23/24/25/26)
+screen_load                 = $01EB38 ; Load front-end screen g_screen: backdrop tiles, map (plane A) and palette lines 2-3,\nthe screen's tiles after them, its map as g_text_nametable (priority toggled) and palette lines 0-1
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Game modes: set g_game_mode and the competition state; *_resume restore a
+; mode from a password (dispatched by g_password_length)
+; ═════════════════════════════════════════════════════════════════════════════
+mode_start_open_game        = $05AE46 ; Mode 3, then the player select (screen 2)
+mode_start_short_league     = $05AF50 ; Mode 4 (title card $34)
+mode_resume_short_league    = $05AFA6 ; Mode 4 from a password (league table, screen $1D)
+mode_start_short_tournament = $05B366 ; Mode 5 (title card $35)
+mode_resume_short_tournament = $05B3BE ; Mode 5 from a password (tournament table, screen $22)
+mode_start_international    = $05B640 ; Mode 6: International Cup elimination round (title card $36)
+mode_resume_international   = $05B6A2 ; Mode 6 from a password (screen $29)
+mode_international_group    = $05BBA8 ; Mode 7: the group (preliminary) round (screen $2B)
+mode_resume_international_group = $05BC50 ; Mode 7 from a password
+mode_international_finals   = $05C03C ; Mode 8: the finals bracket (screen $2D)
+mode_resume_international_finals = $05C0DE ; Mode 8 from a password
+mode_start_world_series     = $05C378 ; Mode 9 (title card $37)
+mode_resume_world_series    = $05C440 ; Mode 9 from a password (screen $2F)
+mode_start_championship     = $05CF8E ; Mode $A (title card $38)
+mode_resume_championship    = $05CFE6 ; Mode $A from a password
+mode_start_training         = $05D184 ; Mode 0 (training menu: free, defence, free kick, keeper)
+mode_start_challenge        = $05D218 ; Mode 1 (dribble, pass, shoot, defence, free kick against the clock)
+mode_start_pk               = $05D2B2 ; Mode 2: penalty shoot-out only
+mode_start_scenario         = $05D3FC ; Mode $C: 12 scenarios (screen $24), each a match situation to turn round
+mode_resume_scenario        = $05D452 ; Mode $C from a password
+mode_start_demo             = $05D588 ; Mode $B: attract demo
+
+; ═════════════════════════════════════════════════════════════════════════════
+; Small sprites
+; ═════════════════════════════════════════════════════════════════════════════
+landing_marker_init         = $02D4B2 ; Give object a5 the landing-point marker (created by the lofted kicks)
+landing_marker_draw         = $02D4BC ; One 8x8 sprite: tile $33 of the ball's tile set, palette line 3
+landing_marker_start        = $00C774 ; Follow the ball's target (g_ball obj_target_x/y)
+landing_marker_update       = $00C78C ; Stay on the target; freed when the ball is within 8 px of it or someone else touches it
+goal_target_init            = $01185A ; Practice: a panel over one half of the goal (x = goal line, y = centre +-$40 at random)
+goal_target_update          = $011870 ; On a goal ($179E = 1) within $20 of the panel: action 1 and $13CE = $B
+goal_target_draw            = $02D692 ; 7 pieces from res04 entry 18, every other frame so it looks see-through; colour $C, $D once hit
+flag_fans_draw              = $02D786 ; Presentation scene figures (13, positions at $03B6FC): two body variants and 3-frame waving\nflags, with the home and away flags streamed from res06 entry 2
+particle_draw               = $02D8F2 ; Small animated sprites (7 actions: streak, three 3-frame bursts, two 2-frame spins, a\nflicker): rain streaks and splashes (res04 entry 12) and snowflakes (entry 11) in bad weather; confetti (entry 13)\nand a sparkle above the referee (entry 14) in presentation scenes
+
