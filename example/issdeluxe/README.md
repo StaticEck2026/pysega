@@ -598,7 +598,8 @@ go run ./example/issdeluxe/extract -rom "<rom>" -out example/issdeluxe/out/godot
   rolling friction and bounce damping per weather, the pass, drive, rising
   and lofted kick tables with the distance each power carries, the team
   line table of `$01521E`, referee strictness, press intensity per AI level,
-  the goalkeeper's dive data and the knocked-over launch.
+  the goalkeeper's dive data, the knocked-over launch, `match_simulate`'s
+  strength and goals tables and the short league's fixture list.
 * `iss/screens/font_large*.png`, `font_small*.png` — the front end's own
   8 × 16 and 8 × 8 fonts (`text_draw_large`, `text_draw_small`; the `_hi`
   variants are the highlighted colour).
@@ -634,7 +635,11 @@ scaled by whole numbers:
 * **Front end** on the game's own screens and fonts: 1P vs COM, 1P vs 2P,
   COM vs COM; team selection with flags, each side's formation (the team's
   tuned default or any of the 16), stadium (8) and weather (snow, fine,
-  rain); PK (a shoot-out); the options screen (game level 1–5, game time
+  rain); PK (a shoot-out); the short league (6 teams, the ROM's 15
+  fixtures, 3 points a win, standings W / D / L / P) and short tournament
+  (8 teams, knockout), with 1 to 6 or 8 human teams and the computer's
+  games decided by `match_simulate` from each team's strength
+  (`tbl_team_strength`, `tbl_sim_goals`); the options screen (game level 1–5, game time
   3, 5 or 7 minutes a half, sound) and the rules screen (fouls, yellow
   cards, offside, V-goal or full extra time, the four referees); the result
   with the scorers. Menu music is song 3.
@@ -683,8 +688,8 @@ scaled by whole numbers:
   lofted balls, `camera_update`'s lead toward the attacking goal, the HUD
   with the live radar, banners, commentary, crowd and effects.
 
-Not reproduced (yet): the competitions (leagues, cups, World Series,
-scenarios, training, challenges, passwords), the shoot-out's own view from
+Not reproduced (yet): the longer competitions (International Cup,
+World Series, championship), scenarios, training, challenges, passwords, the shoot-out's own view from
 behind the taker (the kicks are taken on the pitch), substitutions, the
 in-match strategies, man-marking and the keeper's human control outside
 distribution. `iss_selftest.gd` plays a
@@ -815,8 +820,9 @@ front end, the rules, the AI and the presentation rebuilt on the exported
 data.
 
 Open work, in rough order of value for a port:
-1. In the Godot game: the competitions and their tables, the shoot-out's
-   own view, substitutions and the in-match strategies.
+1. In the Godot game: the International Cup, World Series, scenarios and
+   training modes, the shoot-out's own view, substitutions and the
+   in-match strategies.
 2. The figures of the presentation scenes (`flag_fans_draw`).
 3. The field layout of each mode's password and the object behind each
    remaining menu screen.

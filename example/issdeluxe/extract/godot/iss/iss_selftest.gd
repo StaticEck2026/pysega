@@ -102,6 +102,7 @@ func _init() -> void:
 	_check_match_engine()
 	_check_human_control()
 	_check_knockout()
+	_check_competitions()
 	await _check_game()
 	print("iss_selftest: ", "OK" if _failures == 0 else "%d failure(s)" % _failures)
 	quit(0 if _failures == 0 else 1)
@@ -233,3 +234,32 @@ func _check_knockout() -> void:
 		frames += 1
 	_check(p.over and p.half == 4, "PK mode")
 	p.dispose()
+
+
+## Short league and tournament between computer teams, and a league that
+## stops at the human team's games.
+func _check_competitions() -> void:
+	seed(4)
+	var lg := ISSCompetition.league([0, 1, 2, 3, 4, 5], 0)
+	lg.simulate_until_human()
+	_check(lg.finished() and lg.games.size() == 15, "league: 15 games")
+	var w := 0
+	var l := 0
+	for r: Dictionary in lg.table():
+		_check(r["w"] + r["d"] + r["l"] == 5, "league: 5 games each")
+		w += r["w"]
+		l += r["l"]
+	_check(w == l, "league: wins match losses")
+	var t := lg.table()
+	_check(t[0]["p"] >= t[5]["p"], "league: sorted by points")
+	var cup := ISSCompetition.tournament([6, 7, 8, 9, 10, 11, 12, 13], 0)
+	cup.simulate_until_human()
+	_check(cup.finished() and cup.games.size() == 7 and cup.champion() >= 0, "tournament: 7 games, a champion")
+	for r: Dictionary in cup.games:
+		_check(r["hg"] != r["ag"] or not r["pk"].is_empty(), "tournament: every game has a winner")
+	var mine := ISSCompetition.league([0, 1, 2, 3, 4, 5], 1)
+	mine.simulate_until_human()
+	_check(mine.games.is_empty() and mine.next_game() == [0, 2], "league: the human's first game comes first")
+	mine.record(2, 1)
+	mine.simulate_until_human()
+	_check(mine.games.size() == 3 and mine.next_game() == [0, 4], "league: computer games played in between")

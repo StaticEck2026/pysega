@@ -25,6 +25,9 @@ const (
 	tblKeeperJumping    = 0x00513C
 	tblKnockedOverSpeed = 0x009F20
 	tblKnockedOverLift  = 0x009F28
+	tblTeamStrength     = 0x03B034     // match_simulate: strength per team
+	tblSimGoals         = 0x03B05E     // match_simulate: 8 rows (strength difference / 8) x 8 goal counts
+	tblLeagueFixtures   = 0x05B17E     // short league: 15 (home, away) pairs of league slots
 	teamRunSpeed        = 0x01487E + 2 // move.l #$0001E000,$1814(a6)
 	keeperDiveSlowBall  = 0x00BC0E     // keeper_dive: full-length dive for balls up to this speed
 )
@@ -140,7 +143,32 @@ func exportMatch(dir string) {
 			"dive_slow_ball": fix(keeperDiveSlowBall),
 		},
 		"knocked_over": []float64{fix(tblKnockedOverSpeed), fix(tblKnockedOverLift)},
-		"ai_slots":     16,
+		"simulate": map[string]any{
+			"strength": bytesAt(tblTeamStrength, numTeams),
+			"goals":    bytesAt(tblSimGoals, 64),
+			"note": "match_simulate ($015442), the result of a match between computer teams: d = strength[home] - " +
+				"strength[away] clamped to 0-63 for the home side (and the reverse for the away side); goals = " +
+				"goals[(d & ~7) + random 0-7]; penalties when needed: 3 + another draw each, one more for the home " +
+				"side if level",
+		},
+		"league_fixtures": pairsAt(tblLeagueFixtures, 15),
+		"ai_slots":        16,
 	}
 	writeJSON(filepath.Join(dir, "match.json"), doc)
+}
+
+func bytesAt(a uint32, n int) []int {
+	var out []int
+	for i := 0; i < n; i++ {
+		out = append(out, int(rom[a+uint32(i)]))
+	}
+	return out
+}
+
+func pairsAt(a uint32, n int) [][2]int {
+	var out [][2]int
+	for i := 0; i < n; i++ {
+		out = append(out, [2]int{int(rom[a+uint32(2*i)]), int(rom[a+uint32(2*i+1)])})
+	}
+	return out
 }

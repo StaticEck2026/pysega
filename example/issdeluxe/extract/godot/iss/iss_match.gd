@@ -154,6 +154,7 @@ func result() -> Dictionary:
 	return {"home": engine.teams[0].team_id, "away": engine.teams[1].team_id,
 		"home_score": engine.teams[0].score, "away_score": engine.teams[1].score,
 		"penalties": engine.pk_scores if engine.shootout else [],
+		"comp": bool(options.get("comp", false)),
 		"scorers": engine.scorers, "home_stats": engine.teams[0].stats, "away_stats": engine.teams[1].stats}
 
 

@@ -9,11 +9,11 @@ extends Node2D
 
 signal start_match(home: int, away: int, options: Dictionary)
 
-enum Page { MAIN, TEAMS, OPTIONS, RULES, RESULT }
+enum Page { MAIN, TEAMS, OPTIONS, RULES, RESULT, COMP_SETUP, COMP_TABLE }
 
 const SCREENS := "res://assets/iss/screens/"
-const MODES := ["1P VS COM", "1P VS 2P", "COM VS COM", "OPTIONS", "RULES", "PK"]
-const PADS := [[1, 0], [1, 1], [0, 0], [], [], [1, 0]]
+const MODES := ["1P VS COM", "1P VS 2P", "COM VS COM", "PK", "LEAGUE", "TOURNAMENT", "OPTIONS", "RULES"]
+const PADS := [[1, 0], [1, 1], [0, 0], [1, 0]]
 const WEATHERS := ["SNOW", "FINE", "RAIN"]
 const REFEREES := ["CARLOS", "HEINZ", "HASEGAWA", "RANDOM"]
 
@@ -27,6 +27,11 @@ static var weather := 1
 static var mode := 0
 static var home_formation := -1
 static var away_formation := -1
+## The short league or tournament in progress (null = none).
+static var comp: ISSCompetition = null
+static var comp_kind := "league"
+static var comp_humans := 1
+static var comp_teams: Array = [0, 1, 2, 6, 7, 30, 31, 3]
 
 var page := Page.MAIN
 var cursor := 0
@@ -56,13 +61,18 @@ func _ready() -> void:
 	add_child(_sound)
 	# Song 3 is the main menu's (screen_main_menu), 16 the final whistle's.
 	_sound.play_music(16 if not result.is_empty() else 3)
+	if comp != null and result.get("comp", false):
+		var pk: Array = result.get("penalties", [])
+		comp.record(int(result["home_score"]), int(result["away_score"]), pk)
+		comp.simulate_until_human()
 	show_page(Page.RESULT if not result.is_empty() else Page.MAIN)
 
 
 func show_page(p: int) -> void:
 	page = p
 	cursor = 0
-	var screen: String = {Page.MAIN: "00", Page.TEAMS: "33", Page.OPTIONS: "11", Page.RULES: "12", Page.RESULT: "33"}[p]
+	var screen: String = {Page.MAIN: "00", Page.TEAMS: "33", Page.OPTIONS: "11", Page.RULES: "12",
+		Page.RESULT: "33", Page.COMP_SETUP: "33", Page.COMP_TABLE: "33"}[p]
 	_backdrop.texture = load(SCREENS + "screen_%s.png" % screen)
 	queue_redraw()
 
@@ -91,7 +101,11 @@ func _physics_process(_delta: float) -> void:
 		Page.RESULT:
 			if ok or back:
 				_sound.play_music(3)
-				show_page(Page.MAIN)
+				show_page(Page.COMP_TABLE if comp != null else Page.MAIN)
+		Page.COMP_SETUP:
+			_comp_setup(moved, ok, back)
+		Page.COMP_TABLE:
+			_comp_table(ok, back)
 	if moved != Vector2i.ZERO or ok or back:
 		_sound.play_sfx(0x5E)
 	queue_redraw()
@@ -112,13 +126,67 @@ func _main(moved: Vector2i, ok: bool) -> void:
 	cursor = clampi(cursor + moved.y * 2 + moved.x, 0, MODES.size() - 1)
 	if ok:
 		match cursor:
-			0, 1, 2, 5:
+			0, 1, 2, 3:
 				mode = cursor
 				show_page(Page.TEAMS)
-			3:
+			4, 5:
+				comp_kind = "league" if cursor == 4 else "tournament"
+				comp = null
+				show_page(Page.COMP_SETUP)
+			6:
 				show_page(Page.OPTIONS)
-			4:
+			7:
 				show_page(Page.RULES)
+
+
+func _comp_size() -> int:
+	return 6 if comp_kind == "league" else 8
+
+
+## Number of human teams, then every team of the competition, then start.
+func _comp_setup(moved: Vector2i, ok: bool, back: bool) -> void:
+	var n := _comp_size()
+	cursor = clampi(cursor + moved.y, 0, n + 1)
+	if cursor == 0:
+		comp_humans = clampi(comp_humans + moved.x, 1, n)
+	elif cursor <= n and moved.x != 0:
+		var teams := ISSMatchData.team_count() - 1
+		var t: int = comp_teams[cursor - 1]
+		# Skip teams already in the competition.
+		for i in teams:
+			t = posmod(t + moved.x, teams)
+			if not comp_teams.slice(0, n).has(t):
+				break
+		comp_teams[cursor - 1] = t
+	if back:
+		show_page(Page.MAIN)
+	elif ok and cursor == n + 1:
+		var ids := comp_teams.slice(0, n)
+		comp = ISSCompetition.league(ids, comp_humans) if comp_kind == "league" \
+			else ISSCompetition.tournament(ids, comp_humans)
+		comp.simulate_until_human()
+		show_page(Page.COMP_TABLE)
+
+
+func _comp_table(ok: bool, back: bool) -> void:
+	if comp.finished():
+		if ok or back:
+			comp = null
+			show_page(Page.MAIN)
+		return
+	if back:
+		comp = null
+		show_page(Page.MAIN)
+	elif ok:
+		var g := comp.next_game()
+		var opts := settings.duplicate()
+		opts["stadium"] = randi() % 8
+		opts["weather"] = randi() % 3
+		opts["pads"] = [1 if comp.is_human(g[0]) else 0, 1 if comp.is_human(g[1]) else 0]
+		# League games may be drawn; tournament games need a winner.
+		opts["knockout"] = comp.kind == "tournament"
+		opts["comp"] = true
+		start_match.emit(comp.teams[g[0]], comp.teams[g[1]], opts)
 
 
 func _teams(moved: Vector2i, ok: bool, back: bool) -> void:
@@ -149,7 +217,7 @@ func _teams(moved: Vector2i, ok: bool, back: bool) -> void:
 		opts["formations"] = [home_formation, away_formation]
 		# Open games are knockout matches ($1274 = 1): extra time, then penalties.
 		opts["knockout"] = true
-		opts["pk_only"] = mode == 5
+		opts["pk_only"] = mode == 3
 		start_match.emit(home, away, opts)
 
 
@@ -203,10 +271,25 @@ func _draw() -> void:
 				var cy := 40.0 + 48.0 * float(i / 2)
 				var r := Rect2(cx - 57, cy - 18, 114, 36)
 				draw_rect(r, Color(0, 0, 0.3, 0.75))
-				ISSText.draw_centred(self, MODES[i], cx, cy - 8, true, i == cursor)
+				var label: String = MODES[i]
+				if label.length() > 13:
+					ISSText.draw_centred(self, label, cx, cy - 4, false, i == cursor)
+				else:
+					ISSText.draw_centred(self, label, cx, cy - 8, true, i == cursor)
 				if i == cursor:
 					_box(r, true)
-			ISSText.draw_centred(self, "SUPERSTAR SOCCER DELUXE", 128, 210, false)
+		Page.COMP_SETUP:
+			var n := _comp_size()
+			ISSText.draw_centred(self, "-SHORT LEAGUE-" if comp_kind == "league" else "-SHORT TOURNAMENT-", 128, 8, true)
+			ISSText.draw(self, "HUMAN TEAMS %d" % comp_humans, Vector2(40, 30), false, cursor == 0)
+			for i in n:
+				var y := 44 + i * 18
+				var tid: int = comp_teams[i]
+				ISSText.draw(self, ISSMatchData.team_name(tid).to_upper(), Vector2(56, y), true, cursor == i + 1)
+				ISSText.draw(self, "%dP" % (i + 1) if i < comp_humans else "COM", Vector2(200, y + 4), false)
+			ISSText.draw_centred(self, "START", 128, 44 + n * 18 + 4, true, cursor == n + 1)
+		Page.COMP_TABLE:
+			_draw_comp()
 		Page.TEAMS:
 			ISSText.draw_centred(self, "-TODAYS GAME-", 128, 8, true)
 			_team_row(0, home, 30)
@@ -272,3 +355,38 @@ func _team_row(i: int, team: int, y: float) -> void:
 func _formation_row(team: int, picked: int, y: float, on: bool) -> void:
 	var fid := _formation(team, picked)
 	ISSText.draw(self, "FORMATION " + str(ISSMatchData.formations[fid]["name"]), Vector2(80, y), false, on)
+
+
+func _draw_comp() -> void:
+	var title := "-SHORT LEAGUE-" if comp.kind == "league" else "-SHORT TOURNAMENT-"
+	ISSText.draw_centred(self, title, 128, 8, true)
+	if comp.kind == "league":
+		ISSText.draw(self, "TEAM", Vector2(24, 30), false)
+		ISSText.draw(self, "W  D  L  P", Vector2(160, 30), false)
+		var y := 42
+		for r: Dictionary in comp.table():
+			var name := ISSMatchData.team_name(comp.teams[r["slot"]]).to_upper()
+			ISSText.draw(self, name, Vector2(24, y), false, comp.is_human(r["slot"]))
+			ISSText.draw(self, "%d  %d  %d %2d" % [r["w"], r["d"], r["l"], r["p"]], Vector2(160, y), false)
+			y += 12
+	else:
+		var y := 30
+		for r: Dictionary in comp.games:
+			var h := ISSMatchData.team_name(comp.teams[r["home"]]).to_upper()
+			var a := ISSMatchData.team_name(comp.teams[r["away"]]).to_upper()
+			var line := "%s %d-%d %s" % [h, r["hg"], r["ag"], a]
+			if not r["pk"].is_empty():
+				line += " PK%d-%d" % [r["pk"][0], r["pk"][1]]
+			ISSText.draw(self, line, Vector2(16, y), false)
+			y += 11
+	if comp.finished():
+		var champ := ISSMatchData.team_name(comp.teams[comp.champion()]).to_upper()
+		ISSText.draw_centred(self, "CHAMPION", 128, 170, true, true)
+		ISSText.draw_centred(self, champ, 128, 190, true)
+	else:
+		var g := comp.next_game()
+		var h := ISSMatchData.team_name(comp.teams[g[0]]).to_upper()
+		var a := ISSMatchData.team_name(comp.teams[g[1]]).to_upper()
+		ISSText.draw_centred(self, comp.round_name(), 128, 158, false)
+		ISSText.draw_centred(self, h + " VS " + a, 128, 172, true)
+		ISSText.draw_centred(self, "PRESS START", 128, 196, false, (_blink / 16) % 2 == 0)
