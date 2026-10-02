@@ -354,6 +354,7 @@ func _check_long_modes() -> void:
 	e.dispose()
 	_check_training()
 	_check_wall()
+	_check_challenges()
 
 
 ## The four drills of restart_setup_practice: who is on, who has the ball,
@@ -427,3 +428,51 @@ func _check_wall() -> void:
 	e.start_restart(ISSMatchEngine.R.FREE_KICK, 0, Vector2(g.x - 700.0, g.y))
 	_check(e._wall.is_empty(), "free kick: no wall from 700 px")
 	e.dispose()
+
+
+## The challenges: each event's players and ball, a CPU attempt to its end,
+## the dribble cleared by taking the flags, the timer and the scores.
+func _check_challenges() -> void:
+	seed(5)
+	var practice := int(ISSMatchData.consts["training"]["team"])
+	var events: Array = ISSMatchData.consts["challenge"]["events"]
+	for ev in 6:
+		var e := ISSMatchEngine.new()
+		e.setup(practice, practice, {"pads": [0, 0], "challenge": {"event": ev, "level": 3}, "level": 4, "stadium": 2})
+		var spec: Dictionary = events[ev]
+		var want_home := int(spec["home_counts"][3]) + (1 if spec.has("home_middle") else 0)
+		var want_away := int(spec["away_counts"][3]) + (1 if spec.has("keeper_level") else 0)
+		_check(e.teams[0].active().size() == want_home and e.teams[1].active().size() == want_away
+			and e.ball.owner != null, "challenge %d: %d v %d, the ball held" % [ev, want_home, want_away])
+		var frames := 0
+		while not e.over and frames < 60 * 70:
+			e.step([{}, {}])
+			frames += 1
+		_check(e.over, "challenge %d: the attempt ends (%d frames, %s)" % [ev, frames, "cleared" if e.ch_done else "missed"])
+		e.dispose()
+	# Dribble: the five flags clear it; a goal then keeps the bonus.
+	var d := ISSMatchEngine.new()
+	d.setup(practice, practice, {"pads": [1, 0], "challenge": {"event": 0, "level": 0}, "stadium": 2})
+	var dribbler := d.teams[0].players[1]
+	for f in d.ch_flags.duplicate():
+		dribbler.pos = f
+		d.step([{}, {}])
+	d.step([{}, {}])
+	_check(d.ch_done and d.ch_flags.is_empty(), "dribble: the five flags clear it")
+	for f in 60:
+		d.step([{}, {}])
+	d._challenge_end(true)
+	var r := d.challenge_result()
+	var sc := ISSChallenge.score(r)
+	_check(r["bonus_on"] and int(sc["bonus_score"]) > 0 and int(sc["total"]) == int(sc["time_score"]) + int(sc["bonus_score"]),
+		"dribble: a goal keeps the bonus (%s)" % str(sc))
+	d.dispose()
+	# The timer: 60 frames are one second (29.00 after 30.00).
+	var t := ISSMatchEngine.new()
+	t.setup(practice, practice, {"pads": [1, 0], "challenge": {"event": 1, "level": 0}, "stadium": 2})
+	for f in 60:
+		t._time_tick(5)
+	_check(t.ch_time == [2, 9, 0, 0], "challenge timer: one second in 60 frames (%s)" % str(t.ch_time))
+	t.dispose()
+	var s := ISSChallenge.score({"done": true, "bonus_on": false, "time": [2, 0, 3, 2], "bonus": [1, 0, 0, 0]})
+	_check(s["time_taken"] == 968 and s["time_score"] == 203 and s["total"] == 203, "challenge scores: %s" % str(s))

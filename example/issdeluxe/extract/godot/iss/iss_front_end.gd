@@ -5,8 +5,9 @@ extends Node2D
 ## Cup, World Series, password, scenario, PK, training, options), the match
 ## type (screen 1: open game, short league, short tournament), player select
 ## (screen 2), team selection, the strategy screen ($0A), options ($11) and
-## rules ($12), scenario select ($24), training select ($18), the
-## competition tables and the result.
+## rules ($12), scenario select ($24), training or challenge ($13), training
+## select ($18), the challenges' name entry ($14), event select ($15) and
+## record ($17), the competition tables and the result.
 ## The port saves competitions instead of showing passwords: "CONTINUE"
 ## picks a saved one up. Menus are driven by player 1's pad: the d-pad
 ## moves, pass (Z) or Start confirms, shoot (X) goes back.
@@ -14,7 +15,7 @@ extends Node2D
 signal start_match(home: int, away: int, options: Dictionary)
 
 enum Page { MAIN, MATCH_TYPE, PLAYERS, TEAMS, PICK_TEAM, OPTIONS, RULES, STRATEGY, RESULT,
-	COMP_SETUP, COMP_TABLE, SCENARIO, MESSAGE, TRAINING }
+	COMP_SETUP, COMP_TABLE, SCENARIO, MESSAGE, TRAINING, MODE, NAME, CHALLENGE, RECORD }
 
 const SCREENS := "res://assets/iss/screens/"
 const MAIN_ITEMS := ["MATCH", "INTERNATIONAL CUP", "WORLD SERIES", "CONTINUE", "SCENARIO", "PK",
@@ -48,12 +49,21 @@ static var comp_teams: Array = [0, 1, 2, 6, 7, 30, 31, 3]
 static var scenario := 0
 ## The training drill (g_training_drill): 0 free, 1 defence, 2 free kick, 3 keeper.
 static var drill := 0
+## The challenge event (g_training_drill in mode 1) and level (g_challenge_level).
+static var ch_event := 0
+static var ch_level := 0
 
 var page := Page.MAIN
 var cursor := 0
 var result := {}
 var message := ""
 var _back_to := Page.MAIN
+var _ch_level_mode := false
+var _name := ""
+var _name_at := 0
+var _name_ok := false
+var _record := {}
+var _records := {}
 var _backdrop := Sprite2D.new()
 var _flags: Array[Sprite2D] = []
 var _blink := 0
@@ -80,10 +90,20 @@ func _ready() -> void:
 	add_child(_sound)
 	# Song 3 is the main menu's (screen_main_menu), 16 the final whistle's.
 	var training := result.has("training_menu")
-	_sound.play_music(16 if not result.is_empty() and not training else 3)
+	var tried := result.has("challenge")
+	# Song 14 is the training and challenge menus' (screen_training_select,
+	# screen_challenge_record).
+	_sound.play_music(14 if training or tried else (16 if not result.is_empty() else 3))
 	if training:
 		# Start in training: the training menu (match_rules_update_3).
 		show_page(Page.TRAINING)
+		return
+	if tried:
+		var rec := ISSChallenge.records()
+		_record = ISSChallenge.record(rec, result["challenge"])
+		ISSChallenge.save_records(rec)
+		_records = rec
+		show_page(Page.RECORD)
 		return
 	if not result.is_empty():
 		_after_match()
@@ -127,7 +147,8 @@ func show_page(p: int) -> void:
 	var screen: String = {Page.MAIN: "00", Page.MATCH_TYPE: "01", Page.PLAYERS: "02", Page.TEAMS: "33",
 		Page.PICK_TEAM: "33", Page.OPTIONS: "11", Page.RULES: "12", Page.STRATEGY: "0A", Page.RESULT: "33",
 		Page.COMP_SETUP: "33", Page.COMP_TABLE: "33", Page.SCENARIO: "24", Page.MESSAGE: "33",
-		Page.TRAINING: "18"}[p]
+		Page.TRAINING: "18", Page.MODE: "13", Page.NAME: "14", Page.CHALLENGE: "15", Page.RECORD: "17"}[p]
+	_ch_level_mode = false
 	_backdrop.texture = load(SCREENS + "screen_%s.png" % screen)
 	queue_redraw()
 
@@ -192,6 +213,26 @@ func _physics_process(_delta: float) -> void:
 		Page.MESSAGE:
 			if ok or back:
 				show_page(_back_to)
+		Page.MODE:
+			# menu_state_04DC1A: training mode or challenge mode.
+			cursor = clampi(cursor + moved.y, 0, 1)
+			if back:
+				show_page(Page.MAIN)
+			elif ok and cursor == 0:
+				game = "training"
+				show_page(Page.PICK_TEAM)
+			elif ok:
+				_name = ""
+				_name_at = 0
+				_name_ok = false
+				show_page(Page.NAME)
+		Page.NAME:
+			_name_page(moved, ok, back)
+		Page.CHALLENGE:
+			_challenge_page(moved, ok, back)
+		Page.RECORD:
+			if ok or back:
+				show_page(Page.CHALLENGE)
 		Page.TRAINING:
 			# screen_training_select: up and down wrap round.
 			drill = posmod(drill + moved.y, 4)
@@ -227,9 +268,7 @@ func _main(moved: Vector2i, ok: bool) -> void:
 			players_mode = 0
 			show_page(Page.TEAMS)
 		6:
-			# mode_start_training: one team, then free training ($13BC = 0).
-			game = "training"
-			show_page(Page.PICK_TEAM)
+			show_page(Page.MODE)
 		7:
 			show_page(Page.OPTIONS)
 
@@ -313,6 +352,76 @@ func _pick_team(moved: Vector2i, ok: bool, back: bool) -> void:
 		comp.simulate_until_human()
 		comp.save()
 		show_page(Page.COMP_TABLE)
+
+
+## screen_input_name: the 40 characters of the grid (10 a row, 16 px apart);
+## the cursor moves over it, up from the top row or down from the bottom
+## one reaches OK, a third letter too; B rubs the last letter out (or
+## leaves when there is none).
+func _name_page(moved: Vector2i, ok: bool, back: bool) -> void:
+	var chars: Array = ISSMatchData.consts["challenge"]["name_chars"]
+	if _name_ok:
+		if ok:
+			ISSChallenge.player_name = _name.rpad(3)
+			show_page(Page.CHALLENGE)
+		elif back:
+			_name = _name.left(maxi(0, _name.length() - 1))
+			_name_ok = false
+		elif moved.y != 0 and _name.length() < 3:
+			_name_at = _name_at % 10 + (0 if moved.y > 0 else 30)
+			_name_ok = false
+		return
+	if back:
+		if _name.is_empty():
+			show_page(Page.MODE)
+		else:
+			_name = _name.left(_name.length() - 1)
+		return
+	_name_at = posmod(_name_at + moved.x, 40)
+	if moved.y > 0:
+		if _name_at >= 30:
+			_name_ok = true
+		else:
+			_name_at += 10
+	elif moved.y < 0:
+		if _name_at < 10:
+			_name_ok = true
+		else:
+			_name_at -= 10
+	if ok and not _name_ok:
+		_name += str(chars[_name_at])
+		if _name.length() >= 3:
+			_name_ok = true
+
+
+## screen_challenge_select: the event, then its level, then the attempt.
+func _challenge_page(moved: Vector2i, ok: bool, back: bool) -> void:
+	if not _ch_level_mode:
+		ch_event = clampi(ch_event + moved.y, 0, 5)
+		if ok:
+			_ch_level_mode = true
+		elif back:
+			show_page(Page.MODE)
+		return
+	ch_level = clampi(ch_level + moved.y, 0, 3)
+	if back:
+		_ch_level_mode = false
+	elif ok:
+		_start_challenge()
+
+
+## menu_state_04DC1A_4: the practice team on both sides, stadium 2, fine.
+func _start_challenge() -> void:
+	var opts := _base_options()
+	opts["stadium"] = 2
+	opts["weather"] = 1
+	opts["level"] = 4
+	opts["pads"] = [1, 0]
+	opts["knockout"] = false
+	opts["formations"] = [-1, -1]
+	opts["challenge"] = {"event": ch_event, "level": ch_level}
+	var practice := int(ISSMatchData.consts["training"]["team"])
+	start_match.emit(practice, practice, opts)
 
 
 ## Training (menu_state_03E8F0_2): the chosen team against the practice
@@ -533,6 +642,14 @@ func _draw() -> void:
 			_draw_scenarios()
 		Page.MESSAGE:
 			ISSText.draw_centred(self, message, 128, 100, true, true)
+		Page.MODE:
+			_draw_mode()
+		Page.NAME:
+			_draw_name()
+		Page.CHALLENGE:
+			_draw_challenge()
+		Page.RECORD:
+			_draw_record()
 		Page.TRAINING:
 			# The drill's box (tbl_drill_boxes) and its description in the
 			# 8x8 font at (32, 152) (screen_training_select_menu).
@@ -543,6 +660,106 @@ func _draw() -> void:
 			for line: String in ISSMatchData.consts["training"]["texts"][drill]:
 				ISSText.draw(self, line, Vector2(32, y), false)
 				y += 8
+
+
+## Plain background under a field drawn over the screen's own zeros.
+func _clear(at: Vector2, chars: int, large: bool) -> void:
+	draw_rect(Rect2(at, Vector2(chars * 8, 16 if large else 8)), Color8(73, 73, 255))
+
+
+## menu_text_04EE2A: a time as four large digits at x, x+8, x+24, x+32 (the
+## colon between them is the screen's).
+func _time_digits(v: int, at: Vector2) -> void:
+	var d := "%04d" % clampi(v, 0, 9999)
+	for i in 4:
+		var x := at + Vector2([0, 8, 24, 32][i], 0)
+		_clear(x, 1, true)
+		ISSText.draw(self, d[i], x, true)
+
+
+## menu_text_04EEB8: a score as three large digits.
+func _score_digits(v: int, at: Vector2) -> void:
+	_clear(at, 3, true)
+	ISSText.draw(self, "%03d" % clampi(v, 0, 999), at, true)
+
+
+func _small_field(text: String, at: Vector2, chars: int) -> void:
+	_clear(at, chars, false)
+	ISSText.draw(self, text, at, false)
+
+
+func _draw_mode() -> void:
+	_box(Rect2(64, 48, 104, 16) if cursor == 0 else Rect2(64, 72, 112, 16), true)
+	var y := 136
+	for line: String in ISSMatchData.consts["challenge"]["mode_texts"][cursor]:
+		ISSText.draw(self, line, Vector2(40, y), false)
+		y += 8
+
+
+func _draw_name() -> void:
+	if _name_ok:
+		_box(Rect2(152, 136, 16, 8), true)
+	else:
+		_box(Rect2(88 + 8 * (_name_at % 10), 72 + 16 * (_name_at / 10), 8, 8), true)
+	_small_field(_name, Vector2(112, 136), 3)
+
+
+func _draw_challenge() -> void:
+	if _records.is_empty():
+		_records = ISSChallenge.records()
+	var rec := _records
+	var ev := ch_event
+	_box(Rect2(16, 32 + 16 * ev, 56, 16), not _ch_level_mode)
+	var tl := ch_level
+	var sl := ch_level
+	var label_t := "    "
+	var label_s := "    "
+	if _ch_level_mode:
+		_box(Rect2(88, 32 + 24 * ch_level, 32, 16), true)
+	else:
+		var best := ISSChallenge.best_of_event(rec, ev)
+		tl = int(best["time_level"])
+		sl = int(best["score_level"])
+		label_t = "LV.%d" % (tl + 1)
+		label_s = "LV.%d" % (sl + 1)
+	var bt: Dictionary = rec["best_time"][ev][tl]
+	var bs: Dictionary = rec["best_score"][ev][sl]
+	_time_digits(int(bt["value"]), Vector2(176, 48))
+	_small_field(label_t, Vector2(152, 64), 4)
+	_small_field(str(bt["name"]), Vector2(192, 64), 3)
+	_score_digits(int(bs["value"]), Vector2(192, 96))
+	_small_field(label_s, Vector2(152, 112), 4)
+	_small_field(str(bs["name"]), Vector2(192, 112), 3)
+	var y := 144
+	for line: String in ISSMatchData.consts["challenge"]["texts"][ev]:
+		ISSText.draw(self, line, Vector2(16, y), false)
+		y += 8
+
+
+func _draw_record() -> void:
+	var r: Dictionary = result["challenge"]
+	var s: Dictionary = _record["score"]
+	var ch: Dictionary = ISSMatchData.consts["challenge"]
+	ISSText.draw(self, str(ch["events"][int(r["event"])]["name"]).lpad(11), Vector2(48, 40), true)
+	ISSText.draw(self, "LV.%d" % (int(r["level"]) + 1), Vector2(176, 40), true)
+	_small_field(ISSChallenge.player_name, Vector2(144, 48), 3)
+	_time_digits(int(s["time_taken"]), Vector2(168, 56))
+	_score_digits(int(s["time_score"]), Vector2(184, 72))
+	_time_digits(int(s["bonus_time"]), Vector2(168, 88))
+	_score_digits(int(s["bonus_score"]), Vector2(184, 104))
+	_score_digits(int(s["total"]), Vector2(184, 120))
+	if _record["new_time"]:
+		_box(Rect2(48, 56, 160, 16), true)
+	if _record["new_score"]:
+		_box(Rect2(48, 120, 160, 16), true)
+	# Please try harder / an average record / a new record.
+	var which := 0
+	if r["done"]:
+		which = 2 if _record["new_time"] or _record["new_score"] else 1
+	var y := 152
+	for line: String in ch["record_texts"][which]:
+		ISSText.draw(self, line, Vector2(48, y), false)
+		y += 8
 
 
 func _team_row(i: int, team: int, y: float, side: String) -> void:

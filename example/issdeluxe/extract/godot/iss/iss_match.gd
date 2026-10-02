@@ -25,6 +25,7 @@ var _referee := ISSNPCSprite.new()
 var _linesman := ISSNPCSprite.new()
 var _cursor := Cursor.new()
 var _pause := PauseText.new()
+var _props := ChallengeProps.new()
 var _sprites := {}
 var _cam := Vector2.ZERO
 var _lead := Vector2.ZERO
@@ -42,8 +43,12 @@ class PauseText:
 	var menu := 0
 	var cursor := 0
 	var team: ISSTeam = null
+	## A challenge's pause (match_rules_update_9): no menu, Start resumes.
+	var plain := false
 
 	func items() -> Array:
+		if plain:
+			return []
 		match menu:
 			1:
 				var out := []
@@ -69,6 +74,63 @@ class PauseText:
 		ISSText.draw_centred(self, ["PAUSE", "SUBSTITUTE WHO    ENERGY", "BRING ON"][menu], 128, top + 4, false, true)
 		for i in list.size():
 			ISSText.draw(self, list[i], Vector2(24, top + 16 + i * 10), false, i == cursor)
+
+
+## The challenges' props: the dribble's flags (flag_draw frames, waving like
+## restart_setup_practice_target_1) and the goal target panel
+## (goal_target_draw: drawn every other frame so that it looks see-through,
+## the second colour once a goal hits it).
+class ChallengeProps:
+	extends Node2D
+	var engine: ISSMatchEngine
+	var _flags: Array[Sprite2D] = []
+	var _target := Sprite2D.new()
+	var _frames: Array = []
+	var _ticks := 6
+	var _targets: Array = []
+	var _t := 0
+
+	func _ready() -> void:
+		var doc: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://assets/iss/flags/flags.json"))
+		_frames = doc["actions"][0]
+		_ticks = int(doc["frame_ticks"])
+		var misc: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://assets/iss/misc/misc.json"))
+		_targets = misc["goal_target"]
+		var mat := ShaderMaterial.new()
+		mat.shader = load("res://md/md_indexed.gdshader")
+		mat.set_shader_parameter("palette", load(ISSFlags.PALETTE))
+		for i in 5:
+			var f := Sprite2D.new()
+			f.centered = false
+			f.material = mat
+			f.visible = false
+			add_child(f)
+			_flags.append(f)
+		_target.centered = false
+		_target.material = mat
+		_target.visible = false
+		add_child(_target)
+
+	func sync() -> void:
+		_t += 1
+		var r: Dictionary = _frames[(_t / _ticks) % _frames.size()]
+		for i in _flags.size():
+			var f := _flags[i]
+			f.visible = i < engine.ch_flags.size()
+			if f.visible:
+				var at: Vector2 = engine.ch_flags[i]
+				f.texture = load(r["png"])
+				f.offset = Vector2(-int(r["origin_x"]), -int(r["origin_y"]))
+				f.position = ISSProjection.to_map(at)
+				f.z_index = int(at.y)
+		_target.visible = not is_nan(engine.ch_target_y) and _t % 2 == 0
+		if _target.visible:
+			var g: Dictionary = _targets[1 if engine.ch_bonus_on else 0]
+			_target.texture = load(g["png"])
+			_target.offset = Vector2(-int(g["origin_x"]), -int(g["origin_y"]))
+			var at := Vector2(engine.rect.end.x, engine.ch_target_y)
+			_target.position = ISSProjection.to_map(at)
+			_target.z_index = int(at.y)
 
 
 ## Arrow over the controlled players (home / away colours).
@@ -108,6 +170,10 @@ func start(home: int, away: int, opts: Dictionary) -> void:
 			_sprites[p] = s
 	add_child(_ball)
 	_marker.texture = load("res://assets/iss/misc/landing_marker.png")
+	var marker_mat := ShaderMaterial.new()
+	marker_mat.shader = load("res://md/md_indexed.gdshader")
+	marker_mat.set_shader_parameter("palette", load(ISSFlags.PALETTE))
+	_marker.material = marker_mat
 	_marker.visible = false
 	_marker.z_index = -100
 	add_child(_marker)
@@ -139,7 +205,11 @@ func start(home: int, away: int, opts: Dictionary) -> void:
 	engine.speech.connect(_sound.say)
 	engine.banner.connect(_hud.show_banner)
 	engine.banner_off.connect(_hud.hide_banner)
-	engine.finished.connect(func() -> void: _end_wait = 180)
+	engine.finished.connect(func() -> void: _end_wait = 180 if engine.challenge < 0 else 1)
+	engine.music.connect(func(id: int) -> void: _sound.play_music(id))
+	_props.engine = engine
+	add_child(_props)
+	_pause.plain = engine.challenge >= 0
 	_sound.play_sfx(0x63) # crowd
 	_cam = engine.ball.pos
 	_sync()
@@ -193,6 +263,8 @@ func _human_sides() -> Array:
 
 
 func _pause_menu(pad: Dictionary) -> void:
+	if _pause.plain:
+		return
 	var dir: int = pad["dir"]
 	var step := 0
 	if dir < 0:
@@ -247,6 +319,8 @@ func result() -> Dictionary:
 	var r := _result_core()
 	if options.has("scenario_index"):
 		r["scenario"] = int(options["scenario_index"])
+	if engine.challenge >= 0:
+		r["challenge"] = engine.challenge_result()
 	return r
 
 
@@ -305,6 +379,7 @@ func _sync() -> void:
 	_linesman.play(6 if absf(b.pos.x - e.linesman_pos.x) > 8.0 else 5)
 	_cursor.points = cursors
 	_cursor.queue_redraw()
+	_props.sync()
 	_hud.home_score = e.teams[0].score
 	_hud.away_score = e.teams[1].score
 	_hud.clock_seconds = e.clock_seconds()

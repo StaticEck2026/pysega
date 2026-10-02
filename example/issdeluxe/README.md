@@ -660,15 +660,26 @@ scaled by whole numbers:
   (`tbl_scenario_texts`): the score, the time left in the second half, the
   stadium, the referee and the restart the human side starts with; only a
   win clears one (the port remembers which are cleared).
+* **Training mode / challenge mode** (screen `$13`, under *Training*).
 * **Training** (`restart_setup_practice`): pick a side, then the drills of
   the training menu (screen `$18`, with the ROM's descriptions; Start in a
   drill goes back to it) against the practice team in its second kit:
   *free* (nobody else on the pitch), *defence* (your defenders against
   three attackers, `tbl_drill_defence_attackers`), *free kick* (your
-  players 5-10 against the keeper and a wall) and *keeper* (you control
+  players 5-10 against the keeper and a wall, from one of the 16 places of
+  `tbl_free_kick_spots`) and *keeper* (you control
   the goalkeeper against two attackers, `tbl_drill_keeper_attackers`).
   A drill starts again 128 frames after the ball goes out or a goal, or
   once your side wins the ball (defence, keeper) or loses it (free kick).
+* **Challenges** (`restart_setup_practice_target`, mode 1): enter three
+  letters (screen `$14`), pick an event and a level (screen `$15`, with the
+  best time and best score, starting from the ROM's records) and beat 30
+  seconds: *dribble* (take the five flags), *pass* (ten different
+  team-mates on the ball), *shoot*, *corner kick* and *free kick* (score,
+  through the target panel for the bonus), *defence* (win the ball). After
+  dribble, pass and defence a goal before the bonus runs out keeps it.
+  *Your record* (screen `$17`) shows the time, time score, bonus and total
+  and keeps new records (the port saves them).
 * **Controls** (`ISSInput`, the logical buttons of `tbl_button_layouts`):
   player 1 arrows, Z pass, X shoot, A lofted pass / sliding tackle,
   Left Shift dash, S switch player, D strategy, Enter pause; player 2 I J K
@@ -729,17 +740,16 @@ scaled by whole numbers:
   lofted balls, `camera_update`'s lead toward the attacking goal, the HUD
   with the live radar, banners, commentary, crowd and effects.
 
-Not reproduced (yet): the timed challenges (mode 1), the passwords
-themselves (the port saves instead), the shoot-out's own view from behind
-the taker (the kicks are taken on the pitch) and man-marking. Where the ROM
-leaves a choice open the port picks: a free kick drill kick is taken where
-the ball was, kept 280-600 px from the goal line so that there is always a
-wall. `iss_selftest.gd` plays a whole CPU match headless, drives a player
+Not reproduced (yet): the passwords themselves (the port saves instead),
+the shoot-out's own view from behind the taker (the kicks are taken on the
+pitch), man-marking, and the key configuration and change control menus.
+`iss_selftest.gd` plays a whole CPU match headless, drives a player
 through the pad input, plays a level knockout match to penalties, runs a
 league, a tournament, the International Cup and both paths of the World
 Series, starts a scenario, sets up and replays each training drill, dives
-with a human keeper, checks the free kick wall, strategies and
-substitutions and starts a match in the game scene.
+with a human keeper, checks the free kick wall, plays each challenge to its
+end, clears the dribble and checks the challenge timer and scores,
+strategies and substitutions and starts a match in the game scene.
 
 ### Rendering the music and FM effects
 
@@ -866,9 +876,8 @@ training, with the front end, the rules, the AI and the presentation
 rebuilt on the exported data.
 
 Open work, in rough order of value for a port:
-1. In the Godot game: the timed challenges (the tables of
-   `restart_setup_practice_target`; their scoring is not decoded yet) and
-   the shoot-out's own view.
+1. In the Godot game: the shoot-out's own view, passwords, man-marking and
+   the key configuration and change control menus.
 2. The figures of the presentation scenes (`flag_fans_draw`).
 3. The field layout of each mode's password and the object behind each
    remaining menu screen.

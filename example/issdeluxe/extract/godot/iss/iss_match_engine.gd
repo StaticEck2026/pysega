@@ -14,6 +14,8 @@ signal banner(message: String)
 signal banner_off
 signal goal_scored(side: int, scorer: ISSFootballer, own_goal: bool)
 signal finished
+## A song to play (the challenge's end: 16 cleared, 17 missed).
+signal music(id: int)
 
 ## g_restart_type; OFFSIDE is the offside branch of restart 5.
 enum R { NONE = -1, THROW_IN, GOAL_KICK, CORNER, KICKOFF, MATCH_START, FREE_KICK, PENALTY,
@@ -79,6 +81,28 @@ var drill_wait := -1
 var set_places := {}
 var _wall: Array[ISSFootballer] = []
 
+## Challenge (mode 1): the event (g_training_drill) 0 dribble, 1 pass,
+## 2 shoot, 3 defence, 4 corner kick, 5 free kick, and the level
+## (g_challenge_level) 0-3; -1 outside the challenges.
+var challenge := -1
+var challenge_level := 0
+## $13C4-$13C7: the time left as four digits from 30.00, the third wrapping
+## at 5 (60 frames a second); $13C8-$13CB: the bonus, plain decimal digits.
+var ch_time: Array = [3, 0, 0, 0]
+var ch_bonus: Array = [3, 0, 0, 0]
+## $13CC: flags taken or team-mates who touched the ball; ch_done when it is
+## $B (the task is done); ch_bonus_on when $13CE is $B (the bonus counts).
+var ch_count := 0
+var ch_done := false
+var ch_bonus_on := false
+var ch_touched := {}
+## The dribble's flags still standing, and the goal target panel's y (shoot,
+## corner kick, free kick; NAN without one).
+var ch_flags: Array[Vector2] = []
+var ch_target_y := NAN
+## Frames left of the end banner (-1 while the attempt runs).
+var ch_end := -1
+
 
 ## options: stadium 0-7, weather 0 snow / 1 fine / 2 rain, time 1-3 (minutes
 ## per half = 2 * time + 1), level 0-4, fouls, cards, offside (bools),
@@ -127,6 +151,11 @@ func setup(home: int, away: int, opts: Dictionary) -> void:
 		for k in ["fouls", "cards", "offside"]:
 			options[k] = false
 		start_drill(int(opts["training"]))
+	elif opts.has("challenge"):
+		for k in ["fouls", "cards", "offside"]:
+			options[k] = false
+		var c: Dictionary = opts["challenge"]
+		start_challenge(int(c["event"]), int(c["level"]))
 	elif bool(opts.get("pk_only", false)):
 		_start_shootout() # PK mode (mode_start_pk)
 	elif opts.has("scenario"):
@@ -282,6 +311,8 @@ func step(pads: Array = []) -> void:
 		_check_out()
 	if drill >= 0:
 		_drill_step()
+	elif challenge >= 0:
+		_challenge_step()
 	elif not shootout:
 		_clock()
 	if not shootout:
@@ -747,8 +778,8 @@ func _check_out() -> void:
 			ball_entered = true
 		elif b.owner != null or b.speed > 0.2 or b.z > 0.0:
 			return
-	if drill > 0 and (b.pos.y < rect.position.y or b.pos.y > rect.end.y):
-		_drill_over()
+	if (drill > 0 or challenge >= 0) and (b.pos.y < rect.position.y or b.pos.y > rect.end.y):
+		_practice_out()
 		return
 	if b.pos.y < rect.position.y or b.pos.y > rect.end.y:
 		_release()
@@ -778,8 +809,8 @@ func _check_out() -> void:
 		emit_sound(0x4B)
 		return
 	_release()
-	if drill > 0:
-		_drill_over()
+	if drill > 0 or challenge >= 0:
+		_practice_out()
 		return
 	var rsx := float(rs["goal_kick_x"])
 	if b.team == defending:
@@ -809,11 +840,14 @@ func _goal(defending: int) -> void:
 	var minute := (half_frames - clock) / 3600 + half * (half_frames / 3600)
 	scorers.append({"side": side, "name": scorer.name if scorer != null else "", "minute": minute, "own_goal": own})
 	goal_scored.emit(side, scorer, own)
-	if drill > 0:
-		# A drill counts it and starts again.
+	if drill > 0 or challenge >= 0:
+		# A drill counts it and starts again; a challenge ends.
 		emit_sound(0x64)
 		say(0x2F)
-		_drill_over()
+		if challenge >= 0:
+			_challenge_end(true)
+		else:
+			_drill_over()
 		return
 	for p in teams[side].active():
 		if not p.is_keeper():
@@ -1393,7 +1427,6 @@ func start_drill(n: int) -> void:
 	set_places.clear()
 	_wall.clear()
 	banner_off.emit()
-	var kick_spot := ball.pos
 	ball.owner = null
 	ball.kicker = null
 	ball.stop()
@@ -1403,22 +1436,7 @@ func start_drill(n: int) -> void:
 	var away := teams[1]
 	# tm_keeper_manual = 2: the pad drives the home keeper.
 	home.keeper_manual = n == 3
-	for t in teams:
-		t.reset_lines()
-		t.controlled = null
-		t.strategy = -1
-		t.strategy_run = -1
-		for p in t.players:
-			p.set_state(ISSFootballer.S.MOVE, ISSFootballer.A_STAND)
-			p.speed = 0.0
-			p.z = 0.0
-			p.vz = 0.0
-			p.offside = false
-			p.protect = 0
-			p.kick_target = null
-			p.ai_mode = ISSTeam.AI.KEEPER if p.is_keeper() else ISSTeam.AI.FORMATION
-			p.facing = 16 if t.side == 0 else 48
-			p.pos = t.home_position(p) if not p.is_keeper() else goal_center(t.side) + Vector2(attack_dir(t.side) * 32.0, 0)
+	_reset_players()
 	match n:
 		0:
 			for p in away.players:
@@ -1438,11 +1456,31 @@ func start_drill(n: int) -> void:
 				_take_off(home.players[i])
 			for i in range(7, 11):
 				_take_off(away.players[i])
-			_drill_free_kick(kick_spot)
+			_drill_free_kick(randi() % 16)
 		3:
 			for i in range(1, 11):
 				_take_off(home.players[i])
 			_drill_attackers(tr["keeper_attackers"])
+
+
+## Everybody back on his feet in his place, facing the goal he attacks.
+func _reset_players() -> void:
+	for t in teams:
+		t.reset_lines()
+		t.controlled = null
+		t.strategy = -1
+		t.strategy_run = -1
+		for p in t.players:
+			p.set_state(ISSFootballer.S.MOVE, ISSFootballer.A_STAND)
+			p.speed = 0.0
+			p.z = 0.0
+			p.vz = 0.0
+			p.offside = false
+			p.protect = 0
+			p.kick_target = null
+			p.ai_mode = ISSTeam.AI.KEEPER if p.is_keeper() else ISSTeam.AI.FORMATION
+			p.facing = 16 if t.side == 0 else 48
+			p.pos = t.home_position(p) if not p.is_keeper() else goal_center(t.side) + Vector2(attack_dir(t.side) * 32.0, 0)
 
 
 func _take_off(p: ISSFootballer) -> void:
@@ -1473,13 +1511,11 @@ func _drill_attackers(spots: Array) -> void:
 	ball.step()
 
 
-## The free kick is taken where the ball was (g_restart_x / g_restart_y keep
-## its position); the port keeps it inside the pitch, outside the area and
-## within the wall's range, so that each kick has a wall to beat.
-func _drill_free_kick(at: Vector2) -> void:
-	var g := goal_center(1)
-	var dx := clampf(g.x - at.x, 280.0, 600.0)
-	var spot := Vector2(g.x - dx, clampf(at.y, mid.y - 360.0, mid.y + 360.0))
+## restart_resume_practice: the kick is taken from one of 16 places round the
+## area (misc_data_038120, x16 px from the right line and the middle).
+func _drill_free_kick(i: int) -> void:
+	var at: Array = ISSMatchData.consts["free_kick_spots"][i]
+	var spot := Vector2(rect.end.x + float(at[0]) * 16.0, mid.y + float(at[1]) * 16.0)
 	restart_type = R.FREE_KICK
 	restart_side = 0
 	restart_pos = spot
@@ -1507,6 +1543,14 @@ func _drill_step() -> void:
 		_drill_over()
 
 
+## Out of play (and goals) in a drill or a challenge.
+func _practice_out() -> void:
+	if challenge >= 0:
+		_challenge_end(false)
+	else:
+		_drill_over()
+
+
 func _drill_over() -> void:
 	drill_wait = int(ISSMatchData.consts["training"]["reset_frames"])
 	ball.live = false
@@ -1519,6 +1563,235 @@ func _drill_over() -> void:
 ## The team whose half the ball is in (g_ball_zone_team).
 func ball_zone_team() -> int:
 	return left_goal_team if ball.pos.x < mid.x else 1 - left_goal_team
+
+
+# ---------------------------------------------------------------------------
+# Challenges (mode 1: restart_setup_practice_target, $014364;
+# restart_resume_practice_target; match_rules_update in mode 1, $015ED0).
+
+## Set event ev at level lv up: both sides are the practice team, only the
+## event's players are on (match.json "challenge"), against 30 seconds.
+func start_challenge(ev: int, lv: int) -> void:
+	var ch: Dictionary = ISSMatchData.consts["challenge"]
+	var e: Dictionary = ch["events"][ev]
+	challenge = ev
+	challenge_level = lv
+	half = 0
+	left_goal_team = 0
+	ch_time = (ch["time"] as Array).map(func(v): return int(v))
+	ch_bonus = ch_time.duplicate()
+	ch_count = 0
+	ch_done = false
+	ch_bonus_on = false
+	ch_end = -1
+	ch_touched.clear()
+	ch_flags.clear()
+	ch_target_y = NAN
+	restart_type = R.NONE
+	restart_taker = null
+	restart_phase = 0
+	set_places.clear()
+	_wall.clear()
+	ball.owner = null
+	ball.kicker = null
+	ball.stop()
+	ball.live = true
+	ball_entered = true
+	_reset_players()
+	var home := teams[0]
+	var away := teams[1]
+	for t in teams:
+		for p in t.players:
+			_take_off(p)
+	for k in int(e["home_counts"][lv]):
+		var p: ISSFootballer = home.players[int(e["home_first"]) + k] if e.has("home_first") \
+			else home.players[int(e["home_last"]) - k]
+		_challenge_on(p, e.get("home_places", []), k)
+	if e.has("home_middle"):
+		var p := home.players[int(e["home_middle"])]
+		_challenge_on(p, [], 0)
+		p.pos = mid
+	for k in int(e["away_counts"][lv]):
+		_challenge_on(away.players[int(e["away_first"]) + k], e.get("away_places", []), k)
+	if e.has("keeper_level") and lv >= int(e["keeper_level"]):
+		_challenge_on(away.players[0], [], 0)
+	if ev == 0:
+		for f: Array in ch["flags"]:
+			ch_flags.append(mid + Vector2(float(f[0]), float(f[1])) * 16.0)
+	if bool(e.get("target", false)):
+		# goal_target_init: over one half of the right goal, at random.
+		ch_target_y = mid.y + (float(ch["target_y"]) if randi() % 2 == 0 else -float(ch["target_y"]))
+	match str(e.get("restart", "")):
+		"corner":
+			var c: Array = ch["corner"]
+			_challenge_restart(R.CORNER, Vector2(rect.end.x + float(c[0]), rect.end.y + float(c[1])))
+		"free_kick":
+			var at: Array = ISSMatchData.consts["free_kick_spots"][int(e["spot_by_level"][lv])]
+			_challenge_restart(R.FREE_KICK, Vector2(rect.end.x + float(at[0]) * 16.0, mid.y + float(at[1]) * 16.0))
+		_:
+			var cr: Array = e["carrier"]
+			var c := teams[int(cr[0])].players[int(cr[1])]
+			ball.pos = c.pos + ISSProjection.heading_vector(c.facing) * 6.0
+			ball.owner = c
+			ball.team = c.team
+			ball.last_touch = c
+			ball.step()
+	clock = _challenge_frames()
+
+
+func _challenge_on(p: ISSFootballer, places: Array, k: int) -> void:
+	p.set_state(ISSFootballer.S.MOVE, ISSFootballer.A_STAND)
+	p.pos = teams[p.team].home_position(p) if not p.is_keeper() else goal_center(p.team) + Vector2(attack_dir(p.team) * 32.0, 0)
+	if k < places.size():
+		var at: Array = places[k]
+		p.pos = mid + Vector2(float(at[0]), float(at[1])) * 16.0
+
+
+## The corner (restart_setup_corner) and free kick (restart_setup_free_kick)
+## of events 4 and 5, for the home side.
+func _challenge_restart(type: int, at: Vector2) -> void:
+	restart_type = type
+	restart_side = 0
+	restart_pos = at
+	if type == R.FREE_KICK:
+		_free_kick_places()
+	for t in teams:
+		for p in t.active():
+			p.pos = restart_place(p)
+	_setup_restart()
+
+
+## Frames the HUD clock shows: the time left, then the bonus counting down.
+func _challenge_frames() -> int:
+	var t: Array = ch_time
+	if ch_done and not ch_bonus_on and challenge in [0, 1, 3]:
+		var b: Array = ch_bonus
+		return (int(b[0]) * 1000 + int(b[1]) * 100 + int(b[2]) * 10 + int(b[3])) * 60 / 100
+	return int(t[0]) * 600 + int(t[1]) * 60 + int(t[2]) * 10 + int(t[3])
+
+
+func _challenge_step() -> void:
+	var ch: Dictionary = ISSMatchData.consts["challenge"]
+	if ch_end >= 0:
+		_ball_in_net()
+		ch_end -= 1
+		if ch_end == 0:
+			banner_off.emit()
+			over = true
+			finished.emit()
+		return
+	# restart_setup_practice_target_1: the dribbler (home player 1) takes a
+	# flag within flag_reach px (|dx| + |dy|).
+	if challenge == 0 and restart_type == R.NONE:
+		var d := teams[0].players[1]
+		for f in ch_flags.duplicate():
+			if absf(f.x - d.pos.x) + absf(f.y - d.pos.y) < float(ch["flag_reach"]):
+				ch_flags.erase(f)
+				ch_count += 1
+				emit_sound(0x60)
+	if not ch_done:
+		if challenge == 0 and ch_count == 5:
+			_challenge_success()
+			return
+		if challenge == 1 and ball.last_touch != null and ball.last_touch.team == 0 and not ch_touched.has(ball.last_touch):
+			ch_touched[ball.last_touch] = true
+			ch_count += 1
+			if ch_count == 10:
+				_challenge_success()
+				return
+	var o := ball.owner
+	if o != null:
+		if challenge == 3:
+			# Defence: winning the ball is the task; losing it again ends it.
+			if not ch_done:
+				if o.team == 0:
+					_challenge_success()
+					return
+			elif o.team != 0:
+				_challenge_end(false)
+				return
+		elif o.team != 0:
+			_challenge_end(false)
+			return
+	if ch_done:
+		if not ch_bonus_on and challenge in [0, 1, 3]:
+			if _bonus_tick(int(ch["bonus_step"])):
+				_challenge_end(false)
+				return
+	elif _time_tick(int(ch["sixths"])):
+		_challenge_end(false)
+		return
+	if challenge in [2, 4, 5]:
+		ch_bonus = ch_time.duplicate()
+	clock = _challenge_frames()
+
+
+## One frame off the time; true when it is up.
+func _time_tick(sixths: int) -> bool:
+	var t := ch_time
+	t[3] -= 1
+	if t[3] < 0:
+		t[3] = 9
+		t[2] -= 1
+		if t[2] < 0:
+			t[2] = sixths
+			t[1] -= 1
+			if t[1] < 0:
+				t[1] = 9
+				t[0] -= 1
+	return t == [0, 0, 0, 0]
+
+
+## step off the bonus (plain decimal digits); true when it is gone.
+func _bonus_tick(step: int) -> bool:
+	var b := ch_bonus
+	b[3] -= step
+	if b[3] < 0:
+		b[3] += 10
+		b[2] -= 1
+		if b[2] < 0:
+			b[2] = 9
+			b[1] -= 1
+			if b[1] < 0:
+				b[1] = 9
+				b[0] -= 1
+	return b == [0, 0, 0, 0]
+
+
+## The task is done ($13CC = $B, match_rules_update_5): CLEAR in the banner.
+func _challenge_success() -> void:
+	ch_done = true
+	ch_count = 11
+	emit_sound(0x61)
+	banner.emit(str(ISSMatchData.consts["challenge"]["banners"][0]))
+
+
+## The attempt is over (match_rules_update_7): a goal is the task in events
+## 2, 4 and 5 and keeps the bonus in 0, 1 and 3; a goal by the panel
+## (goal_target_update) keeps the bonus too. CLEAR or MISS, then the end.
+func _challenge_end(goal: bool) -> void:
+	var ch: Dictionary = ISSMatchData.consts["challenge"]
+	if goal:
+		if challenge in [0, 1, 3]:
+			ch_bonus_on = true
+		else:
+			ch_done = true
+		if not is_nan(ch_target_y) and absf(ball.pos.y - ch_target_y) < float(ch["target_reach"]):
+			ch_bonus_on = true
+	ball.live = false
+	restart_type = R.NONE
+	restart_taker = null
+	set_places.clear()
+	_wall.clear()
+	clock = _challenge_frames()
+	banner.emit(str(ch["banners"][0 if ch_done else 1]))
+	music.emit(16 if ch_done else 17)
+	ch_end = 180
+
+
+func challenge_result() -> Dictionary:
+	return {"event": challenge, "level": challenge_level, "done": ch_done, "bonus_on": ch_bonus_on,
+		"time": ch_time.duplicate(), "bonus": ch_bonus.duplicate()}
 
 
 # ---------------------------------------------------------------------------
