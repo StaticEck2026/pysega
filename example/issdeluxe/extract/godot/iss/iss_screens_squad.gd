@@ -50,16 +50,6 @@ func _row(k: int) -> Array:
 	return [0x20, 0x60, (k - 11) * 16 + 0x48]
 
 
-## The side's icon (controller number or CPU) at (x0..x1, y0..y1).
-func side_icon(side: int, x0: int, x1: int, y0: int, y1: int) -> void:
-	var t := (w(S.g_stadium_vram) >> 5) | 0xC000
-	if side == 0:
-		t += 0x180 + (w(0x1642) * 4 if w(S.g_pads_home) != 0 else 0x20)
-	else:
-		t += 0x1A4 + (w(0x1644) * 4 if w(S.g_pads_away) != 0 else 0x20)
-	m.rect_fill_tiles(x0, x1, y0, y1, t)
-
-
 func screen_select_squad() -> void:
 	set_w(0x1784, 0x7B if w(S.g_sound_disabled) == 0x19 else 0x4D)
 	set_w(S.g_plane_b_hscroll, 0x60)
@@ -234,15 +224,6 @@ func _bars(k: int) -> void:
 		m.bar_draw(x, i * 8 + 0x88, 0, ISSRam.b(a + i))
 
 
-## Scroll plane B towards x (8 a frame); true while it moves.
-func _scrolling(target: int) -> bool:
-	var h := sw(S.g_plane_b_hscroll)
-	if h == target:
-		return false
-	set_w(S.g_plane_b_hscroll, h + (8 if target > h else -8))
-	return true
-
-
 ## C on a second player: swap the two (cursor k against the picked one).
 ## A goalkeeper only changes places with a goalkeeper; bringing a substitute
 ## on needs both to be available (status not 4) and, during a match, a
@@ -327,7 +308,7 @@ func screen_squad_player(o: ISSMenu.Obj) -> void:
 
 
 func screen_squad_player_1(o: ISSMenu.Obj) -> void:
-	if not _scrolling(0x60):
+	if not scrolling(0x60):
 		var p := w(S.g_pad_pressed_home)
 		if p & PAD_B:
 			if sw(0x177A) < 0:
@@ -369,7 +350,7 @@ func menu_state_042046(o: ISSMenu.Obj) -> void:
 
 
 func menu_state_042046_1(o: ISSMenu.Obj) -> void:
-	if not _scrolling(0):
+	if not scrolling(0):
 		var p := w(S.g_pad_pressed_home)
 		if p & PAD_B:
 			if sw(0x177A) < 0:
@@ -400,7 +381,7 @@ func menu_state_042046_1(o: ISSMenu.Obj) -> void:
 # ($118), RESET ($128), EXIT ($140). Up / down go back to the eleven.
 
 func _top(o: ISSMenu.Obj, left: Callable, right: Callable, x0: int, x1: int) -> bool:
-	if _scrolling(0x60):
+	if scrolling(0x60):
 		_top_cursor(o, x0, x1)
 		return false
 	var p := w(S.g_pad_pressed_home)
@@ -514,7 +495,7 @@ func menu_state_041AEA_1(o: ISSMenu.Obj) -> void:
 
 ## Moving a mark (captain or penalty taker) up and down players 1-10.
 func _move_mark(o: ISSMenu.Obj, addr: int, back: Callable, me: Callable) -> void:
-	if not _scrolling(0x60):
+	if not scrolling(0x60):
 		var first := m.team_players(_side()) + ISSModes.PLAYER_SIZE
 		var last := first + 9 * ISSModes.PLAYER_SIZE
 		var cur := l(addr) & 0xFFFF
@@ -557,7 +538,3 @@ func menu_state_0425D8(o: ISSMenu.Obj) -> void:
 
 func menu_state_0425D8_1(o: ISSMenu.Obj) -> void:
 	_move_mark(o, _taker(), menu_state_0419C8, menu_state_0425D8)
-
-
-func pressed_home(bits: int) -> bool:
-	return w(S.g_pad_pressed_home) & bits != 0

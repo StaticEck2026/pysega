@@ -81,6 +81,7 @@ static func squad(side: int) -> Array:
 			"hair": ISSRam.b(obj + 0x64),
 			"position": POSITIONS[clampi(ISSRam.b(obj + 0x65), 0, 5)],
 			"energy": ISSRam.b(obj + 0x57),
+			"mark": ISSRam.b(obj + 0x54) if ISSRam.b(obj + 0x54) < 0x80 else -1,
 		}
 		var role := ISSRam.b(obj + 0x51)
 		if k < 11 and role < ROLES.size():

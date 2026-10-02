@@ -57,6 +57,11 @@ func pressed(bits: int) -> bool:
 	return w(S.g_pad_pressed_any) & bits != 0
 
 
+## g_pad_pressed_home & bits (the edit screens listen to the first pad).
+func pressed_home(bits: int) -> bool:
+	return w(S.g_pad_pressed_home) & bits != 0
+
+
 func rom(name: String) -> int:
 	return ISSRom.addr(name)
 
@@ -74,3 +79,47 @@ func goto_screen(n: int) -> void:
 	set_l(S.g_next_state, ISSMenu.STATE_MENU)
 	set_w(S.g_next_screen, n)
 	m.fade_out_start()
+
+
+## The first tile of the backdrop group in the front plane's high
+## priority ((g_stadium_vram >> 5) | $C000), the base of the screens' tiles.
+func tiles() -> int:
+	return (w(S.g_stadium_vram) >> 5) | 0xC000
+
+
+## The side's icon (controller number or CPU) at (x0..x1, y0..y1).
+func side_icon(side: int, x0: int, x1: int, y0: int, y1: int) -> void:
+	var t := tiles()
+	if side == 0:
+		t += 0x180 + (w(0x1642) * 4 if w(S.g_pads_home) != 0 else 0x20)
+	else:
+		t += 0x1A4 + (w(0x1644) * 4 if w(S.g_pads_away) != 0 else 0x20)
+	m.rect_fill_tiles(x0, x1, y0, y1, t)
+
+
+## Scroll plane B towards x (8 a frame); true while it moves.
+func scrolling(target: int) -> bool:
+	var h := sw(S.g_plane_b_hscroll)
+	if h == target:
+		return false
+	set_w(S.g_plane_b_hscroll, h + (8 if target > h else -8))
+	return true
+
+
+## Player k (0-19) of a side: its object.
+func player(side: int, k: int) -> int:
+	return m.team_players(side) + k * ISSModes.PLAYER_SIZE
+
+
+## The player's name (tbl_player_names: 8 bytes per squad index) for the
+## side's team.
+func player_name(side: int, p: int) -> int:
+	var team := w(S.g_team_home if side == 0 else S.g_team_away)
+	return ISSRom.u32(rom("tbl_player_names") + team * 4) + ISSRam.b(p + 0x56) * 8
+
+
+## The player's status (g_player_status of the side's team: 0-3 or 4 for
+## unavailable).
+func player_status(side: int, p: int) -> int:
+	var base: int = S.g_player_status + w(0x1642 if side == 0 else 0x1644) * 20
+	return ISSRam.b(base + ISSRam.b(p + 0x56)) & 7

@@ -96,7 +96,8 @@ func _init() -> void:
 	add_child(figures)
 	add_child(sound)
 	_modules = [ISSScreensMain.new(self), ISSScreensPrematch.new(self), ISSScreensOptions.new(self),
-		ISSScreensSquad.new(self), ISSScreensControls.new(self)]
+		ISSScreensSquad.new(self), ISSScreensControls.new(self), ISSScreensMarking.new(self),
+		ISSScreensFormation.new(self)]
 	for mod in _modules:
 		mod.register(_handlers)
 

@@ -7,7 +7,7 @@ extends RefCounted
 ## and ai_carrier. Decisions run once every 16 frames per player (g_ai_slot);
 ## steering toward the chosen target runs every frame.
 
-enum AI { FORMATION, CHASE, PRESS, CARRY, KEEPER, RUSH, SET_PIECE, WAIT, RUN }
+enum AI { FORMATION, CHASE, PRESS, CARRY, KEEPER, RUSH, SET_PIECE, WAIT, RUN, MARK }
 
 var eng: ISSMatchEngine
 var side := 0
@@ -99,9 +99,12 @@ func setup(engine: ISSMatchEngine, s: int, team: int, level: int, kit2: bool, fo
 		p.position = ["forward", "midfielder", "defender", "goalkeeper", "attacking type 4", "defensive type 5"].find(rec["position"])
 		p.attr = rec["attributes"]
 		p.energy = int(rec["energy"]) if rec.has("energy") else condition_energy()
-		var slot: Dictionary = rec["slot"] if rec.has("slot") else layout[i]
+		# A place from the front end (ISSMatchSetup), else the layout's (the
+		# records' own "slot" is their squad index).
+		var slot: Dictionary = rec["slot"] if rec.get("slot") is Dictionary else layout[i]
 		p.role = ["attack", "midfield", "defence", "goalkeeper"].find(slot["role"])
 		p.form = Vector2(int(slot["form_x"]), int(slot["form_y"]))
+		p.mark = int(rec.get("mark", -1))
 		if i == 0:
 			p.ai_mode = AI.KEEPER
 		players.append(p)
@@ -119,8 +122,8 @@ static func _squad_from(team_players: Array, picked: Array) -> Array:
 		rec["hair"] = e["hair"]
 		rec["position"] = e["position"]
 		rec["energy"] = e["energy"]
-		if e.has("slot"):
-			rec["slot"] = e["slot"]
+		rec["mark"] = e.get("mark", -1)
+		rec["slot"] = e.get("slot", rec.get("slot"))
 		out.append(rec)
 	return out
 
@@ -382,12 +385,31 @@ func think(p: ISSFootballer) -> void:
 		return
 	if p.ai_mode == AI.RUN and has_ball() and b.owner != p:
 		return # still on the strategy's run
+	if p.ai_mode == AI.MARK and b.is_loose():
+		# player_ai_mark: a loose ball sends the marker after it.
+		p.ai_mode = AI.CHASE
+		return
 	if b.is_loose() and p == nearest:
 		p.ai_mode = AI.CHASE
 	elif b.owner != null and b.owner.team != side and (p == nearest or (p == second and (p != cover or strategy == 6))):
 		p.ai_mode = AI.PRESS
 	else:
 		p.ai_mode = AI.FORMATION
+	# Man-marking overrides pressing while anyone has the ball, unless the
+	# opponent he marks is off the pitch.
+	if b.owner != null and p.mark > 0 and p.mark < opponents().players.size():
+		var o := opponents().players[p.mark]
+		if o.state != ISSFootballer.S.SENT_OFF:
+			p.ai_mode = AI.MARK
+			_mark_target(p, o)
+
+
+## player_ai_mark_1: 24 px from the marked opponent toward the line from
+## the marker to the middle of his own goal line (goal side of him).
+func _mark_target(p: ISSFootballer, o: ISSFootballer) -> void:
+	var h := int(ISSFootballer.heading_to(p.pos, own_goal())) & 63
+	var a := h * TAU / 64.0
+	p.ai_target = o.pos + Vector2(sin(a), -cos(a)) * 24.0
 
 
 ## Steering every frame: turns ai_target into input_dir and dash.
@@ -443,6 +465,14 @@ func steer(p: ISSFootballer) -> void:
 					odds /= 2
 				if randi() % odds == 0:
 					p.press |= ISSFootballer.LOFT
+		AI.MARK:
+			# Walk (no dash) and stand once within 16 px (|dx| + |dy|).
+			target = p.ai_target
+			var off := target - p.pos
+			if absf(off.x) + absf(off.y) < 16.0:
+				p.input_dir = -1
+				p.held = 0
+				return
 		AI.CARRY:
 			if b.owner != p:
 				p.ai_mode = AI.FORMATION

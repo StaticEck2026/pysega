@@ -356,6 +356,7 @@ func _check_long_modes() -> void:
 	_check_wall()
 	_check_challenges()
 	_check_controls()
+	_check_man_marking()
 
 
 ## The four drills of restart_setup_practice: who is on, who has the ball,
@@ -513,3 +514,42 @@ func _check_controls() -> void:
 		e.step([idle])
 	_check(e.slots[0].player != e.teams[0].players[0], "AUTO keeper: given back to the computer")
 	e.dispose()
+
+
+## Man-marking (obj_mark from screen_man_marking): a defender told to mark
+## the opponents' number 9 keeps goal side of him while either team has the
+## ball; the bridge takes +$54 from the player objects.
+func _check_man_marking() -> void:
+	seed(11)
+	var dist := [0.0, 0.0]
+	for run in 2:
+		var e := ISSMatchEngine.new()
+		e.setup(0, 1, {"stadium": 0, "weather": 1, "time": 1, "level": 2, "pads": [0, 0], "half_seconds": 60})
+		var marker := e.teams[0].players[2]
+		var target := e.teams[1].players[9]
+		if run == 1:
+			marker.mark = 9
+		var n := 0
+		var goal_side := 0
+		for f in 60 * 40:
+			e.step([])
+			if e.ball.owner != null and e.ball.owner != marker and e.restart_type == ISSMatchEngine.R.NONE:
+				dist[run] += marker.pos.distance_to(target.pos)
+				n += 1
+				if (target.pos.x - marker.pos.x) * e.attack_dir(0) >= 0.0:
+					goal_side += 1
+		dist[run] /= maxi(n, 1)
+		if run == 1:
+			_check(marker.ai_mode == ISSTeam.AI.MARK or e.ball.owner == null or e.restart_type != ISSMatchEngine.R.NONE \
+				or marker.ai_mode == ISSTeam.AI.CHASE or marker.ai_mode == ISSTeam.AI.CARRY, "marker in mark mode")
+			_check(goal_side * 3 > n * 2, "marker goal side of his man (%d of %d frames)" % [goal_side, n])
+		e.dispose()
+	# The marker walks to 24 px goal side of his man, re-aimed every 16
+	# frames, so he trails a running opponent.
+	_check(dist[1] < 120.0 and dist[1] * 2.0 < dist[0], "man-marking keeps close (%.0f px, %.0f unmarked)" % [dist[1], dist[0]])
+	ISSRam.ensure()
+	var obj: int = ISSSym.g_team_home_players + 2 * ISSModes.PLAYER_SIZE
+	ISSRam.set_b(obj + 0x54, 9)
+	_check(int(ISSMatchSetup.squad(0)[2]["mark"]) == 9, "bridge: obj_mark")
+	ISSRam.set_b(obj + 0x54, 0xFF)
+	_check(int(ISSMatchSetup.squad(0)[2]["mark"]) == -1, "bridge: no marking")

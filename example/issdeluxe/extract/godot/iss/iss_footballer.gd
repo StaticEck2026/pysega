@@ -55,6 +55,9 @@ var attr := {}
 ## 0 attack, 1 midfield, 2 defence, 3 goalkeeper.
 var role := 1
 var form := Vector2.ZERO
+## obj_mark: the opponent (pitch index 1-10) this player man-marks
+## (screen_man_marking), -1 none.
+var mark := -1
 
 var pos := Vector2.ZERO
 var z := 0.0
