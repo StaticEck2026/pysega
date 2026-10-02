@@ -42,6 +42,7 @@ const (
 	soundBufferCopy    = 0x1FDE08 // 32 x (movem.l, 4 x movep.l) copying the mix into Z80 RAM
 	soundSeqCommands   = 0x1FEAB6 // sequence event handlers, commands $00-$25
 	playerSelectByPads = 0x03DBE4 // screen_player_select: a layout routine per number of pads (0-8)
+	strategyDemos      = 0x045FEC // screen_strategy: the mini pitch's demonstration of each strategy (none, 1-8)
 )
 
 var rom []byte
@@ -138,6 +139,9 @@ func traceOptions() analysis.Options {
 			{Addr: soundSeqCommands, Kind: analysis.TableLong, Count: 38},
 			// screen_player_select calls one of these by the number of pads.
 			{Addr: playerSelectByPads, Kind: analysis.TableLong, Count: 9},
+			// screen_strategy runs one of these each frame for the strategy
+			// under the cursor; each step sets the next in $177E.
+			{Addr: strategyDemos, Kind: analysis.TableLong, Count: 9},
 		},
 		Data: []analysis.Range{
 			{Start: archiveStart, End: archiveEnd},
