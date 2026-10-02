@@ -48,6 +48,15 @@ const (
 	tblDrillDefence     = 0x03B02A     // defence drill: attackers 10, 9, 8 (x16 px from the left line / the middle)
 	tblDrillKeeper      = 0x03B030     // keeper drill: attackers 10, 9
 	tblDrillTexts       = 0x04F772     // screen_training_select: 4 pointers to 4 $FF-terminated lines
+	tblFreeKickSpots    = 0x038120     // free kick drill / challenge: 16 (x, y) x16 px from the right line / middle
+	tblChallengeFlags   = 0x01486A     // dribble challenge: 5 flags, words x16 px from the middle
+	tblBestTime         = 0x03AE98     // challenge records: 6 events x 4 levels x (word, 3 letters, $FF)
+	tblBestScore        = 0x03AF28
+	tblChallengeTexts   = 0x04E792 // 6 pointers to 7 lines (screen_challenge_select)
+	tblModeTexts        = 0x04DDF8 // training mode / challenge mode: 4 lines each
+	tblModeTexts2       = 0x04DE54
+	tblRecordTexts      = 0x04F454 // your record: fail, average, new record (3 lines each)
+	tblNameChars        = 0x04E2E2 // name entry: 40 characters, one per word
 )
 
 func fix(a uint32) float64 { return float64(int32(be32(a))) / 65536 }
@@ -166,6 +175,8 @@ func exportMatch(dir string) {
 				"that way (keeper_side_dive), lofted alone = keeper_dive, shoot = smother toward where the ball " +
 				"will be in smother_lead frames (keeper_smother)",
 		},
+		"challenge":       challenge(),
+		"free_kick_spots": signedPairs(tblFreeKickSpots, 16),
 		"free_kick": map[string]any{
 			"wall_range":    0x280,
 			"wall_distance": 0x60 * 256 >> 7,
@@ -262,6 +273,87 @@ func textLines(t uint32, n int) []string {
 		lines = append(lines, strings.TrimSpace(string(b)))
 	}
 	return lines
+}
+
+// challenge reads the timed challenges of mode 1 (restart_setup_practice_target,
+// restart_resume_practice_target, the rules of match_rules_update in mode 1
+// and the menus of screens $13-$17).
+func challenge() map[string]any {
+	counts := func(a uint32) []int { return bytesAt(a, 4) }
+	pos := func(i, n int) [][2]int { return signedPairs(0x03AFB8+uint32(2*i), n) }
+	records := func(base uint32) [][]map[string]any {
+		var out [][]map[string]any
+		for ev := uint32(0); ev < 6; ev++ {
+			var row []map[string]any
+			for lv := uint32(0); lv < 4; lv++ {
+				a := base + ev*0x18 + lv*6
+				row = append(row, map[string]any{"value": int(be16(a)), "name": string(rom[a+2 : a+5])})
+			}
+			out = append(out, row)
+		}
+		return out
+	}
+	var flags [][2]int
+	for i := uint32(0); i < 5; i++ {
+		flags = append(flags, [2]int{s16(tblChallengeFlags + 4*i), s16(tblChallengeFlags + 4*i + 2)})
+	}
+	var texts [][]string
+	for i := uint32(0); i < 6; i++ {
+		texts = append(texts, textLines(be32(tblChallengeTexts+4*i), 7))
+	}
+	var chars []string
+	for i := uint32(0); i < 40; i++ {
+		c := rom[tblNameChars+2*i]
+		if c == '@' {
+			c = ' '
+		}
+		chars = append(chars, string(rune(c)))
+	}
+	return map[string]any{
+		"events": []map[string]any{
+			{"name": "DRIBBLE", "home_first": 1, "home_counts": counts(0x03AFFA), "home_places": pos(0, 1),
+				"away_first": 1, "away_counts": counts(0x03AFFE), "away_places": pos(1, 2), "carrier": []int{0, 1}},
+			{"name": "PASS", "home_first": 1, "home_counts": counts(0x03B002), "home_places": pos(3, 10),
+				"away_first": 1, "away_counts": counts(0x03B006), "away_places": pos(13, 10), "carrier": []int{0, 6}},
+			{"name": "SHOOT", "home_first": 9, "home_counts": counts(0x03B00A), "home_places": pos(23, 2),
+				"away_first": 1, "away_counts": counts(0x03B00E), "away_places": pos(25, 3), "carrier": []int{0, 9},
+				"keeper_level": 2, "target": true},
+			{"name": "DEFENCE", "home_first": 2, "home_counts": counts(0x03B012), "home_places": pos(28, 2),
+				"home_middle": 10, "away_first": 8, "away_counts": counts(0x03B016), "away_places": pos(30, 3),
+				"carrier": []int{1, 8}},
+			{"name": "CORNER KICK", "home_last": 10, "home_counts": counts(0x03B01A), "away_first": 1,
+				"away_counts": counts(0x03B01E), "keeper_level": 2, "target": true, "restart": "corner"},
+			{"name": "FREE KICK", "home_last": 10, "home_counts": counts(0x03B022), "away_first": 1,
+				"away_counts": counts(0x03B026), "keeper_level": 2, "target": true, "restart": "free_kick",
+				"spot_by_level": []int{8, 5, 11, 13}},
+		},
+		"flags":        flags,
+		"flag_reach":   0x18,
+		"target_y":     0x40,
+		"target_reach": 0x20,
+		"corner":       []int{-8, -8},
+		"time":         []int{3, 0, 0, 0},
+		"sixths":       5,
+		"bonus_step":   2,
+		"banners":      []string{string(rom[0x018A56 : 0x018A56+12]), string(rom[0x018A62 : 0x018A62+12])},
+		"best_time":    records(tblBestTime),
+		"best_score":   records(tblBestScore),
+		"texts":        texts,
+		"mode_texts":   [][]string{textLines(tblModeTexts, 4), textLines(tblModeTexts2, 4)},
+		"record_texts": [][]string{textLines(tblRecordTexts, 3), textLines(tblRecordTexts+0x22, 3), textLines(tblRecordTexts+0x58, 3)},
+		"name_chars":   chars,
+		"note": "restart_setup_practice_target ($014364), event g_training_drill, level g_challenge_level: both sides " +
+			"are the practice team; the listed players (home_first.. or home_last down, counts by level, places x16 px " +
+			"from the middle), the rest off; the carrier [side, player] has the ball; the away keeper plays from " +
+			"keeper_level; dribble adds 5 flags, shoot / corner / free kick a target panel on the right goal line " +
+			"at middle +- target_y. Time: 4 digits from 30.00, the third wrapping at sixths (60 frames a second); " +
+			"success ($13CC = $B): 5 flags, 10 home players touching the ball, the home side winning it (defence) " +
+			"or a goal (shoot, corner, free kick); after success in events 0, 1, 3 the bonus counts down " +
+			"bonus_step a frame from 30.00 until a goal ($13CE = $B keeps it) or zero; in events 2, 4, 5 the bonus " +
+			"is the time left and counts when the goal is within target_reach of the panel. The attempt ends on " +
+			"time up, out of play, a goal, or the other side winning the ball. Scores: time taken = 3000 - time " +
+			"(digits read as a decimal), time score = its first three digits, bonus score likewise, total = sum",
+	}
 }
 
 // drillTexts reads the four training drills' descriptions (screen_training_select_menu).
