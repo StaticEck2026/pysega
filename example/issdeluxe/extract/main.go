@@ -23,6 +23,10 @@
 //	hud/                   match HUD: window, team flags and names, digits,
 //	                       radar background and per-stadium radar mapping
 //	screens/               the front-end screens (backdrop + screen layer)
+//	res/                   every packed resource entry, unpacked (the
+//	                       front end loads them as the game does)
+//	rom_data.bin/.json     the main program's data blocks with their
+//	                       addresses and symbol names (the front end's tables)
 //
 // and GDScript classes plus a demo scene into <godot>/iss.
 //
@@ -113,7 +117,11 @@ func main() {
 	romPath := flag.String("rom", "", "ROM file")
 	out := flag.String("out", "out/godot", "Godot project directory")
 	dumpGroup := flag.Int("dump-group", -1, "write the unpacked entries of one resource group to -out and stop")
+	project := flag.String("project", "", "directory of issdeluxe.yaml and issdeluxe_symbols.txt (default: the ROM's)")
 	flag.Parse()
+	if *project == "" {
+		*project = filepath.Dir(*romPath)
+	}
 	var err error
 	if rom, err = os.ReadFile(*romPath); err != nil {
 		fail(err)
@@ -147,7 +155,11 @@ func main() {
 	exportSound(filepath.Join(*out, "assets", "iss", "sound"))
 	exportTeams(filepath.Join(*out, "assets", "iss"))
 	exportMatch(filepath.Join(*out, "assets", "iss"))
+	exportResources(filepath.Join(*out, "assets", "iss", "res"))
+	exportROMData(filepath.Join(*out, "assets", "iss"), filepath.Join(*project, "issdeluxe.yaml"),
+		filepath.Join(*project, "issdeluxe_symbols.txt"))
 	writeScripts(*out)
+	writeRAMSymbols(*out, filepath.Join(*project, "issdeluxe_symbols.txt"))
 }
 
 // writeScripts copies the embedded GDScript classes and demo scene.

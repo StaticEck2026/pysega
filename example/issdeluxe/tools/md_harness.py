@@ -23,10 +23,20 @@ import struct
 
 from PIL import Image
 from unicorn import Uc, UC_ARCH_M68K, UC_MODE_BIG_ENDIAN, UC_PROT_ALL, UcError
+from unicorn import m68k_const as m68k
 from unicorn.m68k_const import UC_CPU_M68K_M68000, UC_M68K_REG_A7, UC_M68K_REG_PC, UC_M68K_REG_SR
 
 BUTTONS = {'up': 0x1, 'down': 0x2, 'left': 0x4, 'right': 0x8, 'b': 0x10, 'c': 0x20, 'a': 0x40,
            'start': 0x80, 'z': 0x100, 'y': 0x200, 'x': 0x400, 'mode': 0x800}
+
+
+# sound_play_music, sound_play_sfx, sound_update (issdeluxe_symbols.txt).
+SOUND_ENTRIES = (0x1FD958, 0x1FD96C, 0x1FD98C)
+
+# The registers a saved state keeps (a pickled Unicorn context does not
+# restore in another process).
+CPU_REGS = [getattr(m68k, 'UC_M68K_REG_D%d' % i) for i in range(8)] + \
+    [getattr(m68k, 'UC_M68K_REG_A%d' % i) for i in range(8)] + [UC_M68K_REG_SR]
 
 
 def md_color(w):
@@ -473,7 +483,7 @@ class MD:
         """Everything needed to come back to this moment (RAM, Z80 RAM, VDP,
         CPU registers)."""
         return dict(ram=self.ram(0, 0x10000), z80=bytes(self.mu.mem_read(0xA00000, 0x4000)),
-                    cpu=self.mu.context_save(), pc=self.pc, frame=self.frame,
+                    regs=[self.mu.reg_read(r) for r in CPU_REGS], pc=self.pc, frame=self.frame,
                     vdp=dict(reg=list(self.vdp.reg), vram=bytes(self.vdp.vram), cram=list(self.vdp.cram),
                              vsram=list(self.vdp.vsram), code=self.vdp.code, addr=self.vdp.addr),
                     dac=(self._dac_acc, self._dac_pos), pads=list(self.pads))
@@ -481,7 +491,8 @@ class MD:
     def load_state(self, st):
         self.mu.mem_write(0xFF0000, st['ram'])
         self.mu.mem_write(0xA00000, st['z80'])
-        self.mu.context_restore(st['cpu'])
+        for r, v in zip(CPU_REGS, st['regs']):
+            self.mu.reg_write(r, v)
         self.pc = st['pc']
         self.frame = st['frame']
         v = st['vdp']
@@ -494,6 +505,14 @@ class MD:
         self.pads = list(st['pads'])
         self._vint = self._hint = False
 
+    def mute(self):
+        """Stub out the sound driver's calls (play music, play effect, the
+        per-frame tick) from now on: the pictures do not need them, and the
+        music driver runs into data in this machine after a while in the
+        menus. (The title screen needs the driver, so mute after it.)"""
+        for a in SOUND_ENTRIES:
+            self.mu.mem_write(a, b'\x4e\x75')  # rts
+
     def boot_to_menu(self, max_taps=40):
         """From power on to the main menu (state_menu, screen 0): wait for
         the title, then press Start until the menu runs."""
@@ -501,6 +520,7 @@ class MD:
         for _ in range(max_taps):
             self.tap(0, 'start', hold=3, after=40)
             if self.ram(0, 4) == bytes.fromhex('0001ff6e'):
+                self.mute()
                 self.run(60)
                 return True
         return False
