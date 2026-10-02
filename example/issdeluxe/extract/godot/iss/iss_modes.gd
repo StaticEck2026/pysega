@@ -186,10 +186,12 @@ const TM_KEEPER_SKILL := 0x62
 const PLAYER_SIZE := 0x8E
 
 
+## The game's random step: g_random rotated left one bit (rol.w #1), and
+## when the bit rotated out is set, exclusive-or $37E8.
 static func _rand() -> int:
 	var v := ISSRam.w(S.g_random)
 	var carry := v & 0x8000
-	v = (v << 1) & 0xFFFF
+	v = ((v << 1) | (v >> 15)) & 0xFFFF
 	if carry:
 		v ^= 0x37E8
 	ISSRam.set_w(S.g_random, v)
@@ -446,3 +448,33 @@ static func menu_func_05C4FE() -> void:
 
 static func menu_func_05AEAC() -> void:
 	push_error("ISSModes.menu_func_05AEAC is not ported yet")
+
+
+## menu_input_040F5E: where a pre-match sub-screen returns. Training and
+## challenges have their own menus; with humans on both sides the home
+## side's choice is followed by the away side's on the same item
+## ($176A = 1, the item through tbl_prematch_screens), or after the last
+## item the competition's own screen; otherwise the pre-match menu.
+static func prematch_return() -> void:
+	var mode := ISSRam.w(S.g_game_mode)
+	if mode == 0:
+		_w(S.g_next_screen, 0x19)
+		return
+	if mode == 1:
+		_w(S.g_next_screen, 0x16)
+		return
+	if ISSRam.w(0x1768) != 0 or ISSRam.w(S.g_pads_away) == 0:
+		_w(S.g_next_screen, 6)
+		return
+	_w(0x176A, 1)
+	var item := ISSRam.w(0x18B4)
+	if item < 10:
+		_w(S.g_next_screen, ISSRom.u16(ISSRom.addr("tbl_prematch_screens") + item * 2))
+		return
+	match mode:
+		4, 6, 7:
+			_w(S.g_next_screen, 0x1E)
+		5, 8:
+			_w(S.g_next_screen, 0x23)
+		9:
+			_w(S.g_next_screen, 0x32)

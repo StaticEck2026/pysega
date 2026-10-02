@@ -95,7 +95,8 @@ func _init() -> void:
 	add_child(vdp)
 	add_child(figures)
 	add_child(sound)
-	_modules = [ISSScreensMain.new(self), ISSScreensPrematch.new(self), ISSScreensOptions.new(self)]
+	_modules = [ISSScreensMain.new(self), ISSScreensPrematch.new(self), ISSScreensOptions.new(self),
+		ISSScreensSquad.new(self), ISSScreensControls.new(self)]
 	for mod in _modules:
 		mod.register(_handlers)
 
@@ -920,6 +921,77 @@ func anim_tiles() -> void:
 		strip.call("tbl_anim_tiles_4", fc >> 3, 7, 0x3D40, 0x40)
 	elif (fc + 5) & 3 == 0:
 		strip.call("tbl_anim_tiles_5", fc >> 2, 12, 0x3D80, 0x40)
+
+
+## engine_text_01F78E: a 2 x 2 face (energy 0-4, from the table of four
+## words each) at (x, y), palette line 1.
+func face_draw(x: int, y: int, index: int) -> void:
+	var a := _cell(x, y)
+	var t := ISSRom.addr("engine_text_01F78E_data") + index * 8
+	var base := ((w(S.g_stadium_vram) >> 5) | 0xA000) + 0x1E0
+	ISSRam.set_w(a, base + ISSRom.u16(t))
+	ISSRam.set_w(a + 0x80, base + ISSRom.u16(t + 2))
+	ISSRam.set_w(a + 2, base + ISSRom.u16(t + 4))
+	ISSRam.set_w(a + 0x82, base + ISSRom.u16(t + 6))
+
+
+## engine_text_01FADE: mirror the cells of a rectangle left to right (the
+## mini pitch for the side defending the right goal).
+func rect_mirror(x0: int, x1: int, y0: int, y1: int) -> void:
+	var n := (x1 >> 3) - (x0 >> 3)
+	for r in range(y0 >> 3, y1 >> 3):
+		var row := []
+		for c in n:
+			row.append(ISSRam.w(_cell(x0 + c * 8, r * 8)))
+		for c in n:
+			ISSRam.set_w(_cell(x0 + c * 8, r * 8), int(row[n - 1 - c]) ^ 0x0800)
+
+
+## The side's player objects (20, $8E bytes each).
+func team_players(side: int) -> int:
+	return S.g_team_home_players if side == 0 else S.g_team_away_players
+
+
+## engine_func_01FB24: the eleven's places on the mini pitch at (dx, dy)
+## (obj_x / obj_y of the player objects) from their role and formation
+## place, mirrored unless the side defends the left goal; all visible.
+func pitch_place(dx: int, dy: int, side: int) -> void:
+	var a := team_players(side)
+	var left := side == w(S.g_left_goal_team)
+	ISSRam.set_w(a + 0x10, (0 if left else 0x80) + dx)
+	ISSRam.set_w(a + 0x14, 0x30 + dy)
+	ISSRam.set_b(a + 0xE, 1)
+	for k in range(1, 11):
+		a += ISSModes.PLAYER_SIZE
+		var role := ISSRam.b(a + 0x51) & 0x7F
+		var fx := ISSRam.sb(a + 0x52)
+		var fy := ISSRam.sb(a + 0x53)
+		if left:
+			ISSRam.set_w(a + 0x10, -role * 0x2C + 0x6C + fx + dx)
+			ISSRam.set_w(a + 0x14, fy + 0x30 + dy)
+		else:
+			ISSRam.set_w(a + 0x10, role * 0x2C + 0x14 - fx + dx)
+			ISSRam.set_w(a + 0x14, -fy + 0x30 + dy)
+		ISSRam.set_b(a + 0xE, 1)
+
+
+## engine_draw_01FC0A: the eleven's shirt numbers on the mini pitch (the
+## number tiles at $1774; another colour for a player marked by bit 7 of
+## the role; blinking when not visible; none for the handicap's absentees).
+func pitch_draw(side: int) -> void:
+	var a := team_players(side)
+	for k in 11:
+		if ISSRam.b(a + 0x55) == 0:
+			var t := w(0x1774) >> 5
+			if ISSRam.b(a + 0xE) == 0 and w(S.g_frame_counter) & 8 == 0:
+				t += 0x78
+			else:
+				t += (ISSRam.b(a + 0x63) - 1) * 2
+				if ISSRam.b(a + 0x51) & 0x80:
+					t += 0x28 if side == w(S.g_left_goal_team) else 0x50
+			var x := (ISSRam.w(a + 0x10) - sw(S.g_plane_b_hscroll) + 0x78) & 0x1FF
+			sprite(ISSRam.w(a + 0x14) + 0x7C, 4, t | 0xC000, 1 if x == 0 else x)
+		a += ISSModes.PLAYER_SIZE
 
 
 ## A ROM string (bytes up to $FF) by symbol, optionally at an offset.

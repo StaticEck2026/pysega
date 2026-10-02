@@ -1101,31 +1101,6 @@ func screen_todays_game_2(o: ISSMenu.Obj) -> void:
 
 # --------------------------------------------------------------------------
 
-## menu_input_040F5E: where a pre-match sub-screen returns. Training and
-## challenges have their own menus; with humans on both sides the home
-## side's choice is followed by the away side's on the same item
-## ($176A = 1, g_prematch_item through menu_data_041012), or after the last
-## item the competition's own screen; otherwise the pre-match menu.
+## menu_input_040F5E (ISSModes.prematch_return).
 func menu_input_040F5E() -> void:
-	var mode := w(S.g_game_mode)
-	if mode == 0:
-		set_w(S.g_next_screen, 0x19)
-		return
-	if mode == 1:
-		set_w(S.g_next_screen, 0x16)
-		return
-	if w(0x1768) != 0 or w(S.g_pads_away) == 0:
-		set_w(S.g_next_screen, 6)
-		return
-	set_w(0x176A, 1)
-	var item := w(0x18B4)
-	if item < 10:
-		set_w(S.g_next_screen, ISSRom.u16(rom("tbl_prematch_screens") + item * 2))
-		return
-	match mode:
-		4, 6, 7:
-			set_w(S.g_next_screen, 0x1E)
-		5, 8:
-			set_w(S.g_next_screen, 0x23)
-		9:
-			set_w(S.g_next_screen, 0x32)
+	ISSModes.prematch_return()
