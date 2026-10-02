@@ -163,7 +163,8 @@ func start(home: int, away: int, opts: Dictionary) -> void:
 	add_child(_weather)
 	for t in engine.teams:
 		for p in t.players:
-			var s := ISSPlayerSprite.new()
+			# The keepers have their own frame set (obj_set_frame_draw).
+			var s: Sprite2D = ISSKeeperSprite.new() if p.is_keeper() else ISSPlayerSprite.new()
 			s.team = t.team_id
 			s.second_kit = t.second_kit
 			add_child(s)
@@ -338,6 +339,18 @@ func _result_core() -> Dictionary:
 # Drawing the engine's state.
 
 const LOOPING := [0, 1, 2, 6, 7, 9, 27, 30, 31, 32, 33, 34, 38, 50, 53]
+const KEEPER_LOOPING := [0, 2, 5, 6, 7, 8, 9]
+
+
+## The keeper's action in his own set (tbl_keeper_anims) for the engine's
+## action: the keeper routines' numbers are the ones the engine uses for
+## him (run 6, walk 7, knee trap 12, kick from the hands 14, throw 17 / 18,
+## jump 21, full-length dive 22, side dives 23 / 24, get up 25); the
+## player-only ones (headers, celebrations) show him standing.
+static func keeper_action(a: int) -> int:
+	if a in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 26]:
+		return a
+	return 0
 
 
 func _sync() -> void:
@@ -346,11 +359,15 @@ func _sync() -> void:
 	var cursors: Array = []
 	for t in e.teams:
 		for p in t.players:
-			var s: ISSPlayerSprite = _sprites[p]
+			var s: Sprite2D = _sprites[p]
 			s.visible = p.state != ISSFootballer.S.SENT_OFF
 			if not s.visible:
 				continue
-			s.set_pose(p.action, p.anim_frame, p.facing, p.action in LOOPING)
+			if p.is_keeper():
+				var ka := keeper_action(p.action)
+				s.set_pose(ka, p.anim_frame, p.facing, ka in KEEPER_LOOPING)
+			else:
+				s.set_pose(p.action, p.anim_frame, p.facing, p.action in LOOPING)
 			s.position = ISSProjection.to_map(p.pos, p.z).round()
 			s.z_index = int(p.pos.y)
 			var mine := false

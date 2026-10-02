@@ -144,6 +144,7 @@ func main() {
 	kits := exportKits(dir)
 	exportMatchPalette(dir, kits)
 	exportAnimations(dir)
+	exportKeeperAnimations(filepath.Join(*out, "assets", "iss", "keeper"))
 	exportBall(filepath.Join(*out, "assets", "iss", "ball"))
 	exportNPCs(filepath.Join(*out, "assets", "iss", "npc"))
 	exportFlags(filepath.Join(*out, "assets", "iss", "flags"))

@@ -36,6 +36,10 @@ func _init() -> void:
 		quit(1)
 		return
 	_check(players["actions"].size() == 54, "54 player actions")
+	var keepers = _json("res://assets/iss/keeper/animations.json")
+	_check(keepers["actions"].size() == 37 and keepers["actions"][0]["directions"].size() == 16, "37 keeper actions, 16 directions")
+	var kf: Dictionary = keepers["frames"][keepers["actions"][22]["directions"][4][0]]
+	_check(ResourceLoader.exists(kf["right"]["png"]) and ResourceLoader.exists(kf["left"]["png"]), "keeper frames")
 	_check(ball["actions"].size() == 5, "5 ball actions")
 	_check(npc["actions"].size() == 21 and npc["action_names"].size() == 21, "21 named NPC actions")
 	_check(stadiums["stadiums"].size() == 8, "8 stadiums")
@@ -406,7 +410,9 @@ func _check_training() -> void:
 	k.setup(0, practice, {"pads": [1, 0], "training": 3})
 	var keeper := k.teams[0].players[0]
 	k.step([{"dir": 0, "press": ISSFootballer.LOFT, "held": ISSFootballer.LOFT}, {}])
-	_check(keeper.state == ISSFootballer.S.KEEPER_DIVE and keeper.facing == 0, "keeper drill: lofted + up dives up")
+	# keeper_side_dive keeps his facing and dives to that side of it.
+	_check(keeper.state == ISSFootballer.S.KEEPER_DIVE and int(keeper.kick_heading) == 0 and keeper.action in [23, 24],
+		"keeper drill: lofted + up dives up")
 	k.dispose()
 
 

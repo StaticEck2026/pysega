@@ -216,8 +216,8 @@ func _count_down(next: int, act: int, t: int = 0) -> void:
 		set_state(next, act, t)
 
 
-func _airborne(gravity: float) -> void:
-	pos += ISSProjection.heading_vector(facing) * speed
+func _airborne(gravity: float, heading := -1.0) -> void:
+	pos += ISSProjection.heading_vector(facing if heading < 0.0 else heading) * speed
 	z += vz
 	vz -= gravity
 	if z < 0.0:
@@ -504,9 +504,17 @@ func start_dive(h: float, lateral := -1.0, lift := -1.0) -> void:
 	dive_lift = lift
 	var k: Dictionary = ISSMatchData.consts["keeper"]
 	var slow: bool = eng.ball.speed <= float(k["dive_slow_ball"])
-	set_state(S.KEEPER_DIVE, A_DIVING_HEADER if slow else A_JUMP_HEADER, 0)
+	var act := A_DIVING_HEADER if slow else A_JUMP_HEADER
+	var side := lateral >= 0.0
+	if side:
+		# keeper_side_dive / keeper_smother: he keeps his facing and dives
+		# to that side of it (action 23 within half a turn clockwise, else 24).
+		act = 23 if (int(h) - facing) & 63 < 32 else 24
+	set_state(S.KEEPER_DIVE, act, 0)
 	eng.event_counts["dives"] = int(eng.event_counts.get("dives", 0)) + 1
-	facing = int(h) & 63
+	kick_heading = h
+	if not side:
+		facing = int(h) & 63
 	speed = 0.0
 	vz = 0.0
 
@@ -520,7 +528,7 @@ func _keeper_dive() -> void:
 		speed = dive_speed if dive_speed > 0.0 else float(d[0])
 		vz = dive_lift if dive_lift >= 0.0 else float(d[1])
 	if timer >= 4:
-		_airborne(float(k["dive_gravity"]))
+		_airborne(float(k["dive_gravity"]), kick_heading)
 	if eng.ball.owner == self:
 		pass
 	elif eng.ball.is_loose() and timer < 40:
