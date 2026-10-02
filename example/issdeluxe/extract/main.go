@@ -112,10 +112,22 @@ func fail(err error) {
 func main() {
 	romPath := flag.String("rom", "", "ROM file")
 	out := flag.String("out", "out/godot", "Godot project directory")
+	dumpGroup := flag.Int("dump-group", -1, "write the unpacked entries of one resource group to -out and stop")
 	flag.Parse()
 	var err error
 	if rom, err = os.ReadFile(*romPath); err != nil {
 		fail(err)
+	}
+	if *dumpGroup >= 0 {
+		must(os.MkdirAll(*out, 0755))
+		for e := 0; e < groupEntries(*dumpGroup); e++ {
+			a := entry(*dumpGroup, e)
+			if be16(a) == 0xFFFF || rom[a] != 'P' {
+				continue
+			}
+			must(os.WriteFile(filepath.Join(*out, fmt.Sprintf("g%02d_e%02d.bin", *dumpGroup, e)), unpack(a), 0644))
+		}
+		return
 	}
 	dir := filepath.Join(*out, "assets", "iss", "players")
 	if err := os.MkdirAll(filepath.Join(dir, "frames"), 0755); err != nil {

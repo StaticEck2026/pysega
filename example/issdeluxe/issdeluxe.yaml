@@ -798,7 +798,7 @@ segments:
   - name: main_03B09E
     type: m68k
     start: 0x03B09E
-    end:   0x03DBB6
+    end:   0x03F04C
     subdir: main
     hints:
       - {offset: 0x065E, type: data_word, length: 104}
@@ -831,20 +831,18 @@ segments:
       - {offset: 0x2890, type: data_word, length: 40}
       - {offset: 0x28B8, type: data_word, length: 40}
       - {offset: 0x28E0, type: data_word, length: 40}
-
-  - name: main_data_03DBB6
-    type: data
-    start: 0x03DBB6
-    end:   0x03E6A2
-    subdir: main
-
-  - name: main_03E6A2
-    type: m68k
-    start: 0x03E6A2
-    end:   0x03F04C
-    subdir: main
-    hints:
-      - {offset: 0x021C, type: data_word, length: 34}
+      - {offset: 0x2B18, type: data_word, length: 10}
+      - {offset: 0x2B22, type: ptr_table, length: 36}
+      - {offset: 0x2B46, type: ptr_table, length: 36}
+      - {offset: 0x359A, type: data_word, length: 14}
+      - {offset: 0x35A8, type: data_word, length: 14}
+      - {offset: 0x35B6, type: data_word, length: 14}
+      - {offset: 0x35C4, type: data_word, length: 20}
+      - {offset: 0x35D8, type: data_word, length: 14}
+      - {offset: 0x35E6, type: data_word, length: 14}
+      - {offset: 0x35F4, type: data_word, length: 8}
+      - {offset: 0x35FC, type: data_word, length: 8}
+      - {offset: 0x3820, type: data_word, length: 34}
 
   - name: main_data_03F04C
     type: data

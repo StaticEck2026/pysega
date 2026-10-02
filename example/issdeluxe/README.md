@@ -787,6 +787,32 @@ are missing render as whatever data follows, so `ISSSound` skips them.
 `res://assets/iss/music/song_NN.ogg`, then the rendered files, then the
 extractor's PCM renders (which keep exact loop points for the crowd).
 
+### Capturing the ROM's own screens
+
+`tools/md_harness.py` is a small Mega Drive for running the game's own code
+to look at what it draws: the 68000 under Unicorn, a VDP (VRAM / CRAM /
+VSRAM, 68000 DMA, fill and copy, the HV counter and status, planes, window,
+sprites and shadow/highlight), pads, the Z80's RAM as plain memory with the
+DAC ring the PCM mixer waits on, and a silent YM2612. Frames are run line by
+line (313 lines, PAL) so that HBlank interrupts and the V counter behave:
+the title screen waits on a flag only the HBlank handler sets. The front-end
+screens, with their run-time team photos, flags and labels, can be rendered
+to PNG as a reference for the Godot screens.
+
+```python
+from md_harness import MD
+md = MD(open(rom, 'rb').read())
+md.boot_to_menu()                 # title, Start, main menu
+menu = md.save_state()
+md.goto_screen(0x03, menu)        # any front-end screen (team select here)
+md.tap(0, 'right'); md.run(10)
+md.screenshot('team_select.png')
+```
+
+`goto_screen` leaves the main menu as the game does (C on an item) and
+replaces the next screen number during the fade; screens that read a
+competition's state need it set up in RAM first.
+
 **Stadium format.** Each stadium group (`res07`–`res14`) holds a metatile map
 (`width, height` in 16 × 16 metatiles, then one word per metatile), a metatile
 table (four nametable words per metatile, tile numbers relative to the

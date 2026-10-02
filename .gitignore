@@ -5,3 +5,4 @@ Altered Beast (USA, Europe).md# International Superstar Soccer Deluxe project: n
 example/issdeluxe/*.md
 !example/issdeluxe/README.md
 example/issdeluxe/out/
+__pycache__/
