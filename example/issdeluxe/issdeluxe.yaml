@@ -884,7 +884,7 @@ segments:
   - name: main_043790
     type: m68k
     start: 0x043790
-    end:   0x045FEC
+    end:   0x047B20
     subdir: main
     hints:
       - {offset: 0x192A, type: data_word, length: 26}
@@ -892,20 +892,22 @@ segments:
       - {offset: 0x216A, type: data_word, length: 16}
       - {offset: 0x2436, type: data_word, length: 32}
       - {offset: 0x260C, type: data_word, length: 64}
+      - {offset: 0x285C, type: ptr_table, length: 36}
+      - {offset: 0x3034, type: text, length: 40}
+      - {offset: 0x305C, type: text, length: 84}
+      - {offset: 0x30B0, type: text, length: 33}
+      - {offset: 0x30D1, type: data_byte, length: 8}
+      - {offset: 0x30D9, type: data_byte, length: 199}
+      - {offset: 0x31A0, type: data_word, length: 72}
+      - {offset: 0x31E8, type: data_word, length: 72}
 
-  - name: main_data_045FEC
-    type: data
-    start: 0x045FEC
-    end:   0x0469C0
-    subdir: main
-
-  - name: main_0469C0
+  - name: main_047B20
     type: m68k
-    start: 0x0469C0
+    start: 0x047B20
     end:   0x048290
     subdir: main
     hints:
-      - {offset: 0x1376, type: data_word, length: 106}
+      - {offset: 0x0216, type: data_word, length: 106}
 
   - name: main_data_048290
     type: data
