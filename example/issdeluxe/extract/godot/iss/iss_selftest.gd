@@ -182,7 +182,7 @@ func _check_human_control() -> void:
 	e.ball.stop()
 	var p := e.teams[0].players[6]
 	e.ball.pos = p.pos + Vector2(4, 0)
-	e.teams[0].controlled = p
+	e.slots[0].player = p
 	for i in 4:
 		e.step([idle, null])
 	_check(e.ball.owner == p, "the controlled player picks up the ball")
@@ -355,6 +355,7 @@ func _check_long_modes() -> void:
 	_check_training()
 	_check_wall()
 	_check_challenges()
+	_check_controls()
 
 
 ## The four drills of restart_setup_practice: who is on, who has the ball,
@@ -383,7 +384,7 @@ func _check_training() -> void:
 				_check(t.restart_type == ISSMatchEngine.R.FREE_KICK and t.restart_side == 0 and t._wall.size() >= 3,
 					"free kick drill: a free kick with a wall of %d" % t._wall.size())
 			3:
-				_check(t.ball.owner == t.teams[1].players[9] and t.teams[0].keeper_manual,
+				_check(t.ball.owner == t.teams[1].players[9] and t.teams[0].keeper_mode == 2,
 					"keeper drill: attacker 9 has the ball, the pad has the keeper")
 		if d == 0:
 			t.dispose()
@@ -476,3 +477,39 @@ func _check_challenges() -> void:
 	t.dispose()
 	var s := ISSChallenge.score({"done": true, "bonus_on": false, "time": [2, 0, 3, 2], "bonus": [1, 0, 0, 0]})
 	_check(s["time_taken"] == 968 and s["time_score"] == 203 and s["total"] == 203, "challenge scores: %s" % str(s))
+
+
+## The controls: the button layouts, TYPE A switching, Mode + Y and the
+## goalkeeper modes (match_players_update, ai_func_00F91A_8).
+func _check_controls() -> void:
+	_check(ISSInput.logical(ISSInput.B, 0) == ISSFootballer.PASS and ISSInput.logical(ISSInput.C, 0) == ISSFootballer.LOFT
+		and ISSInput.logical(ISSInput.A, 0) == ISSFootballer.DASH and ISSInput.logical(ISSInput.Z, 0) == ISSFootballer.SHOOT,
+		"layout 0: B pass, C high ball, A dash, Z shoot")
+	_check(ISSInput.logical(ISSInput.C, 1) == ISSFootballer.SHOOT, "layout 1: C shoots")
+	var e := ISSMatchEngine.new()
+	e.setup(0, 1, {"pads": [1, 0], "half_seconds": 60, "keepers": [1, 0]})
+	var idle := {"dir": -1, "press": 0, "held": 0}
+	while e.restart_type != ISSMatchEngine.R.NONE:
+		e.step([{"dir": 16, "press": ISSFootballer.PASS, "held": 0} if e.restart_taker != null and e.restart_taker.team == 0 else idle])
+	e.ball.owner = null
+	e.ball.stop()
+	e.ball.team = 0
+	e.ball.pos = e.teams[0].players[8].pos + Vector2(30, 0)
+	e.slots[0].player = e.teams[0].players[2]
+	e.step([{"dir": -1, "press": ISSFootballer.SWITCH, "held": ISSFootballer.SWITCH}])
+	_check(e.slots[0].player != e.teams[0].players[2] and e.slots[0].player.index != 0,
+		"TYPE A: Y passes control on (%d)" % e.slots[0].player.index)
+	e.step([idle])
+	# With the ball dead nobody takes it (kicker_claim would hand him over).
+	e.ball.live = false
+	e.slots[0].manual = 1
+	e.step([{"dir": -1, "press": ISSFootballer.SWITCH, "held": ISSFootballer.SWITCH | ISSFootballer.STRATEGY}])
+	_check(e.slots[0].player == e.teams[0].players[0], "SEMI-AUTO keeper: Mode + Y takes him")
+	for i in 20:
+		e.step([idle])
+	_check(e.slots[0].player == e.teams[0].players[0], "SEMI-AUTO keeper: kept")
+	e.teams[0].keeper_mode = 0
+	for i in 20:
+		e.step([idle])
+	_check(e.slots[0].player != e.teams[0].players[0], "AUTO keeper: given back to the computer")
+	e.dispose()

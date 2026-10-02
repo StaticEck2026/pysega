@@ -241,9 +241,13 @@ func _physics_process(_delta: float) -> void:
 			match_over.emit(result())
 		_sync()
 		return
-	var pads: Array = [null, null]
+	# Controller n drives the engine's slot n; what is on the screen limits
+	# AREA A control.
+	var pads: Array = []
 	for i in sides.size():
-		pads[sides[i]] = ISSInput.read(i)
+		pads.append(ISSInput.read(i))
+	var vp := get_viewport_rect().size
+	engine.view = Rect2(_camera.get_screen_center_position() - vp / 2.0, vp)
 	engine.step(pads)
 	_sync()
 
@@ -252,13 +256,11 @@ var _pause_pad := 0
 var _menu_hold := 0
 
 
-## Pad n (in order) plays for side _human_sides()[n].
+## Pad n plays for the side of the engine's slot n.
 func _human_sides() -> Array:
 	var out := []
-	var p: Array = engine.options.get("pads", [1, 0])
-	for side in 2:
-		if int(p[side]) > 0:
-			out.append(side)
+	for sl in engine.slots:
+		out.append(sl.side)
 	return out
 
 
@@ -274,8 +276,8 @@ func _pause_menu(pad: Dictionary) -> void:
 		if _menu_hold == 1 or (_menu_hold > 20 and _menu_hold % 6 == 0):
 			var v := ISSProjection.heading_vector(dir)
 			step = roundi(v.y)
-	var ok: bool = pad["press"] & (ISSFootballer.PASS | ISSFootballer.LOFT)
-	var back: bool = pad["press"] & ISSFootballer.SHOOT
+	var ok: bool = pad["raw_press"] & ISSInput.C
+	var back: bool = pad["raw_press"] & ISSInput.B
 	var n := _pause.items().size()
 	_pause.cursor = clampi(_pause.cursor + step, 0, maxi(0, n - 1))
 	var t := _pause.team
@@ -351,8 +353,12 @@ func _sync() -> void:
 			s.set_pose(p.action, p.anim_frame, p.facing, p.action in LOOPING)
 			s.position = ISSProjection.to_map(p.pos, p.z).round()
 			s.z_index = int(p.pos.y)
-			dots.append([p.pos, ("controlled_" if p == t.controlled and t.pads > 0 else "") + ("home" if t.side == 0 else "away")])
-			if p == t.controlled and t.pads > 0:
+			var mine := false
+			for sl in e.slots:
+				if sl.player == p:
+					mine = true
+			dots.append([p.pos, ("controlled_" if mine else "") + ("home" if t.side == 0 else "away")])
+			if mine:
 				var colour := Color(1, 1, 0.3) if t.side == 0 else Color(0.4, 1, 1)
 				cursors.append([s.position + Vector2(0, -42), colour])
 	var b := e.ball

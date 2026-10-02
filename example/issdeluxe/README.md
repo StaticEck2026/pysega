@@ -680,17 +680,26 @@ scaled by whole numbers:
   dribble, pass and defence a goal before the bonus runs out keeps it.
   *Your record* (screen `$17`) shows the time, time score, bonus and total
   and keeps new records (the port saves them).
-* **Controls** (`ISSInput`, the logical buttons of `tbl_button_layouts`):
-  player 1 arrows, Z pass, X shoot, A lofted pass / sliding tackle,
-  Left Shift dash, S switch player, D strategy, Enter pause; player 2 I J K
-  L, U, O, Y, H, N, B, Backspace; or two joypads (A pass, B shoot, X lofted,
-  Y switch, RB or RT dash, LB strategy, Start). Holding the lofted or shoot button builds the kick's
-  power, the d-pad aims passes (a team-mate in the aimed direction receives
-  it) and picks the post for shots; without the ball pass or shoot heads a
-  high ball. A human goalkeeper (the keeper drill, `tm_keeper_manual`)
-  dives the pad's way with lofted + a direction, jumps with lofted alone
-  and throws himself at the ball with shoot (`keeper_side_dive`,
-  `keeper_dive`, `keeper_smother`).
+* **Controls** (`ISSInput`, the 6-button pad of `joypad_read_port`): player 1
+  arrows, Z X C = A B C, A S D = X Y Z, Q = Mode, Enter = Start; player 2
+  I J K L, V B N, F G H, R, Backspace; or two joypads (X A B = A B C, LB Y RB
+  = X Y Z, Back = Mode). Each controller's button layout
+  (`tbl_button_layouts`, 24 of them) turns B, C, A and Z into pass, high
+  ball, dash and shoot (by default B pass, C high ball, A dash, Z shoot); Y
+  switches player, Mode + a button picks a strategy, Mode + Y takes the
+  goalkeeper when he is on SEMI-AUTO or MANUAL. Every controller has the
+  Change control settings: TYPE A-D (Y goes to the nearest player, the
+  nearest defender, the player in the pad's direction from the ball, or
+  from the controlled player), AREA A (only players on the screen) or B,
+  and AUTO or MANUAL cursor change (`match_players_update`); a high ball
+  goes to the player nearest where it lands and a team-mate taking the
+  ball takes control (`kicker_claim`). In the menus C confirms and B
+  cancels. Holding the high ball or shoot button builds the kick's power,
+  the d-pad aims passes and picks the post for shots; without the ball
+  pass or shoot heads a high ball. A human goalkeeper dives the pad's way
+  with high ball + a direction, jumps with high ball alone and throws
+  himself at the ball with shoot (`keeper_side_dive`, `keeper_dive`,
+  `keeper_smother`).
 * **Match engine** (`ISSMatchEngine`, `ISSTeam`, `ISSFootballer`, `ISSBall`,
   no drawing, 60 steps a second):
   - the ball's physics are `ball_update`'s, with the constants of

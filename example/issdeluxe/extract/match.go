@@ -57,6 +57,8 @@ const (
 	tblModeTexts2       = 0x04DE54
 	tblRecordTexts      = 0x04F454 // your record: fail, average, new record (3 lines each)
 	tblNameChars        = 0x04E2E2 // name entry: 40 characters, one per word
+	tblButtonLayouts    = 0x014FB2 // 24 layouts x 16 bytes: logical buttons per B/C/A/Z combination
+	tblLayoutButtons    = 0x0482D0 // key configuration: 24 x (dash, pass, high ball, shot) buttons, 0 B 1 C 2 A 3 Z
 )
 
 func fix(a uint32) float64 { return float64(int32(be32(a))) / 65536 }
@@ -176,6 +178,7 @@ func exportMatch(dir string) {
 				"will be in smother_lead frames (keeper_smother)",
 		},
 		"challenge":       challenge(),
+		"controls":        controls(),
 		"free_kick_spots": signedPairs(tblFreeKickSpots, 16),
 		"free_kick": map[string]any{
 			"wall_range":    0x280,
@@ -353,6 +356,36 @@ func challenge() map[string]any {
 			"is the time left and counts when the goal is within target_reach of the panel. The attempt ends on " +
 			"time up, out of play, a goal, or the other side winning the ball. Scores: time taken = 3000 - time " +
 			"(digits read as a decimal), time score = its first three digits, bonus score likewise, total = sum",
+	}
+}
+
+// controls reads the button layouts of the key configuration (tbl_button_layouts,
+// screen_key_config) as the port's logical bits.
+func controls() map[string]any {
+	var layouts [][]int
+	var buttons [][]int
+	for i := uint32(0); i < 24; i++ {
+		var row []int
+		for k := uint32(0); k < 16; k++ {
+			v := int(rom[tblButtonLayouts+16*i+k])
+			// match_players_update: $10 pass, $20 lofted, $40 dash, $80 -> shoot ($100).
+			l := v & 0x70
+			if v&0x80 != 0 {
+				l |= 0x100
+			}
+			row = append(row, l)
+		}
+		layouts = append(layouts, row)
+		buttons = append(buttons, bytesAt(tblLayoutButtons+4*i, 4))
+	}
+	return map[string]any{
+		"layouts": layouts,
+		"buttons": buttons,
+		"names":   []string{"B", "C", "A", "Z"},
+		"note": "layouts[n][combo]: the logical buttons (pass $10, lofted $20, dash $40, shoot $100) for each " +
+			"combination of B (1), C (2), A (4) and Z (8) held; buttons[n]: the button (0 B, 1 C, 2 A, 3 Z) on " +
+			"dash, pass, high ball and shot in layout n (RESET: layout 0 = A, B, C, Z). Y switches player, Mode " +
+			"+ a button picks a strategy, Mode + Y takes the goalkeeper (keeper SEMI-AUTO or MANUAL)",
 	}
 }
 

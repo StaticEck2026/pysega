@@ -67,8 +67,11 @@ var action := A_STAND
 var anim_frame := 0
 var anim_ticks := 0
 
-var energy := 10
-var energy_ticks := 0
+## obj_energy: the condition (1-4 by default, tm_condition) less a point
+## every tbl_stamina_drain[stamina] frames of sprinting; below 2 it costs top
+## speed, and it adds to the strength of kicks.
+var energy := 3
+var energy_ticks := 256
 var booked := false
 
 var input_dir := -1
@@ -220,13 +223,14 @@ func _airborne(gravity: float) -> void:
 
 
 func _stamina() -> void:
-	# tbl_stamina_drain: frames of running per energy point.
-	if speed > ISSMatchData.consts["run_speed"] + 0.1:
-		energy_ticks += 2
-	elif speed > 0.0:
-		energy_ticks += 1
-	if energy_ticks >= ISSMatchData.stamina_drain(a("stamina")):
-		energy_ticks = 0
+	# The sprint states (player_start_sprint_00662E, player_func_0069A6)
+	# count obj_energy_timer down; at zero a point goes and it starts again
+	# from tbl_stamina_drain[stamina].
+	if action != A_SPRINT:
+		return
+	energy_ticks -= 1
+	if energy_ticks < 0:
+		energy_ticks = ISSMatchData.stamina_drain(a("stamina"))
 		energy = maxi(0, energy - 1)
 
 

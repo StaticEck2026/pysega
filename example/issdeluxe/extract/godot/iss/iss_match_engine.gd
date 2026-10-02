@@ -67,6 +67,23 @@ var pk_next := [10, 10]
 var shootout_over := false
 var last_pads: Array = []
 
+## A controller playing in the match (g_control_slots, $1A bytes each): its
+## side, the player it controls and its Change control settings.
+class Slot:
+	extends RefCounted
+	var side := 0
+	var player: ISSFootballer = null
+	## TYPE A-D (slot+$A): who Y hands control to; AREA A (only players on
+	## the screen) or B (slot+$C); CURSOR CHANGE auto (0) or manual (slot+$E).
+	var type := 0
+	var area := 0
+	var manual := 0
+
+var slots: Array = []
+## The part of the stadium map on the screen (ISSMatch sets it each frame;
+## empty = all of it, as headless).
+var view := Rect2()
+
 var referee_pos := Vector2.ZERO
 var linesman_pos := Vector2.ZERO
 var event_counts := {}
@@ -121,16 +138,43 @@ func setup(home: int, away: int, opts: Dictionary) -> void:
 	mid = rect.get_center()
 	var level := int(opts.get("level", 2))
 	var pads: Array = opts.get("pads", [1, 0])
+	# The controllers: "controllers" [{side, type, area, manual}], or one per
+	# pad counted in "pads" [home, away].
+	var ctl: Array = opts.get("controllers", [])
+	if ctl.is_empty():
+		for side in 2:
+			for k in int(pads[side]):
+				ctl.append({"side": side})
+	var per_side := [0, 0]
+	for c: Dictionary in ctl:
+		var sl := Slot.new()
+		sl.side = int(c["side"])
+		sl.type = int(c.get("type", 0))
+		sl.area = int(c.get("area", 0))
+		sl.manual = int(c.get("manual", 0))
+		slots.append(sl)
+		per_side[sl.side] += 1
+	pads = per_side
 	var clash_home := int(ISSMatchData.teams[home]["kit_clash"])
 	var clash_away := int(ISSMatchData.teams[away]["kit_clash"])
 	for s in 2:
 		var t := ISSTeam.new()
 		var human: bool = int(pads[s]) > 0
+		# Handicap: condition, players on the pitch, goalkeeper skill.
+		t.condition = int(opts.get("conditions", [5, 5])[s])
+		t.on_pitch = int(opts.get("players", [11, 11])[s])
 		var formations: Array = opts.get("formations", [-1, -1])
 		# Training puts the practice team in its second kit (g_kit_away = 1).
 		var kit2 := s == 1 and (home == away or clash_home == clash_away or opts.has("training"))
 		t.setup(self, s, home if s == 0 else away, 2 if human else level, kit2, int(formations[s]))
 		t.pads = int(pads[s])
+		t.keeper_mode = int(opts.get("keepers", [0, 0])[s])
+		if opts.has("keeper_skills"):
+			t.keeper_skill = int(opts["keeper_skills"][s])
+		# screen_handicap: with fewer than 11, players 1, 2, ... stay off.
+		for i in range(1, 1 + 11 - clampi(t.on_pitch, 7, 11)):
+			t.players[i].set_state(ISSFootballer.S.SENT_OFF, ISSFootballer.A_STAND)
+			t.players[i].pos = Vector2(rect.get_center().x, rect.position.y - 300.0)
 		if human:
 			var slots: Array = opts.get("strategies", [0, 2, 4, 7])
 			t.strategy_slots = slots.duplicate()
@@ -213,6 +257,9 @@ func dispose() -> void:
 	ball.kicker = null
 	ball.last_touch = null
 	restart_taker = null
+	for sl: Slot in slots:
+		sl.player = null
+	slots.clear()
 	set_places.clear()
 	_wall.clear()
 
@@ -267,7 +314,8 @@ func all_players() -> Array[ISSFootballer]:
 
 
 # ---------------------------------------------------------------------------
-# One frame. pads[side] = {"dir": -1 or 0-63, "press": bits, "held": bits}.
+# One frame. pads[slot] = {"dir": -1 or 0-63, "press": bits, "held": bits},
+# one per controller in slots order (the home side's first).
 
 func step(pads: Array = []) -> void:
 	if over:
@@ -282,9 +330,8 @@ func step(pads: Array = []) -> void:
 		t.analyse()
 		if restart_type == R.NONE:
 			t.apply_strategy()
+	_control_all(pads)
 	for t in teams:
-		var pad: Dictionary = pads[t.side] if t.side < pads.size() and pads[t.side] != null else {}
-		_control(t, pad)
 		for p in t.active():
 			if p.human:
 				continue
@@ -320,37 +367,55 @@ func step(pads: Array = []) -> void:
 	_officials()
 
 
-## Human control: the pad drives the team's controlled player.
-func _control(t: ISSTeam, pad: Dictionary) -> void:
-	for p in t.players:
-		p.human = false
-	if t.pads == 0:
+## Human control (match_players_update): every controller drives its player.
+func _control_all(pads: Array) -> void:
+	for t in teams:
+		for p in t.players:
+			p.human = false
+	for sl: Slot in slots:
+		var c := sl.player
+		# ai_func_00F91A_8: in its AI slot a goalkeeper on AUTO is handed back
+		# to the computer unless he has the ball.
+		if c != null and c.is_keeper() and teams[sl.side].keeper_mode == 0 and ball.owner != c \
+				and (frame & 15) == c.index:
+			sl.player = null
+	for i in slots.size():
+		var pad: Dictionary = pads[i] if i < pads.size() and pads[i] != null else {}
+		_control_slot(slots[i], pad)
+	for t in teams:
 		t.controlled = null
-		return
-	var c := t.controlled
+		for sl: Slot in slots:
+			if sl.side == t.side and t.controlled == null:
+				t.controlled = sl.player
+
+
+func _control_slot(sl: Slot, pad: Dictionary) -> void:
+	var t := teams[sl.side]
+	var pressed := int(pad.get("press", 0))
+	var held := int(pad.get("held", 0))
+	var dir := int(pad.get("dir", -1))
+	var c := sl.player
+	if c != null and c.state == ISSFootballer.S.SENT_OFF:
+		c = null
 	var owner := ball.owner
-	if t.keeper_manual:
-		c = t.players[0]
-	elif owner != null and owner.team == t.side:
+	if c == null:
+		# A controller without a player takes the first free one, from
+		# player 10 down to the goalkeeper.
+		c = _first_free(t, sl)
+	elif owner == c:
+		pass
+	elif owner != null and owner.team == t.side and _free(owner, sl):
 		c = owner
-	elif restart_taker != null and restart_taker.team == t.side and restart_phase == 1:
+	elif restart_taker != null and restart_taker.team == t.side and restart_phase == 1 and _free(restart_taker, sl):
 		c = restart_taker
-	elif c == null or c.state == ISSFootballer.S.SENT_OFF or c.is_keeper():
-		c = t.nearest
-	elif int(pad.get("press", 0)) & ISSFootballer.SWITCH:
-		c = _nearest_to_ball(t, c)
-	elif frame % 16 == 0 and (owner == null or owner.team != t.side) and t.nearest != null and t.nearest != c:
-		var tgt := ball_target()
-		if (c.pos - tgt).length() - (t.nearest.pos - tgt).length() > 48.0:
-			c = t.nearest
-	t.controlled = c
+	else:
+		c = _switch(sl, c, pressed, held, dir)
+	sl.player = c
 	if c == null:
 		return
 	# Strategies: the strategy button (Mode) switches the current one off;
 	# held with dash, pass, lofted or shoot it picks the strategy assigned
 	# to that button ($184C). The kick buttons do nothing else meanwhile.
-	var pressed := int(pad.get("press", 0))
-	var held := int(pad.get("held", 0))
 	if pressed & ISSFootballer.STRATEGY:
 		t.strategy = -1
 		t.strategy_run = -1
@@ -366,22 +431,145 @@ func _control(t: ISSTeam, pad: Dictionary) -> void:
 	if restart_type != R.NONE and c != restart_taker:
 		return
 	c.human = true
-	c.input_dir = int(pad.get("dir", -1))
+	c.input_dir = dir
 	c.press |= pressed
 	c.held = held
 
 
-func _nearest_to_ball(t: ISSTeam, not_this: ISSFootballer) -> ISSFootballer:
+## Not controlled by another controller, on the pitch.
+func _free(p: ISSFootballer, sl: Slot) -> bool:
+	if p == null or p.state == ISSFootballer.S.SENT_OFF:
+		return false
+	for o: Slot in slots:
+		if o != sl and o.player == p:
+			return false
+	return true
+
+
+func _first_free(t: ISSTeam, sl: Slot) -> ISSFootballer:
+	for i in range(10, -1, -1):
+		if _free(t.players[i], sl):
+			return t.players[i]
+	return null
+
+
+## The player on the screen (AREA A); everybody without a view.
+func is_visible(p: ISSFootballer) -> bool:
+	return view.size == Vector2.ZERO or view.has_point(ISSProjection.to_map(p.pos, p.z))
+
+
+## Y and the automatic changes of control (match_players_update).
+func _switch(sl: Slot, c: ISSFootballer, pressed: int, held: int, dir: int) -> ISSFootballer:
+	var t := teams[sl.side]
+	if pressed & ISSFootballer.SWITCH:
+		if held & ISSFootballer.STRATEGY:
+			# Mode + Y: the goalkeeper (keeper SEMI-AUTO or MANUAL).
+			if t.keeper_mode != 0 and _free(t.players[0], sl):
+				return t.players[0]
+			return c
+		var n: ISSFootballer = null
+		if restart_type != R.NONE:
+			n = _next_free(sl, c, false)
+		else:
+			match sl.type:
+				1:
+					n = _closest(sl, true)
+				2:
+					n = _toward(sl, ball.pos, dir, true) if dir >= 0 else _closest(sl, false)
+				3:
+					n = _toward(sl, c.pos, dir, false) if dir >= 0 else _closest(sl, false)
+				_:
+					n = _closest(sl, false)
+		return n if n != null else c
+	if held & ISSFootballer.SWITCH:
+		return c
+	# A high ball: the team's player nearest to where it comes down.
+	if ball.z > 80.0:
+		return t.nearest if t.nearest != null and _free(t.nearest, sl) else c
+	if sl.area == 0 and not is_visible(c):
+		var v := _next_free(sl, c, true)
+		if v != null:
+			return v
+	if sl.manual == 0 and ball.team >= 0 and ball.team != t.side and restart_type == R.NONE:
+		var cand := t.nearest
+		if cand != null and not _free(cand, sl):
+			cand = t.second
+		if cand != null and _free(cand, sl) and _auto_change(t, c, cand):
+			return cand
+	return c
+
+
+## AUTO CHANGE: to the team's player nearest the ball when the controlled
+## one is caught up the pitch, or when the ball comes down within 128 px of
+## the other and not of him; never to a player 32 px or more beyond the ball.
+func _auto_change(t: ISSTeam, c: ISSFootballer, cand: ISSFootballer) -> bool:
+	var d := attack_dir(t.side)
+	var land := ball_target()
+	var beyond := ball.owner != null and (c.pos.x - ball.pos.x) * d >= 32.0
+	if not beyond:
+		if (c.pos - land).length() <= 128.0 or (cand.pos - land).length() > 128.0:
+			return false
+	return (cand.pos.x - ball.pos.x) * d < 32.0 and is_visible(cand)
+
+
+## TYPE A: the free player nearest the ball; TYPE B (goal_side): only those
+## between the ball and their own goal while it is held.
+func _closest(sl: Slot, goal_side: bool) -> ISSFootballer:
+	var t := teams[sl.side]
+	var d := attack_dir(t.side)
 	var best: ISSFootballer = null
 	var best_d := INF
-	for p in t.active():
-		if p == not_this or p.is_keeper():
+	for i in range(1, 11):
+		var p := t.players[i]
+		if not _free(p, sl) or p == sl.player:
 			continue
-		var d := (p.pos - ball.pos).length()
-		if d < best_d:
-			best_d = d
+		if goal_side and ball.owner != null and (p.pos.x - ball.pos.x) * d >= 0.0:
+			continue
+		var dist := (p.pos - ball.pos).length()
+		if dist < best_d:
+			best_d = dist
 			best = p
-	return best if best != null else not_this
+	return best
+
+
+## TYPE C (from the ball, nearest it) and D (from the controlled player,
+## nearest him): the free player within 8 of the pad's direction.
+func _toward(sl: Slot, from: Vector2, dir: int, ball_dist: bool) -> ISSFootballer:
+	var t := teams[sl.side]
+	var best: ISSFootballer = null
+	var best_d := INF
+	for i in range(1, 11):
+		var p := t.players[i]
+		if not _free(p, sl) or p == sl.player:
+			continue
+		var a := ISSFootballer.angle_diff(ISSFootballer.heading_to(from, p.pos), dir)
+		if absf(a) >= 8.0:
+			continue
+		var dist := (p.pos - ball.pos).length() if ball_dist else absf(p.pos.x - from.x) + absf(p.pos.y - from.y)
+		if dist < best_d:
+			best_d = dist
+			best = p
+	return best
+
+
+## The next free player after c in squad order (players 1-10), on the
+## screen if asked.
+func _next_free(sl: Slot, c: ISSFootballer, visible: bool) -> ISSFootballer:
+	var t := teams[sl.side]
+	var at := c.index if c != null else 0
+	for k in range(1, 11):
+		var p := t.players[(at - 1 + k) % 10 + 1]
+		if p != c and _free(p, sl) and (not visible or is_visible(p)):
+			return p
+	return null
+
+
+## The pad of a side's first controller ({} when it has none).
+func side_pad(side: int) -> Dictionary:
+	for i in slots.size():
+		if slots[i].side == side:
+			return last_pads[i] if i < last_pads.size() and last_pads[i] != null else {}
+	return {}
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +707,9 @@ func _foul(fouler: ISSFootballer, victim: ISSFootballer, severe: bool) -> void:
 	emit_sound(0x48)
 	var own_goal_x := goal_center(fouler.team).x
 	var penalty := absf(victim.pos.x - own_goal_x) < float(ISSMatchData.consts["penalty_distance"])
-	if bool(options.get("cards", true)) and (severe and randi() % 2 == 0 or randi() % 5 == 0):
+	# No cards for a side already down to seven (tm_players 0).
+	if bool(options.get("cards", true)) and teams[fouler.team].active().size() > 7 \
+			and (severe and randi() % 2 == 0 or randi() % 5 == 0):
 		if fouler.booked:
 			_send_off(fouler)
 			banner.emit("red_card")
@@ -589,7 +779,6 @@ func head_ball(p: ISSFootballer) -> void:
 		b.launch(p, p.kick_heading, 3.0, 1.5, b.z)
 		emit_sound(0x56)
 	_mark_offside(p)
-	_auto_switch(p)
 
 
 ## The ball leaves the kicker's foot (or hands).
@@ -612,7 +801,8 @@ func kick_ball(p: ISSFootballer) -> void:
 	var v := 0.0
 	var z0 := 0.0
 	var sfx := 0x56
-	var bonus := float(p.a("shot_power") + ISSMatchData.position_bonus(p.position))
+	# Kicks gain strength with the shot power, the position and the energy.
+	var bonus := float(p.a("shot_power") + ISSMatchData.position_bonus(p.position) + p.energy)
 	match kind:
 		ISSFootballer.K.PASS, ISSFootballer.K.KICKOFF:
 			var k: Array = ISSMatchData.kick("pass")
@@ -663,7 +853,6 @@ func kick_ball(p: ISSFootballer) -> void:
 	# No offside from throw-ins, goal kicks and corners.
 	if was not in [R.THROW_IN, R.GOAL_KICK, R.CORNER] and kind != ISSFootballer.K.SHOT:
 		_mark_offside(p)
-	_auto_switch(p)
 
 
 ## A human's shot goes at the goal when he faces it: up or down on the pad
@@ -701,25 +890,6 @@ func _assist(p: ISSFootballer, h: float) -> ISSFootballer:
 			best_score = score
 			best = m
 	return best
-
-
-## After a human team kicks, control moves to the team-mate nearest to where it lands.
-func _auto_switch(p: ISSFootballer) -> void:
-	var t := teams[p.team]
-	if t.pads == 0:
-		return
-	var land: Vector2 = ball.landing()[0]
-	var best: ISSFootballer = null
-	var best_d := INF
-	for m in t.active():
-		if m == p or m.is_keeper():
-			continue
-		var d := (m.pos - land).length()
-		if d < best_d:
-			best_d = d
-			best = m
-	if best != null:
-		t.controlled = best
 
 
 ## Offside (match_rules_update): when a pass is played, the team's players
@@ -1216,8 +1386,8 @@ func _cpu_set_piece(p: ISSFootballer) -> void:
 func _penalty_keeper(k: ISSFootballer) -> void:
 	var side := k.team
 	var dir := -1
-	if teams[side].pads > 0 and side < last_pads.size() and last_pads[side] != null:
-		var d: int = last_pads[side].get("dir", -1)
+	if teams[side].pads > 0:
+		var d: int = side_pad(side).get("dir", -1)
 		if d >= 0:
 			var v := ISSProjection.heading_vector(d)
 			dir = 0 if v.y < -0.3 else (1 if v.y > 0.3 else 2)
@@ -1434,8 +1604,8 @@ func start_drill(n: int) -> void:
 	ball_entered = true
 	var home := teams[0]
 	var away := teams[1]
-	# tm_keeper_manual = 2: the pad drives the home keeper.
-	home.keeper_manual = n == 3
+	# tm_keeper_manual = 2: the home keeper is the pad's (the only player on).
+	home.keeper_mode = 2 if n == 3 else int(options.get("keepers", [0, 0])[0])
 	_reset_players()
 	match n:
 		0:

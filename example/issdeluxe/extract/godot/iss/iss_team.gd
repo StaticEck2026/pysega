@@ -44,9 +44,16 @@ var strategy_slots := [-1, -1, -1, -1]
 ## Substitutions left (screen_select_squad: up to 3).
 var subs_left := 3
 
-## tm_keeper_manual (+$10 = 2): the pad drives the goalkeeper, not the
-## keeper AI (the keeper training drill).
-var keeper_manual := false
+## tm_keeper_manual (+$10, key configuration KEEPER): 0 AUTO (the computer
+## plays the goalkeeper; a pad only while he holds the ball), 1 SEMI-AUTO
+## (Mode + Y gives him to the pad until changed), 2 MANUAL (the same, and
+## without a pad he only keeps his place: no rushing out or diving).
+var keeper_mode := 0
+
+## Handicap (screen_handicap): tm_condition 0-4 or 5 random, and tm_players
+## (players on the pitch - 7, a sending-off takes one off).
+var condition := 5
+var on_pitch := 11
 
 var score := 0
 var stats := {"shots": 0, "fouls": 0, "corners": 0, "free_kicks": 0, "penalties": 0,
@@ -75,6 +82,8 @@ func setup(engine: ISSMatchEngine, s: int, team: int, level: int, kit2: bool, fo
 	for i in squad.size():
 		var rec: Dictionary = squad[i]
 		if i >= 11:
+			rec = rec.duplicate()
+			rec["energy"] = condition_energy()
 			bench.append(rec)
 			continue
 		var p := ISSFootballer.new()
@@ -86,6 +95,7 @@ func setup(engine: ISSMatchEngine, s: int, team: int, level: int, kit2: bool, fo
 		p.hair = int(rec["hair"])
 		p.position = ["forward", "midfielder", "defender", "goalkeeper", "attacking type 4", "defensive type 5"].find(rec["position"])
 		p.attr = rec["attributes"]
+		p.energy = condition_energy()
 		var slot: Dictionary = layout[i]
 		p.role = ["attack", "midfield", "defence", "goalkeeper"].find(slot["role"])
 		p.form = Vector2(int(slot["form_x"]), int(slot["form_y"]))
@@ -109,11 +119,19 @@ func substitute(i: int, bench_index: int) -> bool:
 	p.hair = int(rec["hair"])
 	p.position = ["forward", "midfielder", "defender", "goalkeeper", "attacking type 4", "defensive type 5"].find(rec["position"])
 	p.attr = rec["attributes"]
-	p.energy = 10
-	p.energy_ticks = 0
+	p.energy = int(rec.get("energy", condition_energy()))
+	p.energy_ticks = 256
 	p.booked = false
 	subs_left -= 1
 	return true
+
+
+## rules_func_014D8A: each player's starting energy is the condition, or
+## (condition 5, the default) one of 1, 2, 2, 3, 3, 3, 4, 4 at random.
+func condition_energy() -> int:
+	if condition < 5:
+		return condition
+	return [1, 2, 2, 3, 3, 3, 4, 4][randi() % 8]
 
 
 func dir() -> float:
@@ -418,7 +436,8 @@ func steer(p: ISSFootballer) -> void:
 				strategy_run = -1
 		AI.KEEPER:
 			target = _keeper_spot(p)
-			_keeper_save(p)
+			if keeper_mode != 2:
+				_keeper_save(p)
 		AI.SET_PIECE, AI.WAIT:
 			p.input_dir = -1
 			p.held = 0
@@ -583,6 +602,9 @@ func _keeper_think(p: ISSFootballer) -> void:
 			p.start_kick(ISSFootballer.K.LOFT, 16.0 if dir() > 0.0 else 48.0, null, 7)
 		return
 	p.ai_mode = AI.KEEPER
+	# MANUAL: without a pad he only keeps his place.
+	if keeper_mode == 2:
+		return
 	if b.live and eng.restart_type == ISSMatchEngine.R.NONE and b.is_loose():
 		var goal := own_goal()
 		var land: Vector2 = b.landing()[0]
@@ -609,11 +631,12 @@ func _keeper_steer(p: ISSFootballer) -> void:
 		dash = true
 	elif eng.restart_type != ISSMatchEngine.R.NONE:
 		target = eng.restart_place(p)
-	var shot := _incoming(p)
+	var shot := _incoming(p) if keeper_mode != 2 else []
 	if not shot.is_empty():
 		target = Vector2(p.pos.x, clampf(shot[1], own_goal().y - 90.0, own_goal().y + 90.0))
 		dash = true
-	_keeper_save(p)
+	if keeper_mode != 2:
+		_keeper_save(p)
 	if p.busy():
 		return
 	var d := target - p.pos

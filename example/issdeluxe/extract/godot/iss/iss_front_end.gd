@@ -171,8 +171,9 @@ func _physics_process(_delta: float) -> void:
 		if _held_frames == 1 or (_held_frames > 20 and _held_frames % 8 == 0):
 			var v := ISSProjection.heading_vector(dir)
 			moved = Vector2i(roundi(v.x), roundi(v.y))
-	var ok: bool = pad["press"] & (ISSFootballer.PASS | ISSFootballer.LOFT) or ISSInput.start_pressed(0)
-	var back: bool = pad["press"] & ISSFootballer.SHOOT
+	# The screens' own legend: C confirms, B cancels (Start confirms too).
+	var ok: bool = pad["raw_press"] & ISSInput.C or ISSInput.start_pressed(0)
+	var back: bool = pad["raw_press"] & ISSInput.B
 	match page:
 		Page.MAIN:
 			_main(moved, ok)
