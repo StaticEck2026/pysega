@@ -75,6 +75,10 @@ class Obj:
 
 var vdp := ISSVdp.new()
 var sound := ISSSound.new()
+## Figures drawn with the match's sprite classes over the VDP picture (the
+## rules screen's referees, the edit screens' players); cleared with each
+## screen.
+var figures := Node2D.new()
 ## The active object list, newest first (obj_alloc links at the head).
 var objs: Array[Obj] = []
 ## The current object (a5) while its callbacks run.
@@ -89,8 +93,9 @@ func _init() -> void:
 	ISSRom.ensure_loaded()
 	ISSInput.ensure_actions()
 	add_child(vdp)
+	add_child(figures)
 	add_child(sound)
-	_modules = [ISSScreensMain.new(self), ISSScreensPrematch.new(self)]
+	_modules = [ISSScreensMain.new(self), ISSScreensPrematch.new(self), ISSScreensOptions.new(self)]
 	for mod in _modules:
 		mod.register(_handlers)
 
@@ -602,6 +607,8 @@ func screen_load() -> void:
 		var gi := w(0x1630) * 2 + (0 if w(S.g_weather) == 1 else 6)
 		unpack(25, 3 + gi / 2, 0xFF0000 | S.g_palette_target)
 		unpack(23, 2, 0xFF0796)
+	for f in figures.get_children():
+		f.queue_free()
 	var h: Callable = _handlers.get(scr, Callable())
 	if h.is_valid():
 		h.call()
@@ -891,6 +898,28 @@ func pad_icon_draw(icon: int, x: int, y: int) -> void:
 func icon_draw_small(set: int, x: int, y: int) -> void:
 	var t := set * 8 + ((a5.w(O_TIMER) >> 2) & 7) + (w(0x176E) >> 5)
 	sprite(y + 0x80, 0x00, t | 0xC000, _sx(x))
+
+
+## engine_load_01F80E: the animated tiles of the edit screens' faces and
+## figures, from the unpacked set at $1770 (group 4 entry 35): five strips
+## stepped on staggered frames.
+func anim_tiles() -> void:
+	var fc := w(S.g_frame_counter)
+	var src := l(0x1770)
+	var vram := w(S.g_stadium_vram)
+	var strip := func(table: String, frame: int, count: int, dst: int, n: int) -> void:
+		var off := ISSRom.u16(ISSRom.addr(table) + 2 * (frame % count))
+		vram_dma(vram + dst, src + off, n)
+	if fc & 0xF == 0:
+		strip.call("tbl_anim_tiles_1", fc >> 4, 6, 0x3C00, 0x40)
+	elif (fc + 1) & 0xF == 0:
+		strip.call("tbl_anim_tiles_2", fc >> 4, 7, 0x3C40, 0x80)
+	elif (fc + 2) & 7 == 0:
+		strip.call("tbl_anim_tiles_3", fc >> 3, 9, 0x3CC0, 0x80)
+	elif (fc + 3) & 7 == 0:
+		strip.call("tbl_anim_tiles_4", fc >> 3, 7, 0x3D40, 0x40)
+	elif (fc + 5) & 3 == 0:
+		strip.call("tbl_anim_tiles_5", fc >> 2, 12, 0x3D80, 0x40)
 
 
 ## A ROM string (bytes up to $FF) by symbol, optionally at an offset.

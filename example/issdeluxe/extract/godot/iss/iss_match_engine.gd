@@ -166,6 +166,9 @@ func setup(home: int, away: int, opts: Dictionary) -> void:
 		var formations: Array = opts.get("formations", [-1, -1])
 		# Training puts the practice team in its second kit (g_kit_away = 1).
 		var kit2 := s == 1 and (home == away or clash_home == clash_away or opts.has("training"))
+		if opts.has("kits"):
+			# The front end's choice (g_kit_home / g_kit_away: 1 = second kit).
+			kit2 = int(opts["kits"][s]) == 1
 		t.setup(self, s, home if s == 0 else away, 2 if human else level, kit2, int(formations[s]))
 		t.pads = int(pads[s])
 		t.keeper_mode = int(opts.get("keepers", [0, 0])[s])
@@ -175,7 +178,10 @@ func setup(home: int, away: int, opts: Dictionary) -> void:
 		for i in range(1, 1 + 11 - clampi(t.on_pitch, 7, 11)):
 			t.players[i].set_state(ISSFootballer.S.SENT_OFF, ISSFootballer.A_STAND)
 			t.players[i].pos = Vector2(rect.get_center().x, rect.position.y - 300.0)
-		if human:
+		if opts.has("strategies_by_side"):
+			# tm_strategy_slots as screen_strategy left them (-1 = none).
+			t.strategy_slots = (opts["strategies_by_side"][s] as Array).duplicate()
+		elif human:
 			var slots: Array = opts.get("strategies", [0, 2, 4, 7])
 			t.strategy_slots = slots.duplicate()
 		teams.append(t)

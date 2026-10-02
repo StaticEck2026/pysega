@@ -141,6 +141,18 @@ func traceOptions() analysis.Options {
 		},
 		Data: []analysis.Range{
 			{Start: archiveStart, End: archiveEnd},
+			// Tables read through lea that decode as valid instructions.
+			{Start: 0x003B92, End: 0x003BAA}, // keeper side step frames
+			{Start: 0x003E74, End: 0x003E94}, // keeper roll frames
+			{Start: 0x01015A, End: 0x010164}, // keeper: landing distances
+			{Start: 0x018A6E, End: 0x018A7A}, // HUD: a 12-character label
+			{Start: 0x01A3E8, End: 0x01A408}, // shoot-out: per-stadium values
+			{Start: 0x0402FE, End: 0x04032E}, // handicap: home condition boxes
+			{Start: 0x0458FA, End: 0x04590A}, // strategy screen boxes
+			{Start: 0x04B858, End: 0x04B870}, // team colours: kit part marks
+			{Start: 0x04D2B6, End: 0x04D2C6}, // options: stereo / mono boxes
+			{Start: 0x04D84E, End: 0x04D85E}, // rules: yes / no boxes
+			{Start: 0x055EA0, End: 0x055EAA}, // World Series table: a label
 			{Start: bootCodeEnd, End: soundStart},
 			{Start: z80Start, End: z80End},
 		},

@@ -133,9 +133,11 @@ segments:
       - {offset: 0x37A8, type: data_word, length: 12}
       - {offset: 0x3836, type: data_word, length: 24}
       - {offset: 0x38DE, type: data_word, length: 4}
+      - {offset: 0x3992, type: data_word, length: 24}
       - {offset: 0x3A4E, type: data_word, length: 32}
       - {offset: 0x3B14, type: data_word, length: 12}
       - {offset: 0x3BDA, type: data_word, length: 16}
+      - {offset: 0x3C74, type: data_word, length: 32}
 
   - name: main_004294
     type: m68k
@@ -217,6 +219,7 @@ segments:
       - {offset: 0x11CE, type: data_word, length: 6}
       - {offset: 0x11D4, type: data_word, length: 10}
       - {offset: 0x2E42, type: ptr_table, length: 16}
+      - {offset: 0x3C24, type: data_word, length: 10}
 
   - name: main_010650
     type: m68k
@@ -272,6 +275,7 @@ segments:
       - {offset: 0x01BA, type: data_word, length: 12}
       - {offset: 0x01C6, type: data_word, length: 12}
       - {offset: 0x01D2, type: data_word, length: 12}
+      - {offset: 0x01DE, type: data_word, length: 12}
       - {offset: 0x0862, type: data_word, length: 16}
       - {offset: 0x0872, type: data_word, length: 52}
       - {offset: 0x0946, type: data_word, length: 24}
@@ -284,6 +288,8 @@ segments:
       - {offset: 0x0C6A, type: data_word, length: 176}
       - {offset: 0x0D1A, type: data_word, length: 432}
       - {offset: 0x0ECA, type: ptr_table, length: 56}
+      - {offset: 0x1B58, type: data_word, length: 16}
+      - {offset: 0x1B68, type: data_word, length: 16}
       - {offset: 0x2316, type: data_word, length: 48}
       - {offset: 0x2346, type: data_word, length: 16}
       - {offset: 0x2356, type: data_word, length: 16}
@@ -860,6 +866,7 @@ segments:
       - {offset: 0x05AA, type: data_word, length: 24}
       - {offset: 0x05C2, type: data_word, length: 122}
       - {offset: 0x0AD8, type: data_word, length: 124}
+      - {offset: 0x0C4A, type: data_word, length: 48}
       - {offset: 0x0D92, type: text, length: 20}
       - {offset: 0x0ECA, type: data_word, length: 40}
       - {offset: 0x0FE8, type: data_word, length: 48}
@@ -882,6 +889,7 @@ segments:
     hints:
       - {offset: 0x192A, type: data_word, length: 26}
       - {offset: 0x1FC8, type: data_word, length: 24}
+      - {offset: 0x216A, type: data_word, length: 16}
       - {offset: 0x2436, type: data_word, length: 32}
       - {offset: 0x260C, type: data_word, length: 64}
 
@@ -929,6 +937,7 @@ segments:
       - {offset: 0x1E26, type: data_word, length: 26}
       - {offset: 0x2092, type: data_word, length: 24}
       - {offset: 0x21F2, type: data_word, length: 24}
+      - {offset: 0x249C, type: data_word, length: 24}
       - {offset: 0x2770, type: data_word, length: 24}
       - {offset: 0x2B90, type: data_word, length: 24}
       - {offset: 0x2CF0, type: data_word, length: 24}
@@ -946,6 +955,7 @@ segments:
       - {offset: 0x3A92, type: data_word, length: 10}
       - {offset: 0x3C78, type: data_word, length: 40}
       - {offset: 0x3DE8, type: data_word, length: 24}
+      - {offset: 0x3EFA, type: data_word, length: 16}
 
   - name: main_04D480
     type: m68k
@@ -956,6 +966,7 @@ segments:
       - {offset: 0x0016, type: data_word, length: 26}
       - {offset: 0x01BA, type: data_word, length: 16}
       - {offset: 0x02C4, type: data_word, length: 16}
+      - {offset: 0x03CE, type: data_word, length: 16}
       - {offset: 0x04D8, type: data_word, length: 16}
       - {offset: 0x0690, type: data_word, length: 32}
       - {offset: 0x0788, type: data_word, length: 18}
@@ -1064,6 +1075,7 @@ segments:
       - {offset: 0x2A98, type: data_word, length: 22}
       - {offset: 0x2AAE, type: data_word, length: 12}
       - {offset: 0x2ABA, type: text, length: 10}
+      - {offset: 0x2AC4, type: text, length: 10}
       - {offset: 0x2F66, type: data_word, length: 122}
       - {offset: 0x2FE0, type: data_word, length: 8}
       - {offset: 0x2FE8, type: data_word, length: 22}

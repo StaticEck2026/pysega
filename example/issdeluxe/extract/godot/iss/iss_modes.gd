@@ -281,7 +281,7 @@ static func team_info_init() -> void:
 	for side in 2:
 		_team_formation(side)
 	for side in 2:
-		var v := 999 if ISSRam.w(0x125C) != 0 else ISSRom.u16(ISSRom.addr("misc_data_03AA3C") + teams[side] * 2)
+		var v := 999 if ISSRam.w(0x125C) != 0 else ISSRom.u16(ISSRom.addr("tbl_edit_points") + teams[side] * 2)
 		var t: int = [home, away][side]
 		_w(t + 0x14, v)
 		_w(t + 0x16, v)
@@ -340,7 +340,7 @@ static func _team_formation(side: int) -> void:
 ## rules_func_014D8A: each player's energy from the team's condition, or
 ## at random from [1, 2, 2, 3, 3, 3, 4, 4] for condition 5.
 static func _energy() -> void:
-	var tbl := ISSRom.addr("rules_func_014D8A_data")
+	var tbl := ISSRom.addr("tbl_random_condition")
 	for side in 2:
 		var cond := ISSRam.w([S.g_team_home_info, S.g_team_away_info][side] + TM_CONDITION)
 		var obj: int = [S.g_team_home_players, S.g_team_away_players][side]

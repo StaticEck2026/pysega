@@ -59,9 +59,9 @@ func screen_main_menu_2(o: ISSMenu.Obj) -> void:
 	# labels as sprites (tiles $336 + of the screen, line 1 when chosen).
 	m.rect_unhighlight_all(0, 0x100, 0x10, 0xD0)
 	o.add_w(T, 1)
-	var r := rom("screen_main_menu_2_data") + w(S.g_menu_item) * 8
+	var r := rom("tbl_main_menu_boxes") + w(S.g_menu_item) * 8
 	m.rect_flash(ISSRom.u16(r), ISSRom.u16(r + 2), ISSRom.u16(r + 4), ISSRom.u16(r + 6))
-	var a := rom("screen_main_menu_2_data2")
+	var a := rom("tbl_main_menu_labels")
 	for i in 8:
 		var attr := (w(S.g_stadium_vram) >> 5) + (0xA336 if i == w(S.g_menu_item) else 0x8336)
 		while true:
@@ -146,7 +146,7 @@ func screen_main_menu_4(_o: ISSMenu.Obj) -> void:
 	var d5 := w(S.g_pad_pressed_any)
 	if d5 == 0:
 		return
-	var seq := rom("screen_main_menu_4_data")
+	var seq := rom("tbl_button_codes")
 	for i in 4:
 		var at := 0x125A + 2 * i
 		var pos := w(at)

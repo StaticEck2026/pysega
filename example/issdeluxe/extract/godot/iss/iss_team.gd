@@ -79,6 +79,9 @@ func setup(engine: ISSMatchEngine, s: int, team: int, level: int, kit2: bool, fo
 		layout = ISSMatchData.formations[formation]["layout"]
 	kickoff_layout = ISSMatchData.formations[formation]["kickoff"]
 	var squad: Array = t["players"]
+	var picked: Array = engine.options.get("squads", [[], []])[s]
+	if not picked.is_empty():
+		squad = _squad_from(squad, picked)
 	for i in squad.size():
 		var rec: Dictionary = squad[i]
 		if i >= 11:
@@ -95,13 +98,31 @@ func setup(engine: ISSMatchEngine, s: int, team: int, level: int, kit2: bool, fo
 		p.hair = int(rec["hair"])
 		p.position = ["forward", "midfielder", "defender", "goalkeeper", "attacking type 4", "defensive type 5"].find(rec["position"])
 		p.attr = rec["attributes"]
-		p.energy = condition_energy()
-		var slot: Dictionary = layout[i]
+		p.energy = int(rec["energy"]) if rec.has("energy") else condition_energy()
+		var slot: Dictionary = rec["slot"] if rec.has("slot") else layout[i]
 		p.role = ["attack", "midfield", "defence", "goalkeeper"].find(slot["role"])
 		p.form = Vector2(int(slot["form_x"]), int(slot["form_y"]))
 		if i == 0:
 			p.ai_mode = AI.KEEPER
 		players.append(p)
+
+
+## The squad as the front end left it in RAM (ISSMatchSetup): the players
+## in their order there, each with the record (attributes possibly edited),
+## energy and place in the formation it holds.
+static func _squad_from(team_players: Array, picked: Array) -> Array:
+	var out := []
+	for e: Dictionary in picked:
+		var rec: Dictionary = team_players[int(e["index"])].duplicate()
+		rec["attributes"] = e["attributes"]
+		rec["number"] = e["number"]
+		rec["hair"] = e["hair"]
+		rec["position"] = e["position"]
+		rec["energy"] = e["energy"]
+		if e.has("slot"):
+			rec["slot"] = e["slot"]
+		out.append(rec)
+	return out
 
 
 ## Send bench player bench_index on for the player at pitch index i; he
