@@ -26,9 +26,7 @@ var _music := AudioStreamPlayer.new()
 
 
 func _ready() -> void:
-	_doc = JSON.parse_string(FileAccess.get_file_as_string(DIR + "sound.json"))
-	if FileAccess.file_exists(RENDERED):
-		_rendered = JSON.parse_string(FileAccess.get_file_as_string(RENDERED))
+	_load()
 	for i in _doc["driver"]["channels"].size():
 		var p := AudioStreamPlayer.new()
 		p.finished.connect(func() -> void: _priority[i] = 0)
@@ -38,8 +36,18 @@ func _ready() -> void:
 	add_child(_music)
 
 
+## The sound index (also when asked for a stream before _ready).
+func _load() -> void:
+	if not _doc.is_empty():
+		return
+	_doc = JSON.parse_string(FileAccess.get_file_as_string(DIR + "sound.json"))
+	if FileAccess.file_exists(RENDERED):
+		_rendered = JSON.parse_string(FileAccess.get_file_as_string(RENDERED))
+
+
 ## The stream for effect id, or null (no audio for it in this ROM or export).
 func sfx_stream(id: int) -> AudioStream:
+	_load()
 	if id < 0 or id >= _doc["sfx"].size():
 		return null
 	var s: Dictionary = _doc["sfx"][id]
@@ -63,7 +71,7 @@ func has_sfx(id: int) -> bool:
 ## Plays effect id (sound_play_sfx).
 func play_sfx(id: int) -> bool:
 	var stream := sfx_stream(id)
-	if stream == null:
+	if stream == null or _channels.is_empty():
 		return false
 	var s: Dictionary = _doc["sfx"][id]
 	var ch: int = maxi(0, _doc["driver"]["channels"].find(s.get("channel", "")))
@@ -103,6 +111,7 @@ func _process(delta: float) -> void:
 
 ## Plays song id (sound_play_music d0); false if there is no audio for it.
 func play_music(id: int) -> bool:
+	_load()
 	var own := MUSIC_DIR + "song_%02d.ogg" % id
 	if ResourceLoader.exists(own):
 		_music.stream = load(own)

@@ -58,6 +58,13 @@ var form := Vector2.ZERO
 ## obj_mark: the opponent (pitch index 1-10) this player man-marks
 ## (screen_man_marking), -1 none.
 var mark := -1
+## The player object he is in the front end's RAM (0-10 on the pitch,
+## 11-19 the bench; -1 without one), his record in the team's squad
+## (+$56) and his g_player_status byte (bit 7 booked in this match, bits
+## 0-2 the yellow cards so far, 4 = suspended).
+var ram_slot := -1
+var record := 0
+var status := 0
 
 var pos := Vector2.ZERO
 var z := 0.0

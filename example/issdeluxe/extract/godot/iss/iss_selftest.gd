@@ -106,6 +106,7 @@ func _init() -> void:
 	_check_match_engine()
 	_check_human_control()
 	_check_knockout()
+	_check_ram_halves()
 	_check_competitions()
 	_check_strategies_and_subs()
 	_check_long_modes()
@@ -200,19 +201,109 @@ func _check_human_control() -> void:
 	e.dispose()
 
 
-## The game scene: front end first, then a match on screen.
+## The game: the main menu first; an open game's first half played from
+## RAM ends on the statistics (screen $39), which go on by themselves
+## without human pads to the match menu (screen 6) for the second half
+## with the ends changed.
 func _check_game() -> void:
 	var game: ISSGame = load("res://iss/iss_game.tscn").instantiate()
 	root.add_child(game)
 	for i in 5:
 		await process_frame
-	game._start_match(3, 4, {"stadium": 2, "weather": 2, "time": 1, "level": 2, "pads": [0, 0], "half_seconds": 30})
-	for i in 120:
+	_check(game._screen is ISSMenu and ISSRam.w(ISSSym.g_screen) == 0, "the game starts on the main menu")
+	ISSModes.start_open_game()
+	ISSModes.open_game_setup()
+	ISSRam.set_w(0x153E, 0)
+	ISSRam.set_w(ISSSym.g_pads_home, 0)
+	_short_clock(8)
+	var left := ISSRam.w(ISSSym.g_left_goal_team)
+	Engine.time_scale = 8.0
+	Engine.max_physics_steps_per_frame = 64
+	game._state(ISSMenu.STATE_MATCH)
+	for i in 30:
 		await physics_frame
 	var m := game._screen as ISSMatch
-	_check(m != null and m.engine.frame > 60, "match runs on screen")
+	_check(m != null and m.engine.half_only and m.engine.frame > 10, "a half runs on screen")
+	var seen := false
+	for i in 60 * 30:
+		await physics_frame
+		if game._screen is ISSMenu and ISSRam.w(ISSSym.g_screen) == 0x39:
+			seen = true
+		if seen and ISSRam.w(ISSSym.g_screen) == 6:
+			break
+	_check(seen, "the half ends on the match statistics")
+	_check(ISSRam.w(ISSSym.g_screen) == 6 and ISSRam.w(ISSSym.g_half) == 1 and ISSRam.w(0x1638) == 1 \
+		and ISSRam.w(ISSSym.g_left_goal_team) == left ^ 1 and ISSRam.w(ISSSym.g_restart_type) == 4,
+		"then the match menu for the second half, ends changed")
+	Engine.time_scale = 1.0
 	game.queue_free()
 	await process_frame
+
+
+## A short half on g_match_clock (seconds).
+func _short_clock(seconds: int) -> void:
+	ISSRam.set_l(ISSSym.g_match_clock, 0)
+	ISSRam.set_b(ISSSym.g_match_clock + 1, seconds / 10)
+	ISSRam.set_b(ISSSym.g_match_clock + 2, seconds % 10)
+
+
+## state_match from RAM: one half that stops at half time, the match
+## written back; a side asking for the match menu leaves at the next
+## restart, which the next start takes up again; V-goal extra time ends on
+## a goal.
+func _check_ram_halves() -> void:
+	seed(5)
+	ISSMenu.power_on()
+	ISSModes.start_open_game()
+	ISSModes.open_game_setup()
+	ISSRam.set_w(ISSSym.g_pads_home, 0)
+	_short_clock(20)
+	var setup := ISSMatchSetup.from_ram()
+	var e := ISSMatchEngine.new()
+	e.setup(int(setup["home"]), int(setup["away"]), setup["options"])
+	var frames := 0
+	while not e.over and frames < 60 * 60:
+		e.step([])
+		frames += 1
+	_check(e.over and e.end_reason == "half" and e.half == 0, "a half from RAM stops at half time")
+	e.teams[0].stats["corners"] = 3
+	e.teams[1].players[4].energy = 1
+	ISSMatchSetup.to_ram(e)
+	var away4: int = ISSSym.g_team_away_players + e.teams[1].players[4].ram_slot * ISSModes.PLAYER_SIZE
+	_check(ISSRam.w(ISSSym.g_score_home) == e.teams[0].score and ISSRam.w(ISSSym.g_stats_home + 4) == 3 \
+		and ISSRam.b(away4 + 0x57) == 1 and ISSMatchSetup.clock_frames() == 0, "the half written back to RAM")
+	e.dispose()
+	_short_clock(50)
+	ISSRam.set_w(ISSSym.g_restart_type, 4)
+	setup = ISSMatchSetup.from_ram()
+	e = ISSMatchEngine.new()
+	e.setup(int(setup["home"]), int(setup["away"]), setup["options"])
+	e.menu_request[0] = 1
+	frames = 0
+	while not e.over and frames < 60 * 60:
+		e.step([])
+		frames += 1
+	var waiting := e.restart_type
+	_check(e.end_reason == "menu" and waiting in [0, 1, 2, 5, 6, 20], "the match menu at the next restart (%s, %d)" % [e.end_reason, waiting])
+	ISSMatchSetup.to_ram(e)
+	_check(ISSRam.w(0x182A) == 0 and ISSMatchSetup.clock_frames() > 0, "the request taken, the clock kept")
+	e.dispose()
+	setup = ISSMatchSetup.from_ram()
+	e = ISSMatchEngine.new()
+	e.setup(int(setup["home"]), int(setup["away"]), setup["options"])
+	_check(e.restart_type == (5 if waiting == 20 else waiting), "the restart taken up again")
+	e.dispose()
+	var g := ISSMatchEngine.new()
+	g.setup(0, 1, {"pads": [0, 0], "half_seconds": 20, "knockout": true, "vgoal": 0})
+	g.half = 2
+	g.ball.live = true
+	g._goal(1)
+	frames = 0
+	while not g.over and frames < 60 * 20:
+		g.step([])
+		frames += 1
+	_check(g.over and not g.shootout and g.half == 2, "V-goal: a goal in extra time ends the match")
+	g.dispose()
 
 
 ## A level knockout match goes through extra time to a shoot-out that ends
@@ -220,7 +311,7 @@ func _check_game() -> void:
 func _check_knockout() -> void:
 	seed(21)
 	var e := ISSMatchEngine.new()
-	e.setup(0, 1, {"pads": [0, 0], "half_seconds": 20, "knockout": true, "vgoal": 0})
+	e.setup(0, 1, {"pads": [0, 0], "half_seconds": 20, "knockout": true, "vgoal": 1})
 	var halves := {}
 	var frames := 0
 	while not e.over and frames < 60 * 60 * 20:

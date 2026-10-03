@@ -31,6 +31,9 @@ var _cam := Vector2.ZERO
 var _lead := Vector2.ZERO
 var _cam_z := 0.0
 var _end_wait := -1
+var _fade := ColorRect.new()
+## fade_out_start: the frames the picture takes to go black.
+const FADE := 16
 
 
 ## The pause menu (continue, substitutions) and the penalty tally during a
@@ -45,10 +48,15 @@ class PauseText:
 	var team: ISSTeam = null
 	## A challenge's pause (match_rules_update_9): no menu, Start resumes.
 	var plain := false
+	## A match played from the front end: the second item asks for the
+	## match menu (screen 6) at the next dead ball, as X does.
+	var requests := false
 
 	func items() -> Array:
 		if plain:
 			return []
+		if requests:
+			return ["CONTINUE", "MATCH MENU"]
 		match menu:
 			1:
 				var out := []
@@ -209,11 +217,19 @@ func start(home: int, away: int, opts: Dictionary) -> void:
 	engine.speech.connect(_sound.say)
 	engine.banner.connect(_hud.show_banner)
 	engine.banner_off.connect(_hud.hide_banner)
-	engine.finished.connect(func() -> void: _end_wait = 180 if engine.challenge < 0 else 1)
+	engine.finished.connect(func() -> void: _end_wait = FADE if engine.half_only else (180 if engine.challenge < 0 else 1))
 	engine.music.connect(func(id: int) -> void: _sound.play_music(id))
 	_props.engine = engine
 	add_child(_props)
 	_pause.plain = engine.challenge >= 0
+	_pause.requests = engine.half_only
+	var fade_layer := CanvasLayer.new()
+	fade_layer.layer = 20
+	_fade.color = Color(0, 0, 0, 0)
+	_fade.size = SCREEN
+	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fade_layer.add_child(_fade)
+	add_child(fade_layer)
 	_sound.play_sfx(0x63) # crowd
 	_cam = engine.ball.pos
 	_sync()
@@ -241,6 +257,8 @@ func _physics_process(_delta: float) -> void:
 		return
 	if _end_wait >= 0:
 		_end_wait -= 1
+		if engine.half_only:
+			_fade.color.a = 1.0 - float(_end_wait) / FADE
 		if _end_wait == 0:
 			match_over.emit(result())
 		_sync()
@@ -250,6 +268,9 @@ func _physics_process(_delta: float) -> void:
 	var pads: Array = []
 	for i in sides.size():
 		pads.append(ISSInput.read(i))
+		if engine.half_only and engine.drill < 0 and pads[i]["raw_press"] & ISSInput.X:
+			# match_players_update: X asks for (or cancels) the match menu.
+			engine.menu_request[sides[i]] ^= 1
 	var vp := get_viewport_rect().size
 	engine.view = Rect2(_camera.get_screen_center_position() - vp / 2.0, vp)
 	engine.step(pads)
@@ -285,6 +306,15 @@ func _pause_menu(pad: Dictionary) -> void:
 	var n := _pause.items().size()
 	_pause.cursor = clampi(_pause.cursor + step, 0, maxi(0, n - 1))
 	var t := _pause.team
+	if _pause.requests:
+		if ok:
+			if _pause.cursor == 1:
+				engine.menu_request[t.side] ^= 1
+			paused = false
+			_pause.on = false
+		if step != 0 or ok:
+			_pause.queue_redraw()
+		return
 	match _pause.menu:
 		0:
 			if ok and _pause.cursor == 0:
@@ -412,7 +442,8 @@ func _sync() -> void:
 	_hud.home_score = e.teams[0].score
 	_hud.away_score = e.teams[1].score
 	_hud.clock_seconds = e.clock_seconds()
-	_hud.second_half = e.half > 0
+	_hud.second_half = e.half & 1 == 1
+	_hud.menu_request = [e.menu_request[0] != 0, e.menu_request[1] != 0]
 	_hud.home_strategy = e.teams[0].strategy
 	_hud.away_strategy = e.teams[1].strategy
 	_hud.set_radar(dots)

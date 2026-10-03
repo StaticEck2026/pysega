@@ -67,6 +67,17 @@ var pk_next := [10, 10]
 var shootout_over := false
 var last_pads: Array = []
 
+## Started from the front end's RAM (ISSMatchSetup.from_ram): one half at a
+## time as state_match plays it, ending where the cartridge leaves the match
+## for screen $39 (end_reason "half", "time_up", "golden_goal", "result")
+## or for screen 6 ("menu": a side asked for the match menu, $182A /
+## $18B2, and the ball went dead).
+var half_only := false
+var end_reason := ""
+## $182A / $18B2: a side asked for the match menu (X, or the pause menu's
+## last item); taken at the next restart.
+var menu_request := [0, 0]
+
 ## A controller playing in the match (g_control_slots, $1A bytes each): its
 ## side, the player it controls and its Change control settings.
 class Slot:
@@ -174,10 +185,16 @@ func setup(home: int, away: int, opts: Dictionary) -> void:
 		t.keeper_mode = int(opts.get("keepers", [0, 0])[s])
 		if opts.has("keeper_skills"):
 			t.keeper_skill = int(opts["keeper_skills"][s])
-		# screen_handicap: with fewer than 11, players 1, 2, ... stay off.
-		for i in range(1, 1 + 11 - clampi(t.on_pitch, 7, 11)):
-			t.players[i].set_state(ISSFootballer.S.SENT_OFF, ISSFootballer.A_STAND)
-			t.players[i].pos = Vector2(rect.get_center().x, rect.position.y - 300.0)
+		# screen_handicap: with fewer than 11, players 1, 2, ... stay off
+		# (from RAM: those with +$55 set, the handicap's and the sent off).
+		var squad_s: Array = opts.get("squads", [[], []])[s]
+		for i in range(1, 11):
+			var off := i <= 11 - clampi(t.on_pitch, 7, 11)
+			if not squad_s.is_empty():
+				off = bool((squad_s[i] as Dictionary).get("off", false))
+			if off:
+				t.players[i].set_state(ISSFootballer.S.SENT_OFF, ISSFootballer.A_STAND)
+				t.players[i].pos = Vector2(rect.get_center().x, rect.position.y - 300.0)
 		if opts.has("strategies_by_side"):
 			# tm_strategy_slots as screen_strategy left them (-1 = none).
 			t.strategy_slots = (opts["strategies_by_side"][s] as Array).duplicate()
@@ -210,8 +227,65 @@ func setup(home: int, away: int, opts: Dictionary) -> void:
 		_start_shootout() # PK mode (mode_start_pk)
 	elif opts.has("scenario"):
 		_start_scenario(opts["scenario"])
+	elif opts.has("half"):
+		_start_from_ram(opts)
 	else:
 		start_restart(R.MATCH_START, kickoff_side, mid)
+
+
+## state_match from the RAM the front end keeps between the halves and the
+## match menu: the half (g_half), the ends (g_left_goal_team), the side
+## kicking off the half ($1634), the clock (g_match_clock), the scores,
+## statistics and scorers so far, and the restart to take (g_restart_type:
+## 4 the half's kick-off, 3 a kick-off after a goal, any other the restart
+## that was waiting when the match menu was asked for).
+func _start_from_ram(opts: Dictionary) -> void:
+	half_only = true
+	half = int(opts["half"])
+	left_goal_team = int(opts.get("left_goal_team", 0))
+	kickoff_side = int(opts.get("kickoff_team", 0))
+	clock = int(opts.get("clock", half_frames))
+	var sc: Array = opts.get("scores", [0, 0])
+	var st: Array = opts.get("stats", [])
+	for s in 2:
+		teams[s].score = int(sc[s])
+		if s < st.size():
+			for i in STAT_KEYS.size():
+				teams[s].stats[STAT_KEYS[i]] = int(st[s][i])
+	scorers = (opts.get("scorers", []) as Array).duplicate(true)
+	for t in teams:
+		t.reset_lines()
+	var r: Dictionary = opts.get("restart", {"type": R.MATCH_START})
+	var type := int(r.get("type", R.MATCH_START))
+	match type:
+		R.MATCH_START, -1:
+			_place_for_kickoff(kickoff_side)
+			start_restart(R.MATCH_START, kickoff_side, mid)
+		R.KICKOFF, R.GOAL, R.OWN_GOAL:
+			_start_kickoff(int(r.get("team", kickoff_side)))
+		_:
+			# Back from the match menu: everyone at his place, the restart
+			# that was waiting set up again.
+			var pos := Vector2(int(r.get("x", mid.x)), int(r.get("y", mid.y)))
+			for t in teams:
+				for p in t.active():
+					p.speed = 0.0
+					p.pos = t.home_position(p) if not p.is_keeper() else goal_center(t.side) + Vector2(attack_dir(t.side) * 32.0, 0)
+			ball.pos = pos
+			start_restart(type, int(r.get("team", 0)), pos)
+			restart_timer = 30
+
+
+## The eight statistics words of g_stats_home / g_stats_away in order.
+const STAT_KEYS := ["shots", "free_kicks", "corners", "penalties", "yellow", "red", "offsides", "goals"]
+
+
+## The match leaves for the front end (half_only).
+func _end(reason: String) -> void:
+	end_reason = reason
+	banner_off.emit()
+	over = true
+	finished.emit()
 
 
 ## scenario_setup ($05D4C2): the second half with the score and time of the
@@ -716,15 +790,24 @@ func _foul(fouler: ISSFootballer, victim: ISSFootballer, severe: bool) -> void:
 	# No cards for a side already down to seven (tm_players 0).
 	if bool(options.get("cards", true)) and teams[fouler.team].active().size() > 7 \
 			and (severe and randi() % 2 == 0 or randi() % 5 == 0):
-		if fouler.booked:
+		# g_player_status: booked in this match (bit 7) makes it red; with
+		# a red card or a third yellow over the competition (2 so far) no
+		# card at all once eight of the squad are out ($83 / $84).
+		var red := fouler.booked
+		if (red or fouler.status & 7 == 2) and _squad_out(fouler.team) >= 8:
+			pass
+		elif red:
+			fouler.status = 0x84
 			_send_off(fouler)
 			banner.emit("red_card")
 			teams[fouler.team].stats["red"] += 1
+			say(0x29)
 		else:
+			fouler.status = ((fouler.status + 1) | 0x80) & 0xFF
 			fouler.booked = true
 			banner.emit("yellow_card")
 			teams[fouler.team].stats["yellow"] += 1
-		say(0x29)
+			say(0x29)
 	if ball.owner != null:
 		ball.owner = null
 	if penalty:
@@ -733,6 +816,19 @@ func _foul(fouler: ISSFootballer, victim: ISSFootballer, severe: bool) -> void:
 	else:
 		teams[victim.team].stats["free_kicks"] += 1
 		start_restart(R.FREE_KICK, victim.team, victim.pos)
+
+
+## Players of the side's squad sent off or out on yellow cards (status
+## above $82).
+func _squad_out(side: int) -> int:
+	var n := 0
+	for p in teams[side].players:
+		if p.status > 0x82:
+			n += 1
+	for rec: Dictionary in teams[side].bench:
+		if int(rec.get("status", 0)) > 0x82:
+			n += 1
+	return n
 
 
 func _send_off(p: ISSFootballer) -> void:
@@ -1014,7 +1110,11 @@ func _goal(defending: int) -> void:
 	teams[side].score += 1
 	teams[side].stats["goals"] += 1
 	var minute := (half_frames - clock) / 3600 + half * (half_frames / 3600)
-	scorers.append({"side": side, "name": scorer.name if scorer != null else "", "minute": minute, "own_goal": own})
+	# g_scorers keeps 32: seconds into the half, the half, the side
+	# credited, the scorer's side and squad record (+$56).
+	scorers.append({"side": side, "name": scorer.name if scorer != null else "", "minute": minute, "own_goal": own,
+		"seconds": (half_frames - clock) / 60, "half": half, "team": scorer.team if scorer != null else side,
+		"record": scorer.record if scorer != null else 0})
 	goal_scored.emit(side, scorer, own)
 	if drill > 0 or challenge >= 0:
 		# A drill counts it and starts again; a challenge ends.
@@ -1043,20 +1143,10 @@ func _clock() -> void:
 		clock -= 1
 		return
 	if restart_type == R.NONE and ball.live:
+		# match_rules_update: half time after halves 0 and 2 (the first
+		# halves of the match and of extra time), time up after 1 and 3.
 		_release()
-		var level := teams[0].score == teams[1].score
-		var next := R.TIME_UP
-		match half:
-			0:
-				next = R.HALF_TIME
-			1:
-				if knockout and level:
-					next = R.HALF_TIME # into extra time
-			2:
-				# V-goal: extra time stops after the half in which a side leads.
-				if not (int(options.get("vgoal", 1)) == 1 and not level):
-					next = R.HALF_TIME
-		start_restart(next, 0, ball.pos)
+		start_restart(R.HALF_TIME if half % 2 == 0 else R.TIME_UP, 0, ball.pos)
 
 
 func clock_seconds() -> float:
@@ -1125,41 +1215,91 @@ func _director() -> void:
 		if restart_timer > 0:
 			return
 		banner_off.emit()
+		var level := teams[0].score == teams[1].score
 		match restart_type:
 			R.GOAL, R.OWN_GOAL:
+				if half > 1 and int(options.get("vgoal", 1)) == 0 and drill < 0 and challenge < 0:
+					# V-goal (g_opt_vgoal 0): a goal in extra time ends the
+					# match (rules_state_017FFC: straight to screen $39).
+					if half_only:
+						_end("golden_goal")
+					else:
+						_result_end()
+					return
 				_start_kickoff(0 if drill >= 0 else restart_side)
 			R.HALF_TIME:
-				half += 1
-				if half == 2:
-					game_time = maxi(0, game_time - 1)
-				half_frames = _half_length()
-				left_goal_team = 1 - left_goal_team
-				clock = half_frames
-				for t in teams:
-					t.reset_lines()
-				_start_kickoff(kickoff_side if half % 2 == 0 else 1 - kickoff_side)
-			R.TIME_UP:
-				if knockout and teams[0].score == teams[1].score:
-					_start_shootout()
+				if half_only:
+					_end("half")
 					return
-				# match_result_banner, then the end.
-				banner.emit(_result_banner())
-				restart_phase = 2
-				restart_timer = 150
+				# screen $39's routing: V-goal extra time with a side
+				# ahead ends the match, else the next half.
+				if half > 1 and not level and int(options.get("vgoal", 1)) == 0:
+					_result_end()
+					return
+				_next_half()
+			R.TIME_UP:
+				if knockout and level:
+					# Straight to screen $39, which plays extra time after
+					# the second half and the shoot-out after extra time.
+					if half_only:
+						_end("time_up")
+					elif half == 1:
+						_next_half()
+					else:
+						_start_shootout()
+					return
+				_result_end()
 			_:
+				if half_only and (menu_request[0] != 0 or menu_request[1] != 0) and restart_type in [R.THROW_IN,
+						R.GOAL_KICK, R.CORNER, R.FREE_KICK, R.PENALTY, R.OFFSIDE]:
+					# rules_state_0185BA: a side asked for the match menu;
+					# 128 frames, then screen 6 with this restart waiting.
+					restart_phase = 3
+					restart_timer = 0x80
+					return
 				_setup_restart()
 	elif restart_phase == 2:
 		restart_timer -= 1
 		if restart_timer <= 0:
+			if half_only:
+				_end("result")
+				return
 			banner_off.emit()
 			over = true
 			finished.emit()
+	elif restart_phase == 3:
+		restart_timer -= 1
+		if restart_timer <= 0:
+			menu_request = [0, 0]
+			_end("menu")
 	elif restart_phase == 1:
 		if restart_taker == null or ball.owner != restart_taker:
 			restart_type = R.NONE
 			restart_phase = 0
 			restart_taker = null
 			set_places.clear()
+
+
+## match_result_banner: the result for $200 frames, then the end.
+func _result_end() -> void:
+	banner.emit(_result_banner())
+	restart_type = R.TIME_UP
+	restart_phase = 2
+	restart_timer = 150
+
+
+## The next half: ends changed, the other side kicks off; extra time (half
+## 2) is one g_game_time shorter.
+func _next_half() -> void:
+	half += 1
+	if half == 2:
+		game_time = maxi(0, game_time - 1)
+	half_frames = _half_length()
+	left_goal_team = 1 - left_goal_team
+	clock = half_frames
+	for t in teams:
+		t.reset_lines()
+	_start_kickoff(kickoff_side if half % 2 == 0 else 1 - kickoff_side)
 
 
 ## YOU WIN / YOU LOSE against the computer, else MATCH DRAWN or TEAM WINS.

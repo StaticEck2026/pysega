@@ -86,7 +86,10 @@ func setup(engine: ISSMatchEngine, s: int, team: int, level: int, kit2: bool, fo
 		var rec: Dictionary = squad[i]
 		if i >= 11:
 			rec = rec.duplicate()
-			rec["energy"] = condition_energy()
+			if not rec.has("energy"):
+				rec["energy"] = condition_energy()
+			if not rec.has("ram") and not picked.is_empty():
+				rec["ram"] = i
 			bench.append(rec)
 			continue
 		var p := ISSFootballer.new()
@@ -105,6 +108,10 @@ func setup(engine: ISSMatchEngine, s: int, team: int, level: int, kit2: bool, fo
 		p.role = ["attack", "midfield", "defence", "goalkeeper"].find(slot["role"])
 		p.form = Vector2(int(slot["form_x"]), int(slot["form_y"]))
 		p.mark = int(rec.get("mark", -1))
+		p.ram_slot = int(rec.get("ram", -1))
+		p.record = int(rec.get("index", i))
+		p.status = int(rec.get("status", 0))
+		p.booked = p.status & 0x80 != 0
 		if i == 0:
 			p.ai_mode = AI.KEEPER
 		players.append(p)
@@ -124,6 +131,9 @@ static func _squad_from(team_players: Array, picked: Array) -> Array:
 		rec["energy"] = e["energy"]
 		rec["mark"] = e.get("mark", -1)
 		rec["slot"] = e.get("slot", rec.get("slot"))
+		for k in ["index", "ram", "status", "off"]:
+			if e.has(k):
+				rec[k] = e[k]
 		out.append(rec)
 	return out
 
@@ -137,7 +147,14 @@ func substitute(i: int, bench_index: int) -> bool:
 	if p.state == ISSFootballer.S.SENT_OFF or eng.ball.owner == p:
 		return false
 	var rec: Dictionary = bench[bench_index]
-	bench.remove_at(bench_index)
+	# The two change places (screen_select_squad swaps the objects' records):
+	# the player coming off takes the substitute's place on the bench.
+	var out := {"name": p.name, "number": p.number, "hair": p.hair, "attributes": p.attr,
+		"position": ["forward", "midfielder", "defender", "goalkeeper", "attacking type 4", "defensive type 5"][clampi(p.position, 0, 5)],
+		"energy": p.energy, "index": p.record, "status": p.status, "ram": int(rec.get("ram", -1)), "used": true}
+	bench[bench_index] = out
+	p.record = int(rec.get("index", p.record))
+	p.status = int(rec.get("status", 0))
 	p.name = rec["name"]
 	p.number = int(rec["number"])
 	p.hair = int(rec["hair"])
@@ -145,7 +162,7 @@ func substitute(i: int, bench_index: int) -> bool:
 	p.attr = rec["attributes"]
 	p.energy = int(rec.get("energy", condition_energy()))
 	p.energy_ticks = 256
-	p.booked = false
+	p.booked = p.status & 0x80 != 0
 	subs_left -= 1
 	return true
 

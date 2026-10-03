@@ -434,6 +434,100 @@ static func pk_setup() -> void:
 	team_info_init()
 
 
+# --------------------------------------------------------------------------
+# After the match.
+
+## Where the game goes when the match is over (screen_match_stats_2 at the end,
+## state_shootout_frame_14 after a shoot-out): the main menu, or the game
+## mode's own screen once its tables have the result (the league's
+## fixtures, the tournament's bracket, the cup's rounds, the World Series,
+## the championship). Leagues and group rounds have no shoot-outs.
+static func after_match(shootout: bool) -> void:
+	ISSRam.set_l(S.g_next_state, ISSMenu.STATE_MENU)
+	_w(S.g_next_screen, 0)
+	match ISSRam.w(S.g_game_mode):
+		4:
+			if not shootout:
+				menu_func_05B150()
+				_w(S.g_next_screen, 0x1D)
+		5:
+			menu_func_05B58C()
+			_w(S.g_next_screen, 0x22)
+		6:
+			if not shootout:
+				menu_func_05B966()
+				_w(S.g_next_screen, 0x29)
+		7:
+			if not shootout:
+				menu_func_05BE12()
+				_w(S.g_next_screen, 0x2B)
+		8:
+			menu_func_05C2A2()
+			_w(S.g_next_screen, 0x2D)
+		9:
+			_w(S.g_next_screen, 0x30)
+		0xA:
+			menu_func_05D124()
+			menu_func_05D13C()
+			_w(S.g_next_screen, 0x33 if ISSRam.w(0x1272) == 0 else 0x27)
+
+
+## shootout_start: the shoot-out after extra time: out of the match ($1638),
+## no kicks yet, the takers' places ($1526) free, nought each, both orders
+## 10, 9 ... 1, the home side first.
+static func shootout_start() -> void:
+	_w(0x1638, 0)
+	_w(S.g_shootout_kicks, 0)
+	_w(0x14FA, 0)
+	_w(0x14FC, 0)
+	for i in 10:
+		_w(0x1526 + 2 * i, 0xFFFF)
+	_w(0x153A, 0)
+	_w(0x153C, 0)
+	for i in 10:
+		_w(0x14FE + 2 * i, 10 - i)
+		_w(0x1512 + 2 * i, 10 - i)
+	_w(S.g_restart_team, 0)
+
+
+# The competitions' result bookkeeping; ported with their screens.
+
+static func menu_func_05B150() -> void:
+	push_error("ISSModes.menu_func_05B150 is not ported yet")
+
+
+static func menu_func_05B58C() -> void:
+	push_error("ISSModes.menu_func_05B58C is not ported yet")
+
+
+static func menu_func_05B966() -> void:
+	push_error("ISSModes.menu_func_05B966 is not ported yet")
+
+
+static func menu_func_05BE12() -> void:
+	push_error("ISSModes.menu_func_05BE12 is not ported yet")
+
+
+static func menu_func_05C2A2() -> void:
+	push_error("ISSModes.menu_func_05C2A2 is not ported yet")
+
+
+static func menu_func_05D124() -> void:
+	push_error("ISSModes.menu_func_05D124 is not ported yet")
+
+
+static func menu_func_05D13C() -> void:
+	push_error("ISSModes.menu_func_05D13C is not ported yet")
+
+
+static func mode_start_championship() -> void:
+	push_error("ISSModes.mode_start_championship is not ported yet")
+
+
+static func match_setup_random() -> void:
+	push_error("ISSModes.match_setup_random is not ported yet")
+
+
 # The main menu's code 4 shortcuts (straight to a competition's last round);
 # ported with the competitions.
 

@@ -60,7 +60,93 @@ static func from_ram() -> Dictionary:
 	opts["strategies_by_side"] = strategies
 	opts["squads"] = [squad(0), squad(1)]
 	opts["controllers"] = controllers()
+	# The match so far (state_match plays one half and starts it from here).
+	opts["half"] = _w(S.g_half)
+	opts["left_goal_team"] = _w(S.g_left_goal_team)
+	opts["kickoff_team"] = _w(0x1634)
+	opts["clock"] = clock_frames()
+	opts["scores"] = [_w(S.g_score_home), _w(S.g_score_away)]
+	var stats := []
+	for base in [S.g_stats_home, S.g_stats_away]:
+		var words := []
+		for i in 8:
+			words.append(_w(base + 2 * i))
+		stats.append(words)
+	opts["stats"] = stats
+	opts["scorers"] = scorers()
+	opts["restart"] = {"type": ISSRam.sw(S.g_restart_type), "team": ISSRam.sw(S.g_restart_team),
+		"x": ISSRam.sw(S.g_restart_x), "y": ISSRam.sw(S.g_restart_y)}
 	return {"home": home, "away": away, "options": opts}
+
+
+## g_match_clock (minutes, tens of seconds, seconds, frames) in frames.
+static func clock_frames() -> int:
+	var c := S.g_match_clock
+	return ((ISSRam.b(c) * 60 + ISSRam.b(c + 1) * 10 + ISSRam.b(c + 2)) * 60) + ISSRam.b(c + 3)
+
+
+static func _set_clock(frames: int) -> void:
+	var f := maxi(0, frames)
+	var secs := f / 60
+	ISSRam.set_b(S.g_match_clock, secs / 60)
+	ISSRam.set_b(S.g_match_clock + 1, (secs % 60) / 10)
+	ISSRam.set_b(S.g_match_clock + 2, secs % 10)
+	ISSRam.set_b(S.g_match_clock + 3, f % 60)
+
+
+## g_scorers: one 6-byte entry per goal so far (up to 32).
+static func scorers() -> Array:
+	var out := []
+	var n := mini(32, _w(S.g_score_home) + _w(S.g_score_away))
+	for i in n:
+		var a := S.g_scorers + i * 6
+		out.append({"seconds": _w(a), "half": ISSRam.b(a + 2), "side": ISSRam.b(a + 3),
+			"team": ISSRam.b(a + 4), "record": ISSRam.b(a + 5), "name": "", "minute": _w(a) / 60,
+			"own_goal": ISSRam.b(a + 3) != ISSRam.b(a + 4)})
+	return out
+
+
+## The match back into RAM where state_match leaves it: scores, statistics,
+## scorers, the clock and the restart waiting, the match menu requests,
+## and each player's energy (+$57), status (g_player_status) and whether he
+## is off the pitch (+$55: sent off).
+static func to_ram(e: ISSMatchEngine) -> void:
+	for s in 2:
+		var t: ISSTeam = e.teams[s]
+		var base: int = S.g_stats_home if s == 0 else S.g_stats_away
+		for i in ISSMatchEngine.STAT_KEYS.size():
+			ISSRam.set_w(base + 2 * i, int(t.stats.get(ISSMatchEngine.STAT_KEYS[i], 0)))
+		ISSRam.set_w(S.g_score_home if s == 0 else S.g_score_away, t.score)
+	for i in mini(32, e.scorers.size()):
+		var g: Dictionary = e.scorers[i]
+		var a := S.g_scorers + i * 6
+		ISSRam.set_w(a, int(g.get("seconds", 0)))
+		ISSRam.set_b(a + 2, int(g.get("half", e.half)))
+		ISSRam.set_b(a + 3, int(g.get("side", 0)))
+		ISSRam.set_b(a + 4, int(g.get("team", g.get("side", 0))))
+		ISSRam.set_b(a + 5, int(g.get("record", 0)))
+	_set_clock(e.clock)
+	var type := e.restart_type
+	if type == ISSMatchEngine.R.OFFSIDE:
+		type = ISSMatchEngine.R.FREE_KICK
+	ISSRam.set_w(S.g_restart_type, type & 0xFFFF)
+	ISSRam.set_w(S.g_restart_team, e.restart_side)
+	ISSRam.set_w(S.g_restart_x, int(e.restart_pos.x) & 0xFFFF)
+	ISSRam.set_w(S.g_restart_y, int(e.restart_pos.y) & 0xFFFF)
+	ISSRam.set_w(0x182A, int(e.menu_request[0]))
+	ISSRam.set_w(0x18B2, int(e.menu_request[1]))
+	for s in 2:
+		var t: ISSTeam = e.teams[s]
+		var obj: int = S.g_team_home_players if s == 0 else S.g_team_away_players
+		var status: int = S.g_player_status + _w(0x1642 if s == 0 else 0x1644) * 20
+		for p in t.players:
+			if p.ram_slot < 0:
+				continue
+			var a := obj + p.ram_slot * ISSModes.PLAYER_SIZE
+			ISSRam.set_b(a + 0x57, clampi(p.energy, 0, 255))
+			if p.state == ISSFootballer.S.SENT_OFF:
+				ISSRam.set_b(a + 0x55, 1)
+			ISSRam.set_b(status + p.record, p.status)
 
 
 ## One side's 20 player objects in their order: the squad index (+$56),
@@ -70,6 +156,7 @@ static func from_ram() -> Dictionary:
 static func squad(side: int) -> Array:
 	var out := []
 	var obj: int = S.g_team_home_players if side == 0 else S.g_team_away_players
+	var status: int = S.g_player_status + _w(0x1642 if side == 0 else 0x1644) * 20
 	for k in 20:
 		var attrs := {}
 		for i in ATTRIBUTES.size():
@@ -82,6 +169,9 @@ static func squad(side: int) -> Array:
 			"position": POSITIONS[clampi(ISSRam.b(obj + 0x65), 0, 5)],
 			"energy": ISSRam.b(obj + 0x57),
 			"mark": ISSRam.b(obj + 0x54) if ISSRam.b(obj + 0x54) < 0x80 else -1,
+			"ram": k,
+			"status": ISSRam.b(status + ISSRam.b(obj + 0x56)),
+			"off": ISSRam.b(obj + 0x55) != 0,
 		}
 		var role := ISSRam.b(obj + 0x51)
 		if k < 11 and role < ROLES.size():

@@ -25,8 +25,13 @@ var away_strategy := -1:
 		away_strategy = v
 		_show_strategy("away_strategy", v)
 
+## $182A / $18B2: the side asked for the match menu (hud_draw_clock_1 shows
+## overlay tiles $90-$91 under its score).
+var menu_request := [false, false]
+
 var _doc: Dictionary
 var _mat := ShaderMaterial.new()
+var _overlay: Texture2D
 var _window: Texture2D
 var _digits: Texture2D
 var _time_up: Texture2D
@@ -90,6 +95,17 @@ func _ready() -> void:
 	_window = load(DIR + "window.png")
 	_digits = load(DIR + "digits.png")
 	_time_up = load(DIR + "time_up.png")
+	# Overlay tiles $90-$91 on palette line 2 (the sheet holds bare colour
+	# indices).
+	var sheet := (load(DIR + "overlay_tiles.png") as Texture2D).get_image()
+	var icon := sheet.get_region(Rect2i(0, 72, 16, 8))
+	icon.convert(Image.FORMAT_L8)
+	for y in 8:
+		for x in 16:
+			var v := icon.get_pixel(x, y).r8
+			if v != 0:
+				icon.set_pixel(x, y, Color8(v + 0x20, v + 0x20, v + 0x20))
+	_overlay = ImageTexture.create_from_image(icon)
 	var pal := (load(DIR + "hud.pal.png") as Texture2D).get_image()
 	for i in 16:
 		_radar.line2.append(pal.get_pixel(i, 2))
@@ -186,6 +202,10 @@ func _draw() -> void:
 	draw_texture_rect_region(_window, r, r)
 	_number(home_score, _cell("home_score"), true)
 	_number(away_score, _cell("away_score"), true)
+	for side in 2:
+		if menu_request[side]:
+			var at := _cell("home_score" if side == 0 else "away_score") + Vector2(0, 16)
+			draw_texture(_overlay, at)
 	var clock := _cell("clock")
 	if clock_seconds <= 0.0:
 		draw_texture(_time_up, clock)
