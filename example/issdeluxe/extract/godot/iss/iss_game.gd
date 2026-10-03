@@ -170,10 +170,10 @@ func _presentation() -> void:
 			if ISSRam.w(S.g_game_mode) == 8 or ISSRam.w(0x1260) != 0:
 				ISSRam.set_w(S.g_next_screen, 0x33)
 			elif ISSRam.w(0x126C) == 0:
-				ISSModes.menu_func_05C404()
+				ISSModes.ws_second_series()
 				ISSRam.set_w(S.g_next_screen, 0x37)
 			else:
-				ISSModes.mode_start_championship()
+				ISSModes.start_championship()
 				ISSModes.match_setup_random()
 				ISSRam.set_w(S.g_next_screen, 0x38)
 			_jump(ISSMenu.STATE_SCREEN)

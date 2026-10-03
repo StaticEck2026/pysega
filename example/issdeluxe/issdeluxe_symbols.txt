@@ -583,6 +583,14 @@ intl_finals_result          = $05C2A2 ; International Cup finals: the winning sl
 tbl_intl_finals_games       = $05C2FC ; International Cup finals: the first round's slot pairs 0-1, 2-3 ... 14-15
 result_mark_draw            = $01F9C8 ; A result mark into the text nametable at (d0, d1): 3x2 tiles from $1E0 + 6 * d2 (0 won,\n1 lost, 2 drawn)
 flags_wave                  = $01FA14 ; The waving flags: every fourth frame one of three 6-tile strips (8 frames each, unpacked\nat $1770) to VRAM $3C00 / $3CC0 / $3D80
+ws_second_series            = $05C404 ; World Series: the second series ($126C = 1): statuses and wins cleared, the next of the\neight schedules ($126E)
+ws_next_game                = $05C4FE ; World Series: today's game (the human's team at home against today's opponent) and the\nday's 18 pairs at the unpack buffer ($1384), the human's first
+ws_record_day               = $05C652 ; World Series: the day's results at the unpack buffer ($1384: teams, score, penalties),\nthe human's game from the match and the other 17 simulated; the wins counted, next day
+tbl_ws_rounds               = $05C7B2 ; World Series: 35 rounds of 18 (team, team) pairs
+tbl_ws_schedules            = $05CC9E ; World Series: 8 schedules of 35 bytes, the round played each day
+ws_standings                = $05CDB6 ; World Series: the table at the unpack buffer ($1384: place, team, won, lost) sorted on\nwins; after day 35 the series' winner ($127E / $1280) and $1272, else the human's next game
+championship_result         = $05D124 ; Championship: $129C 0 when the human's (home) side won, else 1
+championship_end            = $05D13C ; Championship: $1272 from $129C (0 the champions)
 
 ; ═════════════════════════════════════════════════════════════════════════════
 ; Small sprites
@@ -2510,20 +2518,13 @@ menu_func_05AEAC            = $05AEAC ; Shared: called by menu_state_03E8F0_1; c
 screen_league_table_3       = $05B19C ; Part of screen_league_table: called by screen_league_table
 screen_tournament_bracket_3 = $05B5C6 ; Part of screen_tournament_bracket: called by screen_tournament_bracket
 screen_intl_finals_3        = $05C30C ; Part of screen_intl_finals: called by screen_intl_finals
-menu_func_05C404            = $05C404 ; Shared: called by menu_sound_03C97E_8; called by menu_state_05604A_1; called by screen_main_menu_2
-menu_func_05C4FE            = $05C4FE ; Shared: called by screen_main_menu_2; called by screen_ws_todays_game
-screen_ws_results_1         = $05C652 ; Part of screen_ws_results: called by screen_ws_results
-menu_data_05C7B2            = $05C7B2 ; Data used by menu_func_05C4FE, screen_ws_results_1, screen_ws_table_1, tbl_sim_goals
-menu_data_05CC9E            = $05CC9E ; Data used by menu_func_05C4FE, screen_ws_results_1, screen_ws_table_1
-screen_ws_table_1           = $05CDB6 ; Part of screen_ws_table: called by screen_ws_table
-menu_func_05D124            = $05D124 ; Shared: called by screen_match_stats_2; called by state_shootout_frame_14
-menu_func_05D13C            = $05D13C ; Shared: called by screen_match_stats_2; called by state_shootout_frame_14
+tbl_sim_goals_data4         = $05C7B2 ; Data used by tbl_sim_goals
 menu_state_03E8F0_2         = $05D1CC ; Part of menu_state_03E8F0: called by menu_state_03E8F0_1
 training_challenge_menu_4   = $05D266 ; Part of training_challenge_menu: called by training_challenge_menu_3
 restart_penalty_2           = $05D34E ; Part of restart_penalty: called by restart_penalty_1
 menu_state_03E8F0_3         = $05D3C8 ; Part of menu_state_03E8F0: called by menu_state_03E8F0_1
 warm_start_1                = $05D696 ; Part of warm_start: called by warm_start
-tbl_sim_goals_data4         = $05D72A ; Data used by tbl_sim_goals
+tbl_sim_goals_data5         = $05D72A ; Data used by tbl_sim_goals
 boot_func_144324_1          = $14431E ; Part of boot_func_144324: address taken by boot_func_144324
 boot_func_144324            = $144324 ; No static reference (reached through a computed jump, or unused)
 boot_func_14433E            = $14433E ; Shared: jumped to from boot_func_144324; jumped to from boot_main

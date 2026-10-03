@@ -517,8 +517,8 @@ static func after_match(shootout: bool) -> void:
 		9:
 			_w(S.g_next_screen, 0x30)
 		0xA:
-			menu_func_05D124()
-			menu_func_05D13C()
+			championship_result()
+			championship_end()
 			_w(S.g_next_screen, 0x33 if ISSRam.w(0x1272) == 0 else 0x27)
 
 
@@ -589,8 +589,8 @@ static func weather_random() -> void:
 ## at random, the ends, the stadium (at random 0-7), its weather, the
 ## referee, the time of day, the game time and clock, the statistics; no
 ## pads until the sides are known. The International Cup's elimination
-## round passes its region's stadium.
-static func _competition_match(stadium: int = -1) -> void:
+## round passes its region's stadium; the World Series keeps its pads.
+static func _competition_match(stadium: int = -1, clear_pads: bool = true) -> void:
 	_w(0x1638, 0)
 	_w(0x1634, _hv() & 1)
 	_w(S.g_left_goal_team, 0)
@@ -603,9 +603,10 @@ static func _competition_match(stadium: int = -1) -> void:
 	_w(S.g_game_time, ISSRam.w(S.g_opt_time))
 	_clock_start()
 	match_stats_clear()
-	_w(0x153E, 0)
-	_w(S.g_pads_home, 0)
-	_w(S.g_pads_away, 0)
+	if clear_pads:
+		_w(0x153E, 0)
+		_w(S.g_pads_home, 0)
+		_w(S.g_pads_away, 0)
 
 
 ## The two sides of a fixture: their slots ($1642 / $1644, which also
@@ -1017,6 +1018,218 @@ static func intl_finals_result() -> void:
 	ISSRam.add_w(0x1270, 1)
 
 
+# --------------------------------------------------------------------------
+# The World Series (mode 9): the 36 teams play a 35-day season, 18 games a
+# day (tbl_ws_rounds: 35 rounds of 18 pairs, in the order of one of eight
+# schedules, tbl_ws_schedules, $126E); the human's team plays at home
+# every day. $126C the series (0 first, 1 second), $1270 the days played,
+# $129C + 2 * team each team's wins, $127E / $1280 the two series'
+# winners. Winning a series goes to the trophy; after both, the
+# championship (mode $A) against the other series' winner.
+
+## The round of day $1270 in the season's schedule.
+static func _ws_round() -> int:
+	var day := ISSRom.u8(ISSRom.addr("tbl_ws_schedules") + ISSRam.w(0x126E) * 35 + ISSRam.w(0x1270))
+	return ISSRom.addr("tbl_ws_rounds") + day * 36
+
+
+## The human's pair in the round at r: its index (18 when absent).
+static func _ws_pair(r: int) -> int:
+	var me := ISSRam.w(0x127C)
+	for k in 18:
+		if ISSRom.u8(r + k * 2) == me or ISSRom.u8(r + k * 2 + 1) == me:
+			return k
+	return 18
+
+
+## ws_second_series: the second series: statuses and wins cleared, the
+## next schedule.
+static func ws_second_series() -> void:
+	_w(S.g_game_mode, 9)
+	_clear_status(0x28)
+	ISSRam.clear(0x129C, 0x48)
+	_w(0x1270, 0)
+	_w(0x126C, 1)
+	_w(0x126E, (ISSRam.w(0x126E) + 1) & 7)
+
+
+## ws_next_game: today's game, the human's team at home against today's
+## opponent (whose status block, slot 1's, is cleared), and the day's 18
+## pairs at the unpack buffer ($1384): the human's first, then the others
+## in the round's order from it.
+static func ws_next_game() -> void:
+	_competition_match(-1, false)
+	ISSRam.clear(S.g_player_status + 20, 20)
+	_w(S.g_team_home, 0)
+	_w(S.g_team_away, 0)
+	var t := ISSRam.l(S.g_unpack_buffer)
+	ISSRam.set_l(0x1384, t)
+	var r := _ws_round()
+	var k := _ws_pair(r)
+	var a := t
+	if k < 18:
+		var me := ISSRam.w(0x127C)
+		var other := ISSRom.u8(r + k * 2 + 1) if ISSRom.u8(r + k * 2) == me else ISSRom.u8(r + k * 2)
+		_w(S.g_team_home, me)
+		_w(S.g_team_away, other)
+		ISSRam.set_b(a, me)
+		ISSRam.set_b(a + 1, other)
+		a += 2
+	_w(0x1642, 0)
+	_w(0x1644, 1)
+	for i in 17:
+		k = (k + 1) % 18
+		ISSRam.set_b(a, ISSRom.u8(r + k * 2))
+		ISSRam.set_b(a + 1, ISSRom.u8(r + k * 2 + 1))
+		a += 2
+	ISSRam.set_l(S.g_unpack_buffer, a)
+	team_info_init()
+
+
+## One game of the day's results at a: the teams, the score and (level)
+## the penalties; a win for the first team when its score (or penalties)
+## is higher, else for the second.
+static func _ws_result(a: int, first: int, second: int) -> void:
+	var h := ISSRam.w(S.g_score_home)
+	var v := ISSRam.w(S.g_score_away)
+	ISSRam.set_b(a, first)
+	ISSRam.set_b(a + 1, second)
+	ISSRam.set_b(a + 2, h)
+	ISSRam.set_b(a + 3, v)
+	ISSRam.set_b(a + 4, 0)
+	ISSRam.set_b(a + 5, 0)
+	if h & 0xFF == v & 0xFF:
+		h = ISSRam.w(0x153A)
+		v = ISSRam.w(0x153C)
+		ISSRam.set_b(a + 4, h)
+		ISSRam.set_b(a + 5, v)
+	var winner := first if h > v else second
+	ISSRam.add_w(0x129C + winner * 2, 1)
+
+
+## ws_record_day: the day's results as six-byte entries at the unpack
+## buffer ($1384): the human's game first (from the match's score), then
+## the other 17 simulated; the wins counted, on to the next day.
+static func ws_record_day() -> void:
+	var t := ISSRam.l(S.g_unpack_buffer)
+	ISSRam.set_l(0x1384, t)
+	var r := _ws_round()
+	var k := _ws_pair(r)
+	var a := t
+	if k < 18:
+		var me := ISSRam.w(0x127C)
+		var x := ISSRom.u8(r + k * 2)
+		var y := ISSRom.u8(r + k * 2 + 1)
+		_ws_result(a, me, y if x == me else x)
+		a += 6
+	for i in 17:
+		k = (k + 1) % 18
+		var x := ISSRom.u8(r + k * 2)
+		var y := ISSRom.u8(r + k * 2 + 1)
+		_w(S.g_team_home, x)
+		_w(S.g_team_away, y)
+		match_simulate()
+		_ws_result(a, x, y)
+		a += 6
+	ISSRam.set_l(S.g_unpack_buffer, a)
+	ISSRam.add_w(0x1270, 1)
+
+
+## ws_standings: the table at the unpack buffer ($1384), four bytes a
+## team from the human's on: place, team, won, lost; sorted on wins (the
+## first of equals first), equal wins sharing a place. After the last day
+## the leader is the series' winner ($127E / $1280) and $1272 0 when it is
+## the human's team; before it g_team_home / away the human's next game.
+## Returns the table's address.
+static func ws_standings() -> int:
+	var t := ISSRam.l(S.g_unpack_buffer)
+	ISSRam.set_l(0x1384, t)
+	var team := ISSRam.w(0x127C)
+	var days := ISSRam.w(0x1270)
+	for i in 36:
+		var wins := ISSRam.w(0x129C + team * 2)
+		ISSRam.set_b(t + i * 4, i + 1)
+		ISSRam.set_b(t + i * 4 + 1, team)
+		ISSRam.set_b(t + i * 4 + 2, wins)
+		ISSRam.set_b(t + i * 4 + 3, days - wins)
+		team = (team + 1) % 36
+	ISSRam.set_l(S.g_unpack_buffer, t + 36 * 4)
+	for k in 36:
+		var best := t + k * 4
+		for j in range(k, 36):
+			if ISSRam.sb(best + 2) < ISSRam.sb(t + j * 4 + 2):
+				best = t + j * 4
+		var here := t + k * 4
+		for i in range(1, 4):
+			var v := ISSRam.b(best + i)
+			ISSRam.set_b(best + i, ISSRam.b(here + i))
+			ISSRam.set_b(here + i, v)
+		if k > 0 and ISSRam.b(here - 2) == ISSRam.b(here + 2):
+			ISSRam.set_b(here, ISSRam.b(here - 4))
+	if days == 35:
+		var leader := ISSRam.b(t + 1)
+		_w(0x127E if ISSRam.w(0x126C) == 0 else 0x1280, leader)
+		_w(0x1272, 0 if leader == ISSRam.w(0x127C) else 1)
+		return t
+	_w(S.g_team_home, 0)
+	_w(S.g_team_away, 0)
+	var r := _ws_round()
+	var k := _ws_pair(r)
+	if k < 18:
+		var me := ISSRam.w(0x127C)
+		var x := ISSRom.u8(r + k * 2)
+		_w(S.g_team_home, me)
+		_w(S.g_team_away, ISSRom.u8(r + k * 2 + 1) if x == me else x)
+	return t
+
+
+## mode_start_championship: the championship (mode $A, one knockout game)
+## after the second series.
+static func start_championship() -> void:
+	_w(S.g_game_mode, 0xA)
+	_w(S.g_knockout, 1)
+	_w(0x1276, 1)
+	_w(0x1268, 1)
+	_w(0x1264, 1)
+	_w(0x1266, 1)
+	_w(0x1270, 0)
+	_w(0x1272, 0xFFFF)
+	_w(0x126A, 0)
+	_w(0x127A, 0)
+	_clear_status(0x28)
+	_w(0x153E, 1)
+	_w(S.g_pads_home, 1)
+	_w(S.g_pads_away, 0)
+
+
+## match_setup_random: the championship's game: the human's team at home
+## against the first series' winner, or the second's when that is the
+## human's, or (both the human's) the All Star team (36).
+static func match_setup_random() -> void:
+	_competition_match(-1, false)
+	var me := ISSRam.w(0x127C)
+	_w(S.g_team_home, me)
+	var other := ISSRam.w(0x127E)
+	if other == me:
+		other = ISSRam.w(0x1280)
+		if other == me:
+			other = 0x24
+	_w(S.g_team_away, other)
+	_w(0x1642, 0)
+	_w(0x1644, 1)
+	team_info_init()
+
+
+## championship_result: $129C 0 when the human's side won, else 1.
+static func championship_result() -> void:
+	_w(0x129C, 0 if ISSRam.sw(S.g_score_home) > ISSRam.sw(S.g_score_away) else 1)
+
+
+## championship_end: $1272 from it (0 the champions).
+static func championship_end() -> void:
+	_w(0x1272, 0 if ISSRam.w(0x129C) == 0 else 1)
+
+
 ## scenario_setup: scenario $1270 from tbl_scenarios (16-byte records:
 ## the clock, the teams, the score, the stadium, the referee, the restart
 ## and where): the second half, the human's side at home and starting with
@@ -1098,37 +1311,6 @@ static func kit_shades() -> void:
 	_w(pt + 4, dark.call(c5))
 	_w(pt + 6, light.call(c7))
 	_w(pt + 8, dark.call(c8))
-
-
-# The competitions' result bookkeeping; ported with their screens.
-
-
-static func menu_func_05D124() -> void:
-	push_error("ISSModes.menu_func_05D124 is not ported yet")
-
-
-static func menu_func_05D13C() -> void:
-	push_error("ISSModes.menu_func_05D13C is not ported yet")
-
-
-static func mode_start_championship() -> void:
-	push_error("ISSModes.mode_start_championship is not ported yet")
-
-
-static func match_setup_random() -> void:
-	push_error("ISSModes.match_setup_random is not ported yet")
-
-
-# The main menu's code 4 shortcuts (straight to a competition's last round);
-# ported with the competitions.
-
-
-static func menu_func_05C404() -> void:
-	push_error("ISSModes.menu_func_05C404 is not ported yet")
-
-
-static func menu_func_05C4FE() -> void:
-	push_error("ISSModes.menu_func_05C4FE is not ported yet")
 
 
 ## menu_func_05AEAC: the open game's set-up (the scenarios' and PK's code

@@ -109,6 +109,7 @@ func _init() -> void:
 	_check_ram_halves()
 	_check_passwords()
 	_check_international()
+	_check_world_series()
 	_check_competitions()
 	_check_strategies_and_subs()
 	_check_long_modes()
@@ -285,6 +286,7 @@ func _check_passwords() -> void:
 ## simulated): the draws, the tables and the finals' bracket.
 func _check_international() -> void:
 	ISSMenu.power_on()
+	ISSRam.set_l(ISSSym.g_unpack_buffer, 0xFF3E18)
 	ISSModes.start_international()
 	ISSRam.set_w(0x127C, 31)
 	ISSRam.set_w(0x1266, 0)
@@ -300,6 +302,7 @@ func _check_international() -> void:
 	ISSModes.intl_elimination_next_game()
 	o1 = ISSRam.w(0x127E)
 	o2 = ISSRam.w(0x1280)
+	ISSRam.set_l(ISSSym.g_unpack_buffer, 0xFF3E18)
 	var t := ISSModes.intl_elimination_table()
 	var points := 0
 	for k in 3:
@@ -311,6 +314,7 @@ func _check_international() -> void:
 	ISSRam.set_w(0x1266, 0)
 	var group := [ISSRam.w(0x127C), ISSRam.w(0x127E), ISSRam.w(0x1280), ISSRam.w(0x1282)]
 	ISSModes.intl_group_next_game()
+	ISSRam.set_l(ISSSym.g_unpack_buffer, 0xFF3E18)
 	t = ISSModes.intl_group_table()
 	var first := ISSRam.b(t + 1)
 	var second := ISSRam.b(t + 7)
@@ -336,6 +340,47 @@ func _check_international() -> void:
 		if win not in pair:
 			bracket = false
 	_check(distinct and bracket and ISSRam.w(ISSSym.g_game_mode) == 8, "International Cup: the finals")
+
+
+## A World Series season: every pair of the 36 teams meets once in the 35
+## days, 18 wins a day; the table's leader is the series' winner.
+func _check_world_series() -> void:
+	ISSMenu.power_on()
+	ISSModes.start_world_series()
+	ISSRam.set_w(0x127C, 0)
+	var met := {}
+	var ok := true
+	for day in 35:
+		ISSRam.set_l(ISSSym.g_unpack_buffer, 0xFF3E18)
+		ISSModes.ws_next_game()
+		var t := ISSRam.l(0x1384)
+		var seen := {}
+		for k in 18:
+			var a := ISSRam.b(t + k * 2)
+			var b := ISSRam.b(t + k * 2 + 1)
+			met[mini(a, b) * 64 + maxi(a, b)] = true
+			seen[a] = true
+			seen[b] = true
+		if seen.size() != 36 or ISSRam.b(t) != 0 or ISSRam.w(ISSSym.g_team_home) != 0:
+			ok = false
+		ISSRam.set_w(ISSSym.g_score_home, 1)
+		ISSRam.set_w(ISSSym.g_score_away, 0)
+		ISSRam.set_l(ISSSym.g_unpack_buffer, 0xFF3E18)
+		ISSModes.ws_record_day()
+	var wins := 0
+	for team in 36:
+		wins += ISSRam.w(0x129C + team * 2)
+	ISSRam.set_l(ISSSym.g_unpack_buffer, 0xFF3E18)
+	var t := ISSModes.ws_standings()
+	_check(ok and met.size() == 36 * 35 / 2 and wins == 35 * 18 and ISSRam.w(0x1270) == 35
+		and ISSRam.w(0x129C) == 35 and ISSRam.b(t + 1) == 0 and ISSRam.w(0x127E) == 0 and ISSRam.w(0x1272) == 0,
+		"World Series: a season of 35 days, the human's team winning every game")
+	ISSModes.ws_second_series()
+	_check(ISSRam.w(0x126C) == 1 and ISSRam.w(0x1270) == 0 and ISSRam.w(0x129C) == 0, "World Series: the second series")
+	ISSRam.set_w(0x1280, 5)
+	ISSModes.start_championship()
+	ISSModes.match_setup_random()
+	_check(ISSRam.w(ISSSym.g_game_mode) == 0xA and ISSRam.w(ISSSym.g_team_away) == 5, "championship: the other series' winner")
 
 
 ## A short half on g_match_clock (seconds).
