@@ -119,6 +119,16 @@ func _match_left(m: ISSMatch) -> void:
 		return
 	ISSMatchSetup.to_ram(e)
 	match e.end_reason:
+		"presentation":
+			# restart_goal_1 / restart_own_goal_1: the big screen, then
+			# state_match again at the kick-off (g_restart_type: the goal).
+			ISSRam.set_w(0x1730, 1)
+			ISSRam.set_w(0x1732, int(e.presentation["side"]))
+			ISSRam.set_w(0x1734, int(e.presentation["kind"]))
+			ISSPresentation.match_palette()
+			ISSRam.set_l(S.g_next_state, ISSMenu.STATE_SCREEN)
+			_presentation()
+			return
 		"menu":
 			# rules_state_0185BA: the match menu, the restart waiting.
 			ISSRam.set_w(S.g_next_screen, 6)

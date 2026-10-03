@@ -1287,7 +1287,7 @@ static func scenario_record_result() -> void:
 		_w(0x1272, 0)
 
 
-## rules_func_015132: the kit's shades on palette line 0: colour 1 black,
+## kit_shades: the kit's shades on palette line 0: colour 1 black,
 ## colour 2 colour 5 a step darker, colour 3 colour 7 two steps lighter (up
 ## to 7), colour 4 colour 8 a step darker (per channel).
 static func kit_shades() -> void:

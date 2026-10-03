@@ -2,8 +2,8 @@ class_name ISSPresentation
 extends RefCounted
 ## state_screen ($01FFF4): the full-screen presentations between the menus
 ## and the match, chosen by $1730: 0 the teams on the stadium's big screen
-## and the toss before a match (menu_load_03B09E), 1 a goal replayed on
-## the big screen (menu_load_03C464), 2 the trophy (menu_sound_03C97E).
+## and the toss before a match (pres_prematch), 1 a goal replayed on
+## the big screen (pres_goal), 2 the trophy (pres_trophy).
 ## state_screen_1 builds the stadium as the match does (its tiles, the
 ## stand and crowd map streamed into plane B a row at a time as the screen
 ## scrolls, the sky on plane A); each frame (state_screen_frame_1) the
@@ -122,14 +122,14 @@ func state_screen_1() -> void:
 	set_w(0x172E, w(0x1730))
 	match w(0x172E):
 		0:
-			menu_load_03B09E()
+			pres_prematch()
 		1:
-			menu_load_03C464()
+			pres_goal()
 		_:
-			menu_sound_03C97E()
+			pres_trophy()
 	var d7 := w(S.g_plane_b_vscroll) >> 3
 	for i in 30:
-		engine_load_01E604(d7 + i)
+		state_screen_load_row(d7 + i)
 
 
 ## The scoreboard's minutes (metatile $18B: tens at its left, units at its
@@ -162,10 +162,10 @@ func _clock() -> void:
 	ISSRam.set_w(a + 6, units * 2 + 0x413F)
 
 
-## engine_load_01E604: plane B's row d7 (& 31) from the stand map's row d7:
+## state_screen_load_row: plane B's row d7 (& 31) from the stand map's row d7:
 ## 17 metatiles, the top or bottom half of each, + the stadium's tiles with
 ## priority, through $878.
-func engine_load_01E604(d7: int) -> void:
+func state_screen_load_row(d7: int) -> void:
 	var map := l(S.g_pitch_map) & 0xFFFF
 	var a0 := map + (d7 & 0xFFFE) * ISSRam.sw(map) + 4
 	var a2 := (l(S.g_pitch_metatiles) & 0xFFFF) + (d7 & 1) * 4
@@ -219,7 +219,7 @@ func state_screen_frame_2() -> void:
 	if d0 != 0:
 		if d0 < 0:
 			d7 += 0x1C
-		engine_load_01E604(d7)
+		state_screen_load_row(d7)
 	set_w(0x862, w(S.g_plane_b_vscroll))
 
 
@@ -288,20 +288,20 @@ func _list(a4: int, base: int, d5: int, d6: int) -> void:
 		a4 += 8
 
 
-## menu_draw_03C1C0: a list with the tiles at $173A.
-func menu_draw_03C1C0(a4: int, d5: int, d6: int) -> void:
+## pres_prematch_sprites: a list with the tiles at $173A.
+func pres_prematch_sprites(a4: int, d5: int, d6: int) -> void:
 	_list(a4, w(0x173A), d5, d6)
 
 
 # --------------------------------------------------------------------------
-# 0: before the match (menu_load_03B09E).
+# 0: before the match (pres_prematch).
 
-## menu_load_03B09E: the sky at the top; down the stand the crowd's 13
+## pres_prematch: the sky at the top; down the stand the crowd's 13
 ## flags, and on the big screen the two captains either side of the referee
 ## and the ball (plane A at column 8: the pitch, the stadium's group entry
 ## 3 with its transparent pixels made colour 14) and the toss's picture at
 ## column 40 (group 19); the teams' names and flags and the toss's words.
-func menu_load_03B09E() -> void:
+func pres_prematch() -> void:
 	set_l(S.g_plane_a_hscroll, 0)
 	set_l(S.g_plane_a_vscroll, 0)
 	ISSRam.set_w(S.g_ball + VRAM, m.load_tiles(4, 0))
@@ -331,12 +331,12 @@ func menu_load_03B09E() -> void:
 	r.set_w(X, 0x80)
 	r.set_w(Y, 0x4E0)
 	r.set_w(ATTR, 0x4000)
-	r.think = objects.match_func_010A40
+	r.think = objects.referee_think_idle
 	r.set_w(FACING, 0x20)
 	r.set_w(INPUT, 0)
 	r.set_w(TEAM, 0xFFFF)
 	objects.give_figure(r, "referee")
-	objects.sys_start_stand_00122C(r)
+	objects.referee_stand(r)
 	# The coin, held by the referee (g_director, the sparkle's tiles).
 	var coin := objects.actor(S.g_director)
 	objects.link(coin)
@@ -347,7 +347,7 @@ func menu_load_03B09E() -> void:
 	coin.set_w(Y, r.w(Y) - 1)
 	coin.set_w(X, r.w(X))
 	coin.set_w(Z, 0x18)
-	objects.match_state_011DE6(coin)
+	objects.coin_hold(coin)
 	for i in 4:
 		set_w(S.g_npc_vram_slots + 2 * i, w(S.g_unpack_vram))
 		add_w(S.g_unpack_vram, 0x2E0)
@@ -362,7 +362,7 @@ func menu_load_03B09E() -> void:
 		p.set_w(FACING, 0x10 if side == 0 else 0x30)
 		p.set_w(HEADING, p.w(FACING))
 		p.set_w(ATTR, 0x20 * side)
-		p.think = objects.ai_func_00C7D8
+		p.think = objects.player_think_idle
 		p.set_w(INPUT, 0)
 		p.set_w(BALL_DIST, 0x7FFF)
 		objects.give_figure(p, "player", w(S.g_team_home if side == 0 else S.g_team_away))
@@ -412,7 +412,7 @@ func menu_load_03B09E() -> void:
 		var team := w(S.g_team_home if side == 0 else S.g_team_away)
 		m.vram_dma(w(0x173E + 2 * side) + 0x200, buf + team * 0xC0, 0xC0)
 	# The crowd's flags.
-	var a4 := rom("menu_load_03B09E_data")
+	var a4 := rom("pres_prematch_data")
 	for i in 13:
 		var o := m.obj_alloc()
 		o.set_w(X, ISSRom.u16(a4))
@@ -427,41 +427,41 @@ func menu_load_03B09E() -> void:
 		var second := ISSRom.u16(a4 + 6) != 0
 		if first:
 			if second:
-				objects.match_start_ready_stance_011EBA(o)
+				objects.flag_fan_raise(o)
 			else:
-				objects.match_start_stand_011E74(o)
+				objects.flag_fan_hold(o)
 		elif second:
-			objects.match_start_turn_step_011F46(o)
+			objects.flag_fan_wave_2(o)
 		else:
-			objects.match_start_jog_on_the_spot_011F00(o)
+			objects.flag_fan_wave(o)
 		a4 += 8
 	var c := m.obj_alloc()
 	c.draw = Callable()
 	c.think = Callable()
-	c.update = menu_load_03B09E_1
+	c.update = pres_prematch_1
 	c.set_w(TEAM, 0)
 
 
-## menu_load_03B09E_1: the music (song $19), the crowd (SFX 98 and 80).
-func menu_load_03B09E_1(o: ISSMenu.Obj) -> void:
-	o.update = menu_load_03B09E_2
+## pres_prematch_1: the music (song $19), the crowd (SFX 98 and 80).
+func pres_prematch_1(o: ISSMenu.Obj) -> void:
+	o.update = pres_prematch_2
 	o.set_w(DISTANCE, 0)
 	m.menu_music(0x19)
 	m.play_sfx(98)
 	set_w(0x17D8, 1)
 	m.play_sfx(80)
-	menu_load_03B09E_2(o)
+	pres_prematch_2(o)
 
 
-## menu_load_03B09E_2: after 80 frames the view goes down the stand 2
+## pres_prematch_2: after 80 frames the view goes down the stand 2
 ## pixels a frame to the big screen ($220), the kits' colours coming in
 ## half-way ($150); Start before then skips to the match. The names slide
 ## in from the sides, stop either side of VS, and go on out.
-func menu_load_03B09E_2(o: ISSMenu.Obj) -> void:
+func pres_prematch_2(o: ISSMenu.Obj) -> void:
 	o.add_w(DISTANCE, 1)
 	if o.sw(DISTANCE) > 0x50:
 		if w(S.g_plane_a_vscroll) == 0x220:
-			o.update = menu_load_03B09E_3
+			o.update = pres_prematch_3
 		else:
 			add_w(S.g_plane_a_vscroll, 2)
 			add_w(S.g_plane_b_vscroll, 2)
@@ -477,9 +477,9 @@ func menu_load_03B09E_2(o: ISSMenu.Obj) -> void:
 		d5 = maxi(0, d5 - 0x24C) + 0xC4
 	d5 = mini(d5, 0x140)
 	if d5 == 0xC4:
-		_list_n(rom("menu_load_03B09E_2_data3"), 1, w(0x173A), 0x80, 0x40)
-	_list_n(rom("menu_load_03B09E_2_data2"), 3, w(0x1740), d5, 0x40)
-	_list_n(rom("menu_load_03B09E_2_data"), 3, w(0x173E), 0x100 - d5, 0x40)
+		_list_n(rom("pres_prematch_2_data3"), 1, w(0x173A), 0x80, 0x40)
+	_list_n(rom("pres_prematch_2_data2"), 3, w(0x1740), d5, 0x40)
+	_list_n(rom("pres_prematch_2_data"), 3, w(0x173E), 0x100 - d5, 0x40)
 
 
 ## n sprites of four words (no count word) at (x0 + x, y0 + y).
@@ -507,10 +507,10 @@ func _toss_view() -> void:
 	set_w(S.g_plane_a_hscroll, 0x100)
 
 
-## menu_load_03B09E_3: the home side calls heads or tails (with no human on
+## pres_prematch_3: the home side calls heads or tails (with no human on
 ## that side any pad does it).
-func menu_load_03B09E_3(o: ISSMenu.Obj) -> void:
-	o.update = menu_load_03B09E_4
+func pres_prematch_3(o: ISSMenu.Obj) -> void:
+	o.update = pres_prematch_4
 	o.set_w(TEAM, 0)
 	o.set_w(CHOSEN, 0)
 	o.set_w(ANIM_FRAME, 0)
@@ -519,12 +519,12 @@ func menu_load_03B09E_3(o: ISSMenu.Obj) -> void:
 		set_w(0x1548, 2)
 		set_w(S.g_pad_held_home, 0xFFFF)
 		set_w(S.g_pad_held_away, 0xFFFF)
-	menu_load_03B09E_4(o)
+	pres_prematch_4(o)
 
 
-## menu_load_03B09E_4: up / down between HEADS and TAILS (SFX 123), C
+## pres_prematch_4: up / down between HEADS and TAILS (SFX 123), C
 ## calls it (SFX 95); the call blinks for 64 frames.
-func menu_load_03B09E_4(o: ISSMenu.Obj) -> void:
+func pres_prematch_4(o: ISSMenu.Obj) -> void:
 	if o.w(CHOSEN) == 0:
 		if w(S.g_pad_pressed_home) & 3:
 			o.set_w(ANIM_FRAME, o.w(ANIM_FRAME) ^ 1)
@@ -536,19 +536,19 @@ func menu_load_03B09E_4(o: ISSMenu.Obj) -> void:
 	else:
 		o.add_w(DISTANCE, 1)
 		if o.w(DISTANCE) == 0x40:
-			o.update = menu_load_03B09E_5
+			o.update = pres_prematch_5
 	var blink := o.w(DISTANCE) & 8 != 0
 	if o.w(CHOSEN) == 0 or o.w(ANIM_FRAME) != 0 or blink:
-		menu_draw_03C1C0(rom("menu_load_03B09E_4_data"), 0x88, 0x40)
+		pres_prematch_sprites(rom("pres_prematch_4_data"), 0x88, 0x40)
 	if o.w(CHOSEN) == 0 or o.w(ANIM_FRAME) == 0 or blink:
-		menu_draw_03C1C0(rom("menu_load_03B09E_4_data2"), 0x88, 0x60)
-	menu_draw_03C1C0(rom("menu_data_03C26E"), 0x68, o.w(ANIM_FRAME) * 32 + 0x40)
+		pres_prematch_sprites(rom("pres_prematch_4_data2"), 0x88, 0x60)
+	pres_prematch_sprites(rom("tbl_toss_cursor_home"), 0x68, o.w(ANIM_FRAME) * 32 + 0x40)
 
 
-## menu_load_03B09E_5: back to the big screen (the kits' colours, the
+## pres_prematch_5: back to the big screen (the kits' colours, the
 ## stadium's line 3), the referee tosses the coin.
-func menu_load_03B09E_5(o: ISSMenu.Obj) -> void:
-	o.update = menu_load_03B09E_6
+func pres_prematch_5(o: ISSMenu.Obj) -> void:
+	o.update = pres_prematch_6
 	o.set_w(DISTANCE, 0)
 	m.unpack(7 + w(S.g_stadium), 6 + w(S.g_weather), 0xFF07B6)
 	set_w(0x7D2, w(0x7B6))
@@ -557,47 +557,47 @@ func menu_load_03B09E_5(o: ISSMenu.Obj) -> void:
 	m.cram_dma(0, S.g_palette_target, 0x80)
 	set_w(S.g_plane_b_hscroll, 0)
 	set_w(S.g_plane_a_hscroll, 0)
-	objects.referee.update = objects.sys_start_turn_step_001586
-	objects.actor(S.g_director).update = objects.match_state_011DFC
-	menu_load_03B09E_6(o)
+	objects.referee.update = objects.referee_toss_coin
+	objects.actor(S.g_director).update = objects.coin_toss
+	pres_prematch_6(o)
 
 
-## menu_load_03B09E_6: 128 frames of the toss.
-func menu_load_03B09E_6(o: ISSMenu.Obj) -> void:
+## pres_prematch_6: 128 frames of the toss.
+func pres_prematch_6(o: ISSMenu.Obj) -> void:
 	o.add_w(DISTANCE, 1)
 	if o.w(DISTANCE) == 0x80:
-		o.update = menu_load_03B09E_7
+		o.update = pres_prematch_7
 
 
-## menu_load_03B09E_7: how the coin fell (a random bit), shown on the
+## pres_prematch_7: how the coin fell (a random bit), shown on the
 ## toss's picture.
-func menu_load_03B09E_7(o: ISSMenu.Obj) -> void:
-	o.update = menu_load_03B09E_8
+func pres_prematch_7(o: ISSMenu.Obj) -> void:
+	o.update = pres_prematch_8
 	o.set_w(DISTANCE, 0)
 	o.set_w(CHOSEN, hv_counter.call() & 1)
 	_toss_view()
-	menu_load_03B09E_8(o)
+	pres_prematch_8(o)
 
 
-## menu_load_03B09E_8: the coin lands (196 frames): the hand's two halves
+## pres_prematch_8: the coin lands (196 frames): the hand's two halves
 ## part from frame 96, the coin's face (HEADS / TAILS).
-func menu_load_03B09E_8(o: ISSMenu.Obj) -> void:
+func pres_prematch_8(o: ISSMenu.Obj) -> void:
 	o.add_w(DISTANCE, 1)
 	if o.w(DISTANCE) == 0xC4:
-		o.update = menu_load_03B09E_9
+		o.update = pres_prematch_9
 	var d5 := maxi(0, o.sw(DISTANCE) - 0x60) << 2
 	var d6 := 0x10 - d5
 	d5 += 0x40
-	menu_draw_03C1C0(rom("menu_load_03B09E_8_data4"), d5, d6)
-	var face := "menu_load_03B09E_8_data" if o.w(CHOSEN) == 0 else "menu_load_03B09E_8_data2"
-	menu_draw_03C1C0(rom(face), 0x80, 0x34)
-	menu_draw_03C1C0(rom("menu_load_03B09E_8_data3"), 0x40, 0x10)
+	pres_prematch_sprites(rom("pres_prematch_8_data4"), d5, d6)
+	var face := "pres_prematch_8_data" if o.w(CHOSEN) == 0 else "pres_prematch_8_data2"
+	pres_prematch_sprites(rom(face), 0x80, 0x34)
+	pres_prematch_sprites(rom("pres_prematch_8_data3"), 0x40, 0x10)
 
 
-## menu_load_03B09E_9: the winner of the toss (the caller if the call was
+## pres_prematch_9: the winner of the toss (the caller if the call was
 ## right) picks KICK OFF or one of the ends; a CPU side waits 32-63 frames.
-func menu_load_03B09E_9(o: ISSMenu.Obj) -> void:
-	o.update = menu_load_03B09E_10
+func pres_prematch_9(o: ISSMenu.Obj) -> void:
+	o.update = pres_prematch_10
 	if o.w(ANIM_FRAME) != o.w(CHOSEN):
 		o.set_w(TEAM, o.w(TEAM) ^ 1)
 	o.set_w(CHOSEN, 0)
@@ -605,7 +605,7 @@ func menu_load_03B09E_9(o: ISSMenu.Obj) -> void:
 	o.set_w(TIMER, 0xFFFF)
 	o.set_w(DISTANCE, (hv_counter.call() & 0x1F) + 0x20)
 	set_w(0x1548, 0 if o.w(TEAM) == 0 else 1)
-	menu_load_03B09E_10(o)
+	pres_prematch_10(o)
 
 
 ## A CPU side's choice: every 8 frames the next item, the choice when its
@@ -646,27 +646,27 @@ func _choose(o: ISSMenu.Obj, items: int) -> void:
 
 
 ## The choosing side's cursor (on its side of the picture) and every 8
-## frames its colours cycled (menu_data_03C424 / 03C444 on line 0's last
+## frames its colours cycled (tbl_toss_colours_home / 03C444 on line 0's last
 ## four).
 func _cursor(o: ISSMenu.Obj, d6: int) -> void:
 	if o.w(TEAM) == 0:
-		menu_draw_03C1C0(rom("menu_data_03C26E"), 0x58, d6)
+		pres_prematch_sprites(rom("tbl_toss_cursor_home"), 0x58, d6)
 	else:
-		menu_draw_03C1C0(rom("menu_data_03C278"), 0xB8, d6)
+		pres_prematch_sprites(rom("tbl_toss_cursor_away"), 0xB8, d6)
 	o.add_w(TIMER, 1)
 	if o.w(TIMER) & 7:
 		return
-	var t := rom("menu_data_03C424" if o.w(TEAM) == 0 else "menu_data_03C444") + (w(S.g_frame_counter) & 0x18)
+	var t := rom("tbl_toss_colours_home" if o.w(TEAM) == 0 else "tbl_toss_colours_away") + (w(S.g_frame_counter) & 0x18)
 	for i in 4:
 		set_w(0x76E + 2 * i, ISSRom.u16(t + 2 * i))
 	m.cram_dma(0, S.g_palette_target, 0x20)
 
 
-## menu_load_03B09E_10: KICK OFF, LEFT or RIGHT; after 64 frames of the
+## pres_prematch_10: KICK OFF, LEFT or RIGHT; after 64 frames of the
 ## choice blinking an end gives the other side the kick-off ($1634) and
 ## the ends (g_left_goal_team), then the match; KICK OFF lets the other
 ## side pick the end.
-func menu_load_03B09E_10(o: ISSMenu.Obj) -> void:
+func pres_prematch_10(o: ISSMenu.Obj) -> void:
 	if o.w(CHOSEN) == 0:
 		_choose(o, 3)
 	else:
@@ -678,34 +678,34 @@ func menu_load_03B09E_10(o: ISSMenu.Obj) -> void:
 				set_l(S.g_next_state, ISSMenu.STATE_MATCH)
 				m.fade_out_start()
 			else:
-				o.update = menu_load_03B09E_11
+				o.update = pres_prematch_11
 	if w(S.g_fade_step) != 0x18:
 		return
 	var blink := o.w(DISTANCE) & 8 != 0
 	var c := o.w(CHOSEN) == 0
 	if c or o.w(ANIM_FRAME) != 0 or blink:
-		menu_draw_03C1C0(rom("menu_load_03B09E_10_data"), 0x88, 0x30)
+		pres_prematch_sprites(rom("pres_prematch_10_data"), 0x88, 0x30)
 	if c or o.w(ANIM_FRAME) != 1 or blink:
-		menu_draw_03C1C0(rom("menu_data_03C2BC"), 0x88, 0x50)
+		pres_prematch_sprites(rom("tbl_toss_end_left"), 0x88, 0x50)
 	if c or o.w(ANIM_FRAME) != 2 or blink:
-		menu_draw_03C1C0(rom("menu_data_03C2F6"), 0x88, 0x70)
+		pres_prematch_sprites(rom("tbl_toss_end_right"), 0x88, 0x70)
 	_cursor(o, o.w(ANIM_FRAME) * 32 + 0x30)
 
 
-## menu_load_03B09E_11: the other side picks an end.
-func menu_load_03B09E_11(o: ISSMenu.Obj) -> void:
-	o.update = menu_load_03B09E_12
+## pres_prematch_11: the other side picks an end.
+func pres_prematch_11(o: ISSMenu.Obj) -> void:
+	o.update = pres_prematch_12
 	o.set_w(CHOSEN, 0)
 	o.set_w(ANIM_FRAME, 0)
 	o.set_w(TIMER, 0xFFFF)
 	o.set_w(TEAM, o.w(TEAM) ^ 1)
 	o.set_w(DISTANCE, (ISSModes._rand() & 0x1F) + 0x20)
 	set_w(0x1548, 0 if o.w(TEAM) == 0 else 1)
-	menu_load_03B09E_12(o)
+	pres_prematch_12(o)
 
 
-## menu_load_03B09E_12: LEFT or RIGHT, then the match.
-func menu_load_03B09E_12(o: ISSMenu.Obj) -> void:
+## pres_prematch_12: LEFT or RIGHT, then the match.
+func pres_prematch_12(o: ISSMenu.Obj) -> void:
 	if o.w(CHOSEN) == 0:
 		_choose(o, 2)
 	else:
@@ -720,20 +720,38 @@ func menu_load_03B09E_12(o: ISSMenu.Obj) -> void:
 	var blink := o.w(DISTANCE) & 8 != 0
 	var c := o.w(CHOSEN) == 0
 	if c or o.w(ANIM_FRAME) != 0 or blink:
-		menu_draw_03C1C0(rom("menu_data_03C2BC"), 0x88, 0x50)
+		pres_prematch_sprites(rom("tbl_toss_end_left"), 0x88, 0x50)
 	if c or o.w(ANIM_FRAME) == 0 or blink:
-		menu_draw_03C1C0(rom("menu_data_03C2F6"), 0x88, 0x70)
+		pres_prematch_sprites(rom("tbl_toss_end_right"), 0x88, 0x70)
 	_cursor(o, o.w(ANIM_FRAME) * 32 + 0x50)
 
 
 # --------------------------------------------------------------------------
-# 1: a goal (menu_load_03C464).
+# 1: a goal (pres_goal).
 
-## menu_load_03C464: the big screen ($1630's picture set, group 19 or 20
+## Palette lines 2 and 3 as state_match leaves them, which the goal's
+## presentation keeps: line 2 group 17 entry 2 with the officials' kit over
+## its first eight colours (the fourth kit while $125E is set,
+## match_create_objects) and group 16 entry 9 over the rest
+## (match_init_hud); line 3 the stadium's colours for the weather
+## (group 7 + stadium, entry 6 + weather; colour 14 = colour 0).
+static func match_palette() -> void:
+	ISSRam.copy_in(0x796, ISSRom.res(17, 2))
+	var kit := ISSRom.res(4, 38)
+	var k := (3 if ISSRam.w(0x125E) != 0 else ISSRam.w(S.g_officials_kit)) * 16
+	for i in 8:
+		ISSRam.set_w(0x796 + 2 * i, (kit[k + 2 * i] << 8) | kit[k + 2 * i + 1])
+	ISSRam.copy_in(0x7A6, ISSRom.res(16, 9))
+	ISSRam.copy_in(0x7B6, ISSRom.res(7 + ISSRam.w(S.g_stadium), 6 + ISSRam.w(S.g_weather)))
+	ISSRam.set_w(0x7D2, ISSRam.w(0x7B6))
+
+
+
+## pres_goal: the big screen ($1630's picture set, group 19 or 20
 ## for the third stand) with the goal's picture (sprites, group 4 entry 22
 ## + $1734: 0 a goal, 1 a lead by one, 2 a hat-trick) in the scorers' kit
 ## ($1732 the side), and for the last two confetti.
-func menu_load_03C464() -> void:
+func pres_goal() -> void:
 	set_l(S.g_plane_a_hscroll, 0)
 	set_l(S.g_plane_b_hscroll, 0)
 	set_l(S.g_plane_a_vscroll, 0x2200000)
@@ -766,19 +784,19 @@ func menu_load_03C464() -> void:
 			o.set_w(Y, 0x540)
 			o.set_w(X, ISSModes._rand() & 0xFF)
 			o.set_w(Z, ISSModes._rand() & 0x7F)
-			objects.match_state_011D9C(o)
+			objects.confetti_fall(o)
 	set_w(0x173C, 0x140)
 	var c := m.obj_alloc()
 	c.draw = Callable()
 	c.think = Callable()
-	c.update = menu_load_03C464_1
+	c.update = pres_goal_1
 
 
-## menu_load_03C464_1: the music (song $19) and the crowd: a goal's cheer
+## pres_goal_1: the music (song $19) and the crowd: a goal's cheer
 ## (SFX 102) once, a lead's or a hat-trick's (101 after the second goal,
 ## else 99) and SFX 80.
-func menu_load_03C464_1(o: ISSMenu.Obj) -> void:
-	o.update = menu_load_03C464_2
+func pres_goal_1(o: ISSMenu.Obj) -> void:
+	o.update = pres_goal_2
 	m.menu_music(0x19)
 	if w(0x1734) == 0:
 		if w(0x17D8) != 1:
@@ -788,30 +806,30 @@ func menu_load_03C464_1(o: ISSMenu.Obj) -> void:
 		m.play_sfx(101 if sw(0x17D8) > 2 else 99)
 		set_w(0x17D8, 2)
 		m.play_sfx(80)
-	menu_load_03C464_2(o)
+	pres_goal_2(o)
 
 
-## menu_load_03C464_2: 320 frames (or Start) of the picture, then back to
+## pres_goal_2: 320 frames (or Start) of the picture, then back to
 ## the match.
-func menu_load_03C464_2(_o: ISSMenu.Obj) -> void:
+func pres_goal_2(_o: ISSMenu.Obj) -> void:
 	add_w(0x173C, -1)
 	if w(0x173C) == 0 or w(S.g_pad_pressed_any) & 0x80:
 		set_l(S.g_next_state, ISSMenu.STATE_MATCH)
 		m.fade_out_start()
-	var t: String = ["menu_load_03C464_2_data", "menu_load_03C464_2_data2", "menu_load_03C464_2_data3"][mini(w(0x1734), 2)]
+	var t: String = ["pres_goal_2_data", "pres_goal_2_data2", "pres_goal_2_data3"][mini(w(0x1734), 2)]
 	_list(rom(t), w(0x173A), 0x50, 0x20)
 
 
 # --------------------------------------------------------------------------
-# 2: the trophy (menu_sound_03C97E).
+# 2: the trophy (pres_trophy).
 
-## menu_sound_03C97E: the trophy song ($12); VICTORY down both sides of
+## pres_trophy: the trophy song ($12); VICTORY down both sides of
 ## plane A (group 21), the crowd between them on plane B (the stand map's
 ## sides blanked with metatile $6D, a strip of it repeated further down),
 ## the cup's picture in four sprite strips (group 4 entry 27) at the
 ## heights $173E / $1742 / $1746 / $174A, in the winners' first kit
 ## ($127C's).
-func menu_sound_03C97E() -> void:
+func pres_trophy() -> void:
 	m.menu_music(0x12)
 	set_l(S.g_plane_a_hscroll, 0)
 	set_l(S.g_plane_b_hscroll, 0)
@@ -834,7 +852,7 @@ func menu_sound_03C97E() -> void:
 	var kit := ISSRom.res(4, 38)
 	for i in 8:
 		set_w(0x796 + 2 * i, (kit[2 * i] << 8) | kit[2 * i + 1])
-	var t := rom("menu_sound_03C97E_data")
+	var t := rom("pres_trophy_data")
 	for i in 16:
 		set_w(0x7B6 + 2 * i, ISSRom.u16(t + 2 * i))
 	set_w(S.g_overlay_vram, m.load_tiles(21, 1))
@@ -858,52 +876,52 @@ func menu_sound_03C97E() -> void:
 	var c := m.obj_alloc()
 	c.draw = Callable()
 	c.think = Callable()
-	c.update = menu_sound_03C97E_1
+	c.update = pres_trophy_1
 
 
-func menu_sound_03C97E_1(o: ISSMenu.Obj) -> void:
-	o.update = menu_sound_03C97E_2
-	menu_sound_03C97E_2(o)
+func pres_trophy_1(o: ISSMenu.Obj) -> void:
+	o.update = pres_trophy_2
+	pres_trophy_2(o)
 
 
-## menu_sound_03C97E_2: the crowd scrolls up to $1C0 (0.625 a frame), the
+## pres_trophy_2: the crowd scrolls up to $1C0 (0.625 a frame), the
 ## picture's strips rising at their own speeds.
-func menu_sound_03C97E_2(o: ISSMenu.Obj) -> void:
+func pres_trophy_2(o: ISSMenu.Obj) -> void:
 	if sw(S.g_plane_b_vscroll) >= 0x1C0:
-		o.update = menu_sound_03C97E_3
+		o.update = pres_trophy_3
 	else:
 		add_l(S.g_plane_b_vscroll, 0xA000)
 		add_l(0x174A, -0x8000)
 		add_l(0x1746, -0x8000)
 		add_l(0x1742, -0x6000)
 		add_l(0x173E, -0x3000)
-	menu_draw_03CD54()
+	pres_trophy_draw()
 
 
-## menu_sound_03C97E_3 / _4: the picture held for 400 frames.
-func menu_sound_03C97E_3(o: ISSMenu.Obj) -> void:
-	o.update = menu_sound_03C97E_4
+## pres_trophy_3 / _4: the picture held for 400 frames.
+func pres_trophy_3(o: ISSMenu.Obj) -> void:
+	o.update = pres_trophy_4
 	set_w(0x173A, 0x190)
-	menu_sound_03C97E_4(o)
+	pres_trophy_4(o)
 
 
-func menu_sound_03C97E_4(o: ISSMenu.Obj) -> void:
+func pres_trophy_4(o: ISSMenu.Obj) -> void:
 	add_w(0x173A, -1)
 	if w(0x173A) == 0:
-		o.update = menu_sound_03C97E_5
-	menu_draw_03CD54()
+		o.update = pres_trophy_5
+	pres_trophy_draw()
 
 
-func menu_sound_03C97E_5(o: ISSMenu.Obj) -> void:
-	o.update = menu_sound_03C97E_6
-	menu_sound_03C97E_6(o)
+func pres_trophy_5(o: ISSMenu.Obj) -> void:
+	o.update = pres_trophy_6
+	pres_trophy_6(o)
 
 
-## menu_sound_03C97E_6: the crowd scrolls back to the top 4 pixels a frame
+## pres_trophy_6: the crowd scrolls back to the top 4 pixels a frame
 ## while the strips drop away; at $140 the stand's own colours.
-func menu_sound_03C97E_6(o: ISSMenu.Obj) -> void:
+func pres_trophy_6(o: ISSMenu.Obj) -> void:
 	if w(S.g_plane_b_vscroll) == 0:
-		o.update = menu_sound_03C97E_7
+		o.update = pres_trophy_7
 	else:
 		add_w(S.g_plane_b_vscroll, -4)
 	if sw(0x173E) < 0x100:
@@ -912,19 +930,19 @@ func menu_sound_03C97E_6(o: ISSMenu.Obj) -> void:
 	if w(S.g_plane_b_vscroll) == 0x140:
 		m.unpack(18, 8, 0xFF0000 | S.g_palette_target)
 		m.cram_dma(0, S.g_palette_target, 0x40)
-	menu_draw_03CD54()
+	pres_trophy_draw()
 
 
-func menu_sound_03C97E_7(o: ISSMenu.Obj) -> void:
-	o.update = menu_sound_03C97E_8
+func pres_trophy_7(o: ISSMenu.Obj) -> void:
+	o.update = pres_trophy_8
 	set_w(0x173A, 0x60)
-	menu_sound_03C97E_8(o)
+	pres_trophy_8(o)
 
 
-## menu_sound_03C97E_8: 96 frames on, where the competition goes: the
+## pres_trophy_8: 96 frames on, where the competition goes: the
 ## ending ($33) after the International Cup or a won championship, the
 ## World Series' second series ($37) or the championship ($38).
-func menu_sound_03C97E_8(o: ISSMenu.Obj) -> void:
+func pres_trophy_8(o: ISSMenu.Obj) -> void:
 	if w(0x173A) != 0:
 		add_w(0x173A, -1)
 		return
@@ -942,11 +960,11 @@ func menu_sound_03C97E_8(o: ISSMenu.Obj) -> void:
 	m.obj_free(o)
 
 
-## menu_draw_03CD54: the cup's picture, four sprite lists (the
+## pres_trophy_draw: the cup's picture, four sprite lists (the
 ## International Cup's last one its own) each at its strip's height, with
 ## priority.
-func menu_draw_03CD54() -> void:
-	var t := rom("menu_draw_03CD54_data2" if w(S.g_game_mode) == 8 else "menu_draw_03CD54_data")
+func pres_trophy_draw() -> void:
+	var t := rom("pres_trophy_draw_data2" if w(S.g_game_mode) == 8 else "pres_trophy_draw_data")
 	var base := w(0x173C) >> 5
 	for k in 4:
 		var a4 := ISSRom.u32(t + k * 4)

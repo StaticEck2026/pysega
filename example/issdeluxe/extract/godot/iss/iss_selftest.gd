@@ -111,6 +111,7 @@ func _init() -> void:
 	_check_international()
 	_check_world_series()
 	_check_presentations()
+	_check_goal_presentation()
 	_check_competitions()
 	_check_strategies_and_subs()
 	_check_long_modes()
@@ -386,6 +387,43 @@ func _check_presentations() -> void:
 	_check(toss[1] == ISSMenu.STATE_MATCH and toss[2] == 0 and toss[3] == 1, "presentation: the toss %s" % [toss])
 	_check(goal[1] == ISSMenu.STATE_MATCH and goal[0] > 320 and goal[0] < 400, "presentation: a goal %s" % [goal])
 	_check(cup[1] == ISSMenu.STATE_MENU and cup[4] == 0x37, "presentation: the trophy %s" % [cup])
+
+
+## A front-end match leaves for the big screen after a goal that puts a
+## human side one up, and after an own goal (the side that conceded), then
+## takes the kick-off up again from RAM.
+func _check_goal_presentation() -> void:
+	var got := []
+	for own in [false, true]:
+		ISSMenu.power_on()
+		ISSModes.start_open_game()
+		ISSModes.open_game_setup()
+		ISSRam.set_w(ISSSym.g_pads_home, 1)
+		ISSRam.set_w(ISSSym.g_pads_away, 0)
+		_short_clock(50)
+		var setup := ISSMatchSetup.from_ram()
+		var e := ISSMatchEngine.new()
+		e.setup(int(setup["home"]), int(setup["away"]), setup["options"])
+		e.ball.live = true
+		e.ball.last_touch = e.teams[1 if own else 0].players[5]
+		e._goal(1)
+		var frames := 0
+		while not e.over and frames < 60 * 20:
+			e.step([])
+			frames += 1
+		ISSMatchSetup.to_ram(e)
+		var p := e.presentation.duplicate()
+		var reason := e.end_reason
+		e.dispose()
+		setup = ISSMatchSetup.from_ram()
+		e = ISSMatchEngine.new()
+		e.setup(int(setup["home"]), int(setup["away"]), setup["options"])
+		got.append([reason, p, e.restart_type, e.restart_side, e.teams[0].score])
+		e.dispose()
+	_check(got[0][0] == "presentation" and got[0][1] == {"side": 0, "kind": 1} and got[0][3] == 1 and got[0][4] == 1,
+		"a goal: the big screen, then the other side's kick-off %s" % [got[0]])
+	_check(got[1][0] == "presentation" and got[1][1] == {"side": 1, "kind": 0} and got[1][3] == 1,
+		"an own goal: the big screen in the conceding side's kit %s" % [got[1]])
 
 
 func _check_world_series() -> void:

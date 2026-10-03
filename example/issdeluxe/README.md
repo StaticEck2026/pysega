@@ -632,11 +632,18 @@ The extractor makes `iss/iss_game.tscn` the project's main scene: open
 Deluxe rebuilt in GDScript on the exported data, in a 256 × 224 viewport
 scaled by whole numbers:
 
-* **Front end** on the game's own screens and fonts, laid out like the
-  original main menu: *Match* (screen 1: open game — 1P vs COM, 1P vs 2P or
-  COM vs COM — short league or short tournament), *International Cup*,
-  *World Series*, *Continue* (the port saves competitions where the
-  original shows passwords), *Scenario*, *PK*, *Training* and *Options*
+* **Front end** (`ISSMenu`): the game's own `state_menu`, its 60 screen
+  handlers (`tbl_screen_handlers`) ported routine by routine in the
+  `ISSScreens*` scripts (one function per ROM routine, under its name) on a
+  model of what they drew with: `ISSVdp` (VRAM, CRAM, the sprite table and
+  both planes, drawn by a shader with the VDP's priority and
+  shadow/highlight rules), `ISSRam` (the work RAM, which the screens, the
+  competitions and the match share as in the original) and `ISSRom` (the
+  data blocks and the resource archive). The main menu: *Match* (screen 1:
+  open game — 1P vs COM, 1P vs 2P or COM vs COM — short league or short
+  tournament), *International Cup*, *World Series*, *Password* (the
+  original's passwords, `ISSPassword`), *Scenario*, *PK*, *Training* and
+  *Options*
   (game level 1–5, game time 3, 5 or 7 minutes a half, sound; the rules
   screen: fouls, yellow cards, offside, V-goal or full extra time, the four
   referees). Team pages choose the sides with their flags, each side's
@@ -656,6 +663,18 @@ scaled by whole numbers:
   are decided by
   `match_simulate` from each team's strength (`tbl_team_strength`,
   `tbl_sim_goals`).
+* **Presentations** (`ISSPresentation`, `state_screen`): before a match the
+  view goes down the stadium's stand to the big screen with the two
+  captains and the referee, and the home side calls heads or tails; the
+  winner of the toss takes the kick-off or an end (`$1634`,
+  `g_left_goal_team`). An own goal, a goal that puts a human side one up and
+  a hat-trick are shown on the big screen; a won International Cup or
+  World Series season ends on the trophy. The objects are the match's own
+  (`ISSObjects`: players, referee, ball and coin where the game keeps them
+  in RAM) and the crowd's flags and confetti.
+* **Endings**: the staff roll after the International Cup or the
+  championship (screen `$33`, with its scenes of play), the scenarios'
+  ending (`$26`), game over and congratulations.
 * **Scenarios**: the 12 situations of `tbl_scenarios` with their stories
   (`tbl_scenario_texts`): the score, the time left in the second half, the
   stadium, the referee and the restart the human side starts with; only a
@@ -749,16 +768,27 @@ scaled by whole numbers:
   lofted balls, `camera_update`'s lead toward the attacking goal, the HUD
   with the live radar, banners, commentary, crowd and effects.
 
-Not reproduced (yet): the passwords themselves (the port saves instead),
-the shoot-out's own view from behind the taker (the kicks are taken on the
-pitch), man-marking, and the key configuration and change control menus.
+Not reproduced (yet): the shoot-out's own view from behind the taker (the
+kicks are taken on the pitch), the original's in-match pause menu and
+replay (the port's pause offers continue, substitutions and the match
+menu), and the boot screens before the title.
 `iss_selftest.gd` plays a whole CPU match headless, drives a player
 through the pad input, plays a level knockout match to penalties, runs a
 league, a tournament, the International Cup and both paths of the World
 Series, starts a scenario, sets up and replays each training drill, dives
 with a human keeper, checks the free kick wall, plays each challenge to its
 end, clears the dribble and checks the challenge timer and scores,
-strategies and substitutions and starts a match in the game scene.
+strategies and substitutions, runs the three presentations (the toss with
+pad presses, a goal, the trophy) and a goal's hand-over from the match to
+the big screen and back, and starts a match in the game scene.
+
+The front end, the presentations and the endings were checked frame by
+frame against the ROM running in `tools/md_harness.py`: the same RAM, the
+same pad presses, and screenshots compared pixel for pixel (see
+[Capturing the ROM's own screens](#capturing-the-roms-own-screens)). The
+game shows a frame's VRAM, CRAM, sprite and scroll changes together one
+frame later (its DMA queue runs in the next VBlank); the port shows them
+together at the end of the frame.
 
 ### Rendering the music and FM effects
 
@@ -911,13 +941,12 @@ training, with the front end, the rules, the AI and the presentation
 rebuilt on the exported data.
 
 Open work, in rough order of value for a port:
-1. In the Godot game: the shoot-out's own view, passwords, man-marking and
-   the key configuration and change control menus.
-2. The figures of the presentation scenes (`flag_fans_draw`).
-3. The field layout of each mode's password and the object behind each
+1. In the Godot game: the shoot-out's own view (`state_shootout`), the
+   in-match pause menu and replay, and the boot screens.
+2. The field layout of each mode's password and the object behind each
    remaining menu screen.
-4. The exact effects of curl, intelligence, balance and dribble (bytes 4,
+3. The exact effects of curl, intelligence, balance and dribble (bytes 4,
    5 and 7 are read by the tackle, foul and ball-control code; no read of
    byte 3 was found yet).
-5. Sound: the note and pattern encoding in full (to convert songs to MIDI)
+4. Sound: the note and pattern encoding in full (to convert songs to MIDI)
    and the FM patch format; the rendered audio already covers playback.

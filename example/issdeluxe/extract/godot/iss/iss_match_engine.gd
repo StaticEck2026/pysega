@@ -74,6 +74,8 @@ var last_pads: Array = []
 ## $18B2, and the ball went dead).
 var half_only := false
 var end_reason := ""
+## end_reason "presentation": the goal's picture to show ({"side", "kind"}).
+var presentation := {}
 ## $182A / $18B2: a side asked for the match menu (X, or the pause menu's
 ## last item); taken at the next restart.
 var menu_request := [0, 0]
@@ -274,6 +276,37 @@ func _start_from_ram(opts: Dictionary) -> void:
 			ball.pos = pos
 			start_restart(type, int(r.get("team", 0)), pos)
 			restart_timer = 30
+
+
+## The goal's presentation on the stadium's big screen (state_screen $1730
+## = 1) as restart_own_goal_1 and restart_goal_1 choose it once the banner
+## is over: after an own goal always (the side that conceded, picture 0);
+## after a goal when the scorers' side has a human on it and now leads by
+## one (picture 1), or when the last three goals were the same player's
+## (picture 2, a hat-trick: g_scorers' side, team and record alike).
+## {"side", "kind"}, or empty.
+func goal_presentation() -> Dictionary:
+	if restart_type == R.OWN_GOAL:
+		return {"side": restart_side, "kind": 0}
+	var side := 1 - restart_side
+	var pads: Array = options.get("pads", [1, 0])
+	if int(pads[side]) == 0:
+		return {}
+	var kind := -1
+	if teams[side].score - teams[1 - side].score == 1:
+		kind = 1
+	var n := teams[0].score + teams[1].score
+	if n >= 3 and scorers.size() >= n:
+		var last: Dictionary = scorers[n - 1]
+		var same := true
+		for k in [n - 2, n - 3]:
+			var g: Dictionary = scorers[k]
+			for f in ["side", "team", "record"]:
+				if int(g.get(f, -1)) != int(last.get(f, -2)):
+					same = false
+		if same:
+			kind = 2
+	return {} if kind < 0 else {"side": side, "kind": kind}
 
 
 ## The eight statistics words of g_stats_home / g_stats_away in order.
@@ -1226,6 +1259,13 @@ func _director() -> void:
 					else:
 						_result_end()
 					return
+				if half_only and drill < 0 and challenge < 0:
+					var pres := goal_presentation()
+					if not pres.is_empty():
+						# state_screen's big screen, then the kick-off.
+						presentation = pres
+						_end("presentation")
+						return
 				_start_kickoff(0 if drill >= 0 else restart_side)
 			R.HALF_TIME:
 				if half_only:

@@ -1665,57 +1665,57 @@ func _free_marker(o: ISSMenu.Obj) -> void:
 # referee standing on the big screen, the coin, the crowd's flags and the
 # confetti.
 
-## ai_func_00C7D8: a player who just stands (no input, heading = facing).
-func ai_func_00C7D8(o: Actor) -> void:
-	o.think = ai_func_00C7D8_1
+## player_think_idle: a player who just stands (no input, heading = facing).
+func player_think_idle(o: Actor) -> void:
+	o.think = player_think_idle_1
 	o.set_w(CROUCH, 0)
 	o.set_w(INPUT, 0)
 	o.set_w(HEADING, o.w(FACING))
 
 
-func ai_func_00C7D8_1(_o: Actor) -> void:
+func player_think_idle_1(_o: Actor) -> void:
 	pass
 
 
-## match_func_010A40: the referee's think when he only stands.
-func match_func_010A40(o: Actor) -> void:
-	o.think = match_func_010A40_1
-	match_func_010A40_1(o)
+## referee_think_idle: the referee's think when he only stands.
+func referee_think_idle(o: Actor) -> void:
+	o.think = referee_think_idle_1
+	referee_think_idle_1(o)
 
 
-func match_func_010A40_1(o: Actor) -> void:
+func referee_think_idle_1(o: Actor) -> void:
 	o.set_w(INPUT, 0)
 	o.set_w(HEADING, o.w(FACING))
 
 
-## sys_start_stand_00122C: the referee stands (action 0, frames 0-3 every
+## referee_stand: the referee stands (action 0, frames 0-3 every
 ## 32 frames).
-func sys_start_stand_00122C(o: Actor) -> void:
-	o.update = sys_start_stand_00122C_1
+func referee_stand(o: Actor) -> void:
+	o.update = referee_stand_1
 	o.set_w(ACTION, 0)
 	o.set_w(ANIM_FRAME, 0)
 	o.set_w(TIMER, 0x20)
 	_stop(o)
-	sys_start_stand_00122C_1(o)
+	referee_stand_1(o)
 
 
-func sys_start_stand_00122C_1(o: Actor) -> void:
+func referee_stand_1(o: Actor) -> void:
 	_anim(o, 0x20, 3, true)
 
 
-## sys_start_turn_step_001586: the referee tosses the coin (action 3,
+## referee_toss_coin: the referee tosses the coin (action 3,
 ## facing down, a frame every 6; SFX 93 on frame 6; it holds frame 15).
-func sys_start_turn_step_001586(o: Actor) -> void:
-	o.update = sys_start_turn_step_001586_1
+func referee_toss_coin(o: Actor) -> void:
+	o.update = referee_toss_coin_1
 	o.set_w(ACTION, 3)
 	o.set_w(ANIM_FRAME, 0)
 	o.set_w(TIMER, 6)
 	o.set_w(FACING, 0x20)
 	_stop(o)
-	sys_start_turn_step_001586_1(o)
+	referee_toss_coin_1(o)
 
 
-func sys_start_turn_step_001586_1(o: Actor) -> void:
+func referee_toss_coin_1(o: Actor) -> void:
 	o.add_w(TIMER, -1)
 	if o.w(TIMER) != 0:
 		return
@@ -1727,32 +1727,32 @@ func sys_start_turn_step_001586_1(o: Actor) -> void:
 		o.set_w(ANIM_FRAME, 0xF)
 
 
-## match_state_011DE6: the coin (g_director) still in the referee's hand.
-func match_state_011DE6(o: ISSMenu.Obj) -> void:
-	o.update = match_state_011DE6_1
+## coin_hold: the coin (g_director) still in the referee's hand.
+func coin_hold(o: ISSMenu.Obj) -> void:
+	o.update = coin_hold_1
 	o.set_l(SPEED, 0)
 	o.set_l(VEL_X, 0)
 	o.set_l(VEL_Y, 0)
 
 
-func match_state_011DE6_1(_o: ISSMenu.Obj) -> void:
+func coin_hold_1(_o: ISSMenu.Obj) -> void:
 	pass
 
 
-## match_state_011DFC: the coin tossed: 32 frames on it flies up (vz
+## coin_toss: the coin tossed: 32 frames on it flies up (vz
 ## 2.25, gravity 3/32), spinning a frame every 4, and is gone after 80.
-func match_state_011DFC(o: ISSMenu.Obj) -> void:
-	o.update = match_state_011DFC_1
+func coin_toss(o: ISSMenu.Obj) -> void:
+	o.update = coin_toss_1
 	o.set_w(TIMER, 4)
 	o.set_w(DISTANCE, 0x50)
 	o.set_l(VEL_Z, 0)
 	o.set_l(SPEED, 0)
 	o.set_l(VEL_X, 0)
 	o.set_l(VEL_Y, 0)
-	match_state_011DFC_1(o)
+	coin_toss_1(o)
 
 
-func match_state_011DFC_1(o: ISSMenu.Obj) -> void:
+func coin_toss_1(o: ISSMenu.Obj) -> void:
 	o.set_w(DISTANCE, o.w(DISTANCE) - 1)
 	if o.w(DISTANCE) == 0:
 		m.obj_free(o)
@@ -1771,17 +1771,17 @@ func match_state_011DFC_1(o: ISSMenu.Obj) -> void:
 	o.set_l(Z, (o.l(Z) + vz) & 0xFFFFFFFF)
 
 
-## match_state_011D9C: a piece of confetti (action 4 or 5 at random)
+## confetti_fall: a piece of confetti (action 4 or 5 at random)
 ## turning every 16 frames and falling a quarter pixel a frame.
-func match_state_011D9C(o: ISSMenu.Obj) -> void:
-	o.update = match_state_011D9C_1
+func confetti_fall(o: ISSMenu.Obj) -> void:
+	o.update = confetti_fall_1
 	o.set_w(ACTION, (_rand() & 1) + 4)
 	o.set_w(ANIM_FRAME, 0)
 	o.set_w(TIMER, 0x10)
-	match_state_011D9C_1(o)
+	confetti_fall_1(o)
 
 
-func match_state_011D9C_1(o: ISSMenu.Obj) -> void:
+func confetti_fall_1(o: ISSMenu.Obj) -> void:
 	o.set_w(TIMER, o.w(TIMER) - 1)
 	if o.w(TIMER) == 0:
 		o.set_w(TIMER, 0x10)
@@ -1812,35 +1812,35 @@ func _fans_step(o: ISSMenu.Obj, n: int, last: int) -> void:
 		o.set_w(ANIM_FRAME, 0)
 
 
-func match_start_stand_011E74(o: ISSMenu.Obj) -> void:
-	_fans_start(o, match_start_stand_011E74_1, 0, 0)
+func flag_fan_hold(o: ISSMenu.Obj) -> void:
+	_fans_start(o, flag_fan_hold_1, 0, 0)
 
 
-func match_start_stand_011E74_1(o: ISSMenu.Obj) -> void:
+func flag_fan_hold_1(o: ISSMenu.Obj) -> void:
 	_fans_step(o, 0xA, 7)
 
 
-func match_start_ready_stance_011EBA(o: ISSMenu.Obj) -> void:
-	_fans_start(o, match_start_ready_stance_011EBA_1, 1, 0x20)
+func flag_fan_raise(o: ISSMenu.Obj) -> void:
+	_fans_start(o, flag_fan_raise_1, 1, 0x20)
 
 
-func match_start_ready_stance_011EBA_1(o: ISSMenu.Obj) -> void:
+func flag_fan_raise_1(o: ISSMenu.Obj) -> void:
 	_fans_step(o, 0xA, 7)
 
 
-func match_start_jog_on_the_spot_011F00(o: ISSMenu.Obj) -> void:
-	_fans_start(o, match_start_jog_on_the_spot_011F00_1, 2, 0)
+func flag_fan_wave(o: ISSMenu.Obj) -> void:
+	_fans_start(o, flag_fan_wave_1, 2, 0)
 
 
-func match_start_jog_on_the_spot_011F00_1(o: ISSMenu.Obj) -> void:
+func flag_fan_wave_1(o: ISSMenu.Obj) -> void:
 	_fans_step(o, 8, 2)
 
 
-func match_start_turn_step_011F46(o: ISSMenu.Obj) -> void:
-	_fans_start(o, match_start_turn_step_011F46_1, 3, 0x20)
+func flag_fan_wave_2(o: ISSMenu.Obj) -> void:
+	_fans_start(o, flag_fan_wave_2_1, 3, 0x20)
 
 
-func match_start_turn_step_011F46_1(o: ISSMenu.Obj) -> void:
+func flag_fan_wave_2_1(o: ISSMenu.Obj) -> void:
 	_fans_step(o, 8, 2)
 
 
