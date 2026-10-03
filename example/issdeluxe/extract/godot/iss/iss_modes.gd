@@ -107,6 +107,56 @@ static func start_scenario() -> void:
 	ISSRam.clear(0x129C, 0x18)
 
 
+## mode_start_training: the training mode (0) with the chosen team.
+static func mode_start_training() -> void:
+	_w(S.g_game_mode, 0)
+	_w(0x1276, 0)
+	_w(0x126A, 0)
+	_w(0x1264, 1)
+	_w(0x1266, 1)
+	_w(S.g_game_level, 4)
+	_w(0x127C, 0)
+	_clear_status(0x28)
+	_w(0x153E, 1)
+	_w(S.g_pads_home, 1)
+	_w(S.g_pads_away, 0)
+
+
+## mode_start_challenge: the challenges (1), the practice team ($2A).
+static func mode_start_challenge() -> void:
+	_w(S.g_game_mode, 1)
+	_w(0x1276, 0)
+	_w(0x126A, 0)
+	_w(0x1264, 1)
+	_w(0x1266, 1)
+	_w(S.g_game_level, 4)
+	_w(0x127C, 0x2A)
+	_w(0x127E, 0x2A)
+	_clear_status(0x28)
+	_w(0x153E, 1)
+	_w(S.g_pads_home, 1)
+	_w(S.g_pads_away, 0)
+
+
+## training_challenge_menu_4: the challenges' match, the practice team on
+## both sides in stadium 2 (restart $D), no restarts and practice rules.
+static func challenge_setup() -> void:
+	_w(S.g_training_drill, 0)
+	_w(0x1638, 0)
+	_w(0x1634, 0)
+	_w(S.g_left_goal_team, 0)
+	_w(S.g_restart_type, 0xD)
+	_w(S.g_team_home, 0x2A)
+	_w(S.g_team_away, 0x2A)
+	_w(0x1642, 0)
+	_w(S.g_stadium, 2)
+	_w(S.g_weather, 1)
+	_w(S.g_game_time, 0)
+	_w(S.g_training, 1)
+	_w(S.g_no_restarts, 1)
+	team_info_init()
+
+
 ## mode_start_open_game: open game, England against team 6 by default.
 static func start_open_game() -> void:
 	_w(S.g_game_mode, 3)

@@ -76,7 +76,25 @@ static func from_ram() -> Dictionary:
 	opts["scorers"] = scorers()
 	opts["restart"] = {"type": ISSRam.sw(S.g_restart_type), "team": ISSRam.sw(S.g_restart_team),
 		"x": ISSRam.sw(S.g_restart_x), "y": ISSRam.sw(S.g_restart_y)}
+	# Training (restart $C) plays the drill g_training_drill; the
+	# challenges (restart $D) the event g_training_drill at g_challenge_level.
+	match ISSRam.sw(S.g_restart_type):
+		0xC:
+			opts["training"] = _w(S.g_training_drill)
+		0xD:
+			opts["challenge"] = {"event": _w(S.g_training_drill), "level": _w(S.g_challenge_level)}
 	return {"home": home, "away": away, "options": opts}
+
+
+## The challenge's result where screen_challenge_record reads it: the time
+## left and the bonus as four decimal digits, $B in g_challenge_count when
+## the task was done and in g_challenge_bonus_on when the bonus counted.
+static func challenge_to_ram(e: ISSMatchEngine) -> void:
+	for i in 4:
+		ISSRam.set_b(S.g_challenge_time + i, int(e.ch_time[i]))
+		ISSRam.set_b(S.g_challenge_bonus + i, int(e.ch_bonus[i]))
+	ISSRam.set_w(S.g_challenge_count, 0xB if e.ch_done else e.ch_count)
+	ISSRam.set_w(S.g_challenge_bonus_on, 0xB if e.ch_bonus_on else 0)
 
 
 ## g_match_clock (minutes, tens of seconds, seconds, frames) in frames.

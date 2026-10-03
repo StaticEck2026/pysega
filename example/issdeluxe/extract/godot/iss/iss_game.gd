@@ -101,8 +101,19 @@ func _match() -> void:
 
 func _match_left(m: ISSMatch) -> void:
 	var e := m.engine
-	ISSMatchSetup.to_ram(e)
 	ISSRam.set_l(S.g_next_state, ISSMenu.STATE_MENU)
+	if e.drill >= 0:
+		# training_pause: Start returns to the drills (screen $18).
+		ISSRam.set_w(S.g_next_screen, 0x18)
+		_menu()
+		return
+	if e.challenge >= 0:
+		# challenge_over: the record screen ($17).
+		ISSMatchSetup.challenge_to_ram(e)
+		ISSRam.set_w(S.g_next_screen, 0x17)
+		_menu()
+		return
+	ISSMatchSetup.to_ram(e)
 	match e.end_reason:
 		"menu":
 			# rules_state_0185BA: the match menu, the restart waiting.
