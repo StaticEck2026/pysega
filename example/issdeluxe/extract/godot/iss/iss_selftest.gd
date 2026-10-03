@@ -107,6 +107,7 @@ func _init() -> void:
 	_check_human_control()
 	_check_knockout()
 	_check_ram_halves()
+	_check_passwords()
 	_check_competitions()
 	_check_strategies_and_subs()
 	_check_long_modes()
@@ -238,6 +239,45 @@ func _check_game() -> void:
 	Engine.time_scale = 1.0
 	game.queue_free()
 	await process_frame
+
+
+## Passwords: one the cartridge showed for a short league (level 2, one
+## human team, five games played) decodes to its RAM; every mode's
+## password round-trips through encode, seal, check and resume.
+func _check_passwords() -> void:
+	ISSMenu.power_on()
+	var hex := "03bcf9fca47c68c4ddbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc"
+	for i in hex.length() / 2:
+		ISSRam.set_b(ISSSym.g_password + i, hex.substr(i * 2, 2).hex_to_int())
+	ISSRam.set_w(ISSSym.g_password_length, 96)
+	var ok := ISSPassword.check() and ISSPassword.resume(ISSPassword.mode_of_length(96)) == 0x1D
+	var teams := []
+	for i in 6:
+		teams.append(ISSRam.w(0x127C + 2 * i))
+	_check(ok and ISSRam.w(ISSSym.g_game_level) == 2 and ISSRam.w(0x1270) == 5 and teams == [0, 6, 12, 3, 20, 30]
+		and ISSRam.w(0x12A0) == 2, "the cartridge's league password decodes")
+	var all := true
+	for mode: int in ISSPassword.FIELDS:
+		ISSMenu.power_on()
+		for i in 0x30:
+			ISSRam.set_w(0x127C + 2 * i, 0)
+		ISSRam.set_w(ISSSym.g_game_level, 3)
+		ISSRam.set_w(0x1270, 2)
+		ISSRam.set_w(0x127C, 17)
+		ISSRam.set_w(0x129C, 1)
+		ISSPassword.encode(mode)
+		ISSPassword.seal()
+		ISSRam.set_w(0x127C, 0)
+		ISSRam.set_w(0x129C, 0)
+		if not ISSPassword.check() or ISSPassword.mode_of_length(ISSRam.w(ISSSym.g_password_length)) != mode:
+			all = false
+			continue
+		ISSPassword.resume(mode)
+		if ISSRam.w(ISSSym.g_game_level) != 3 or ISSRam.w(ISSSym.g_game_mode) != mode:
+			all = false
+		if mode != 0xC and ISSRam.w(0x127C) != 17:
+			all = false
+	_check(all, "every mode's password round-trips")
 
 
 ## A short half on g_match_clock (seconds).

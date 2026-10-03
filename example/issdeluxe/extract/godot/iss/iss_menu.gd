@@ -100,7 +100,8 @@ func _init() -> void:
 		ISSScreensFormation.new(self), ISSScreensStrategy.new(self),
 		ISSScreensEdit.new(self), ISSScreensColours.new(self),
 		ISSScreensPK.new(self), ISSScreensStats.new(self), ISSScreensTraining.new(self),
-		ISSScreensLeague.new(self), ISSScreensCards.new(self), ISSScreensTournament.new(self)]
+		ISSScreensLeague.new(self), ISSScreensCards.new(self), ISSScreensTournament.new(self),
+		ISSScreensPassword.new(self)]
 	for mod in _modules:
 		mod.register(_handlers)
 
