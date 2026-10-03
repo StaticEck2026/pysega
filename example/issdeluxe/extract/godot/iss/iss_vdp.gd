@@ -27,6 +27,15 @@ var lines_a := PackedInt32Array()
 var lines_b := PackedInt32Array()
 var backdrop := 0x20
 var shadow_highlight := true
+## The figures drawn over the picture (the match's players, referee and
+## ball as ISSMatch draws them) go behind what has priority: with this set
+## the planes' priority pixels and the priority sprites are drawn again
+## above them (z 1000), as the VDP puts them in front of low-priority
+## sprites.
+var priority_overlay := false:
+	set(v):
+		priority_overlay = v
+		_high.visible = v
 
 var _vram_img: Image
 var _vram_tex: ImageTexture
@@ -35,6 +44,8 @@ var _cram_tex: ImageTexture
 var _sat_img: Image
 var _sat_tex: ImageTexture
 var _mat := ShaderMaterial.new()
+var _high := ColorRect.new()
+var _high_mat := ShaderMaterial.new()
 var _vram_dirty := true
 var _cram_dirty := true
 
@@ -49,11 +60,20 @@ func _init() -> void:
 	_cram_tex = ImageTexture.create_from_image(_cram_img)
 	_sat_img = Image.create_from_data(MAX_SPRITES * 8, 1, false, Image.FORMAT_R8, sat)
 	_sat_tex = ImageTexture.create_from_image(_sat_img)
-	_mat.shader = load("res://iss/iss_vdp.gdshader")
-	_mat.set_shader_parameter("vram", _vram_tex)
-	_mat.set_shader_parameter("cram", _cram_tex)
-	_mat.set_shader_parameter("sat", _sat_tex)
+	for mat: ShaderMaterial in [_mat, _high_mat]:
+		mat.shader = load("res://iss/iss_vdp.gdshader")
+		mat.set_shader_parameter("vram", _vram_tex)
+		mat.set_shader_parameter("cram", _cram_tex)
+		mat.set_shader_parameter("sat", _sat_tex)
 	material = _mat
+	_high_mat.set_shader_parameter("high_only", true)
+	_high.material = _high_mat
+	_high.size = Vector2(256, 224)
+	_high.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_high.z_as_relative = false
+	_high.z_index = 1000
+	_high.visible = false
+	add_child(_high)
 
 
 ## Copy bytes into VRAM (a DMA).
@@ -135,17 +155,18 @@ func flush() -> void:
 		_cram_dirty = false
 	_sat_img.set_data(MAX_SPRITES * 8, 1, false, Image.FORMAT_R8, sat)
 	_sat_tex.update(_sat_img)
-	_mat.set_shader_parameter("sprites", sprite_count)
-	_mat.set_shader_parameter("scroll_ax", scroll_a.x)
-	_mat.set_shader_parameter("scroll_ay", scroll_a.y)
-	_mat.set_shader_parameter("scroll_bx", scroll_b.x)
-	_mat.set_shader_parameter("scroll_by", scroll_b.y)
-	_mat.set_shader_parameter("line_scroll", not lines_b.is_empty())
-	if not lines_b.is_empty():
-		_mat.set_shader_parameter("lines_a", lines_a)
-		_mat.set_shader_parameter("lines_b", lines_b)
-	_mat.set_shader_parameter("backdrop", backdrop)
-	_mat.set_shader_parameter("shadow_highlight", shadow_highlight)
+	for mat: ShaderMaterial in [_mat, _high_mat]:
+		mat.set_shader_parameter("sprites", sprite_count)
+		mat.set_shader_parameter("scroll_ax", scroll_a.x)
+		mat.set_shader_parameter("scroll_ay", scroll_a.y)
+		mat.set_shader_parameter("scroll_bx", scroll_b.x)
+		mat.set_shader_parameter("scroll_by", scroll_b.y)
+		mat.set_shader_parameter("line_scroll", not lines_b.is_empty())
+		if not lines_b.is_empty():
+			mat.set_shader_parameter("lines_a", lines_a)
+			mat.set_shader_parameter("lines_b", lines_b)
+		mat.set_shader_parameter("backdrop", backdrop)
+		mat.set_shader_parameter("shadow_highlight", shadow_highlight)
 	queue_redraw()
 
 

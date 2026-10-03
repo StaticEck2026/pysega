@@ -110,6 +110,7 @@ func _init() -> void:
 	_check_passwords()
 	_check_international()
 	_check_world_series()
+	_check_presentations()
 	_check_competitions()
 	_check_strategies_and_subs()
 	_check_long_modes()
@@ -344,6 +345,49 @@ func _check_international() -> void:
 
 ## A World Series season: every pair of the 36 teams meets once in the 35
 ## days, 18 wins a day; the table's leader is the series' winner.
+## state_screen's presentations run to where they lead: the toss (C
+## pressed now and then on both pads; the coin falls heads, the call):
+## home takes the kick-off, away picks the right-hand end, then the match;
+## a goal's big screen back to the match after 320 frames; the trophy on to
+## the World Series' second series ($37).
+func _check_presentations() -> void:
+	var results := []
+	for kind in 3:
+		ISSMenu.power_on()
+		ISSModes.team_info_init()
+		ISSRam.set_w(ISSSym.g_pads_home, 1)
+		ISSRam.set_w(ISSSym.g_pads_away, 1)
+		ISSRam.set_w(0x1730, kind)
+		ISSRam.set_w(0x1734, 1)
+		var menu := ISSMenu.new()
+		root.add_child(menu)
+		menu.set_physics_process(false)
+		ISSRam.set_l(ISSSym.g_current_state, ISSMenu.STATE_MENU)
+		menu.enter(ISSMenu.STATE_SCREEN)
+		menu.presentation.hv_counter = func() -> int: return 0
+		var frames := 0
+		while frames < 2000 and ISSRam.l(ISSSym.g_current_state) == ISSMenu.STATE_SCREEN:
+			frames += 1
+			var press := kind == 0 and frames % 30 < 2
+			for pad in 2:
+				if press:
+					Input.action_press(ISSInput.action(pad, "c"))
+				else:
+					Input.action_release(ISSInput.action(pad, "c"))
+			menu._physics_process(1.0 / 60.0)
+		for pad in 2:
+			Input.action_release(ISSInput.action(pad, "c"))
+		results.append([frames, ISSRam.l(ISSSym.g_current_state), ISSRam.w(0x1634), ISSRam.w(ISSSym.g_left_goal_team),
+			ISSRam.w(ISSSym.g_screen)])
+		menu.free()
+	var toss: Array = results[0]
+	var goal: Array = results[1]
+	var cup: Array = results[2]
+	_check(toss[1] == ISSMenu.STATE_MATCH and toss[2] == 0 and toss[3] == 1, "presentation: the toss %s" % [toss])
+	_check(goal[1] == ISSMenu.STATE_MATCH and goal[0] > 320 and goal[0] < 400, "presentation: a goal %s" % [goal])
+	_check(cup[1] == ISSMenu.STATE_MENU and cup[4] == 0x37, "presentation: the trophy %s" % [cup])
+
+
 func _check_world_series() -> void:
 	ISSMenu.power_on()
 	ISSModes.start_world_series()

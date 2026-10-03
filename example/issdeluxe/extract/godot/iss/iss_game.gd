@@ -8,10 +8,9 @@ extends Control
 ## state_menu is ISSMenu (the front end's screens); state_match is ISSMatch
 ## playing one half from the RAM the menus leave (ISSMatchSetup.from_ram)
 ## and writing it back when the half ends, a side asks for the match menu,
-## or the match is over; state_shootout is the engine's shoot-out; the
-## presentations of state_screen (the teams coming out, a goal celebrated,
-## a trophy) are not drawn yet, the game goes straight on to where they
-## lead.
+## or the match is over; state_shootout is the engine's shoot-out;
+## state_screen's presentations (the toss, a goal, a trophy) are
+## ISSPresentation's, on ISSMenu's engine.
 
 const SCREEN := Vector2i(256, 224)
 const S := preload("res://iss/iss_sym.gd")
@@ -155,26 +154,11 @@ func _shootout_over(m: ISSMatch) -> void:
 	_menu()
 
 
-## state_screen ($1730): 0 the teams coming out and the toss before the
-## match, 1 a goal (a lead by one or a hat-trick), 2 a trophy. Not drawn:
-## the game goes where each one leads (the toss leaves the kick-off and
-## the ends as the set-up chose them).
+## state_screen ($1730): 0 the teams on the big screen and the toss before
+## the match, 1 a goal, 2 a trophy (ISSPresentation, on the front end's
+## engine); it goes on to the match or, after a trophy, the menus.
 func _presentation() -> void:
-	match ISSRam.w(0x1730):
-		0, 1:
-			_jump(ISSMenu.STATE_SCREEN)
-			_match()
-		_:
-			# menu_sound_03C97E_8: the trophy's way on.
-			ISSRam.set_l(S.g_next_state, ISSMenu.STATE_MENU)
-			if ISSRam.w(S.g_game_mode) == 8 or ISSRam.w(0x1260) != 0:
-				ISSRam.set_w(S.g_next_screen, 0x33)
-			elif ISSRam.w(0x126C) == 0:
-				ISSModes.ws_second_series()
-				ISSRam.set_w(S.g_next_screen, 0x37)
-			else:
-				ISSModes.start_championship()
-				ISSModes.match_setup_random()
-				ISSRam.set_w(S.g_next_screen, 0x38)
-			_jump(ISSMenu.STATE_SCREEN)
-			_menu()
+	var m := ISSMenu.new()
+	_set_screen(m)
+	m.next_state.connect(_state)
+	m.enter(ISSMenu.STATE_SCREEN)

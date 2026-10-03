@@ -25,6 +25,9 @@ uniform int backdrop = 32;
 uniform bool shadow_highlight = true;
 uniform bool show_a = true;
 uniform bool show_b = true;
+// Only the pixels a plane or sprite with priority gives (the rest
+// transparent): drawn above figures that stand for low-priority sprites.
+uniform bool high_only = false;
 
 int vb(int a) {
 	a = a & 65535;
@@ -95,20 +98,21 @@ void fragment() {
 	int ac = a & 255; bool ap = (a & 256) != 0;
 	int sc = s & 255; bool sp = (s & 256) != 0;
 	int c = 0;
+	bool hi = false;
 	vec3 rgb;
 	if (!shadow_highlight) {
 		if (bc != 0 && !bp) { c = bc; }
 		if (ac != 0 && !ap) { c = ac; }
 		if (sc != 0 && !sp) { c = sc; }
-		if (bc != 0 && bp) { c = bc; }
-		if (ac != 0 && ap) { c = ac; }
-		if (sc != 0 && sp) { c = sc; }
+		if (bc != 0 && bp) { c = bc; hi = true; }
+		if (ac != 0 && ap) { c = ac; hi = true; }
+		if (sc != 0 && sp) { c = sc; hi = true; }
 		rgb = colour(c != 0 ? c : backdrop);
 	} else {
 		if (bc != 0 && !bp) { c = bc; }
 		if (ac != 0 && !ap) { c = ac; }
-		if (bc != 0 && bp) { c = bc; }
-		if (ac != 0 && ap) { c = ac; }
+		if (bc != 0 && bp) { c = bc; hi = true; }
+		if (ac != 0 && ap) { c = ac; hi = true; }
 		int shade = (bp || ap) ? 1 : 0;
 		if (sc == 62) {
 			shade = min(2, shade + 1);
@@ -116,6 +120,7 @@ void fragment() {
 			shade = 0;
 		} else if (sc != 0 && (sp || !((bc != 0 && bp) || (ac != 0 && ap)))) {
 			c = sc;
+			hi = sp;
 			if (sp || (c & 15) == 14) { shade = 1; }
 		}
 		rgb = colour(c != 0 ? c : backdrop);
@@ -124,6 +129,9 @@ void fragment() {
 		} else if (shade == 2) {
 			rgb = rgb * 0.5 + vec3(0.5);
 		}
+	}
+	if (high_only && !hi) {
+		discard;
 	}
 	COLOR = vec4(rgb, 1.0);
 }

@@ -10,9 +10,11 @@ extends Node2D
 ## of the game's routines in the ISSScreens* scripts, which call the helpers
 ## below by their ROM names (text_draw_large, rect_flash, cursor_draw ...).
 ##
+## state_screen's presentations (ISSPresentation) run on the same engine.
+##
 ## When a fade to black ends (g_frame_state = 0) the game jumps to
-## g_next_state: another menu screen (g_next_screen) is loaded here; any
-## other state (a match, the presentation, the shoot-out) is handed to the
+## g_next_state: another menu screen (g_next_screen) or a presentation is
+## loaded here; any other state (a match, the shoot-out) is handed to the
 ## owner through next_state, with the game's RAM as the record of what was
 ## chosen.
 
@@ -89,6 +91,8 @@ var objs: Array[Obj] = []
 ## The current object (a5) while its callbacks run.
 var a5: Obj = null
 var state := 0
+## state_screen's presentations (made when one starts).
+var presentation: ISSPresentation = null
 var _handlers := {}
 var _modules: Array = []
 
@@ -216,9 +220,17 @@ func enter(st: int) -> void:
 	set_w(S.g_frame_counter, 0xFFFF)
 	vdp.clear_sprites()
 	objs.clear()
+	vdp.priority_overlay = st == STATE_SCREEN
 	match st:
 		STATE_MENU:
 			_state_menu_1()
+		STATE_SCREEN:
+			# sprites_init, ball_func_00BD42 (the 16 objects cleared), then
+			# state_screen_1.
+			for f in figures.get_children():
+				f.queue_free()
+			presentation = ISSPresentation.new(self)
+			presentation.state_screen_1()
 		_:
 			push_error("ISSMenu: state $%06X is not ported" % st)
 	fade_in_start()
@@ -240,8 +252,8 @@ func _physics_process(_delta: float) -> void:
 	# main loop: once a fade to black has ended, go to g_next_state.
 	if w(S.g_frame_state) == 0:
 		var nxt := l(S.g_next_state)
-		if nxt == STATE_MENU:
-			enter(STATE_MENU)
+		if nxt == STATE_MENU or nxt == STATE_SCREEN:
+			enter(nxt)
 		else:
 			state = 0
 			set_l(0x14, l(S.g_current_state))
@@ -249,14 +261,21 @@ func _physics_process(_delta: float) -> void:
 			next_state.emit(nxt)
 
 
-## One VBlank of state_menu_frame.
+## One VBlank of state_menu_frame (state_screen_frame: its own frame_1).
+## The game queues its VRAM, CRAM and sprite changes for the next VBlank,
+## which also writes the scroll it computed: the picture shows a frame's
+## work one frame later, all of it together. Here they take effect at once,
+## so the scroll is written at the end of the frame to go with them.
 func frame() -> void:
-	_write_scroll()
 	_joypad_read_all()
 	vdp.clear_sprites()
 	_objects_update()
-	_state_menu_frame_1()
+	if state == STATE_SCREEN:
+		presentation.state_screen_frame_1()
+	else:
+		_state_menu_frame_1()
 	_objects_draw_menu()
+	_write_scroll()
 
 
 func _write_scroll() -> void:
@@ -394,7 +413,7 @@ func _objects_draw_menu() -> void:
 		var sx := o.sw(0x10) - sw(S.g_plane_b_hscroll)
 		o.set_w(0x1E, sy)
 		o.set_w(0x1C, sx)
-		o.set_b(0x0E, 0xFF if sy < -16 or sy > 256 or sx < -16 or sx > 336 else 1)
+		o.set_b(0x0E, 0xFF if sy < -16 or sy > 256 or sx < -16 or sx > 272 else 1)
 		a5 = o
 		o.draw.call(o)
 	a5 = null

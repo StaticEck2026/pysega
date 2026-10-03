@@ -1661,6 +1661,211 @@ func _free_marker(o: ISSMenu.Obj) -> void:
 
 
 # --------------------------------------------------------------------------
+# The presentations' objects (state_screen): the two players and the
+# referee standing on the big screen, the coin, the crowd's flags and the
+# confetti.
+
+## ai_func_00C7D8: a player who just stands (no input, heading = facing).
+func ai_func_00C7D8(o: Actor) -> void:
+	o.think = ai_func_00C7D8_1
+	o.set_w(CROUCH, 0)
+	o.set_w(INPUT, 0)
+	o.set_w(HEADING, o.w(FACING))
+
+
+func ai_func_00C7D8_1(_o: Actor) -> void:
+	pass
+
+
+## match_func_010A40: the referee's think when he only stands.
+func match_func_010A40(o: Actor) -> void:
+	o.think = match_func_010A40_1
+	match_func_010A40_1(o)
+
+
+func match_func_010A40_1(o: Actor) -> void:
+	o.set_w(INPUT, 0)
+	o.set_w(HEADING, o.w(FACING))
+
+
+## sys_start_stand_00122C: the referee stands (action 0, frames 0-3 every
+## 32 frames).
+func sys_start_stand_00122C(o: Actor) -> void:
+	o.update = sys_start_stand_00122C_1
+	o.set_w(ACTION, 0)
+	o.set_w(ANIM_FRAME, 0)
+	o.set_w(TIMER, 0x20)
+	_stop(o)
+	sys_start_stand_00122C_1(o)
+
+
+func sys_start_stand_00122C_1(o: Actor) -> void:
+	_anim(o, 0x20, 3, true)
+
+
+## sys_start_turn_step_001586: the referee tosses the coin (action 3,
+## facing down, a frame every 6; SFX 93 on frame 6; it holds frame 15).
+func sys_start_turn_step_001586(o: Actor) -> void:
+	o.update = sys_start_turn_step_001586_1
+	o.set_w(ACTION, 3)
+	o.set_w(ANIM_FRAME, 0)
+	o.set_w(TIMER, 6)
+	o.set_w(FACING, 0x20)
+	_stop(o)
+	sys_start_turn_step_001586_1(o)
+
+
+func sys_start_turn_step_001586_1(o: Actor) -> void:
+	o.add_w(TIMER, -1)
+	if o.w(TIMER) != 0:
+		return
+	o.set_w(TIMER, 6)
+	o.add_w(ANIM_FRAME, 1)
+	if o.w(ANIM_FRAME) == 6:
+		_sfx(93)
+	if o.sw(ANIM_FRAME) > 0xF:
+		o.set_w(ANIM_FRAME, 0xF)
+
+
+## match_state_011DE6: the coin (g_director) still in the referee's hand.
+func match_state_011DE6(o: ISSMenu.Obj) -> void:
+	o.update = match_state_011DE6_1
+	o.set_l(SPEED, 0)
+	o.set_l(VEL_X, 0)
+	o.set_l(VEL_Y, 0)
+
+
+func match_state_011DE6_1(_o: ISSMenu.Obj) -> void:
+	pass
+
+
+## match_state_011DFC: the coin tossed: 32 frames on it flies up (vz
+## 2.25, gravity 3/32), spinning a frame every 4, and is gone after 80.
+func match_state_011DFC(o: ISSMenu.Obj) -> void:
+	o.update = match_state_011DFC_1
+	o.set_w(TIMER, 4)
+	o.set_w(DISTANCE, 0x50)
+	o.set_l(VEL_Z, 0)
+	o.set_l(SPEED, 0)
+	o.set_l(VEL_X, 0)
+	o.set_l(VEL_Y, 0)
+	match_state_011DFC_1(o)
+
+
+func match_state_011DFC_1(o: ISSMenu.Obj) -> void:
+	o.set_w(DISTANCE, o.w(DISTANCE) - 1)
+	if o.w(DISTANCE) == 0:
+		m.obj_free(o)
+		return
+	if o.w(DISTANCE) == 0x30:
+		o.set_w(Y, o.w(Y) + 2)
+		o.set_l(VEL_Z, 0x24000)
+	if o.sw(DISTANCE) >= 0x30:
+		return
+	o.set_w(TIMER, o.w(TIMER) - 1)
+	if o.w(TIMER) == 0:
+		o.set_w(TIMER, 4)
+		o.set_w(ANIM_FRAME, (o.w(ANIM_FRAME) + 1) & 3)
+	var vz := (o.l(VEL_Z) - 0x1800) & 0xFFFFFFFF
+	o.set_l(VEL_Z, vz)
+	o.set_l(Z, (o.l(Z) + vz) & 0xFFFFFFFF)
+
+
+## match_state_011D9C: a piece of confetti (action 4 or 5 at random)
+## turning every 16 frames and falling a quarter pixel a frame.
+func match_state_011D9C(o: ISSMenu.Obj) -> void:
+	o.update = match_state_011D9C_1
+	o.set_w(ACTION, (_rand() & 1) + 4)
+	o.set_w(ANIM_FRAME, 0)
+	o.set_w(TIMER, 0x10)
+	match_state_011D9C_1(o)
+
+
+func match_state_011D9C_1(o: ISSMenu.Obj) -> void:
+	o.set_w(TIMER, o.w(TIMER) - 1)
+	if o.w(TIMER) == 0:
+		o.set_w(TIMER, 0x10)
+		o.set_w(ANIM_FRAME, o.w(ANIM_FRAME) ^ 1)
+	o.set_l(Z, (o.l(Z) - 0x4000) & 0xFFFFFFFF)
+
+
+## The crowd's flags (flag_fans_draw's figures): action 0 stand (8 frames
+## every 11), 1 ready (8 frames every 11), 2 and 3 waving (3 frames every
+## 9).
+func _fans_start(o: ISSMenu.Obj, update: Callable, action: int, timer: int) -> void:
+	o.update = update
+	o.set_w(ANIM_FRAME, 0)
+	o.set_w(TIMER, timer)
+	o.set_l(SPEED, 0)
+	o.set_l(VEL_Z, 0)
+	o.set_w(ACTION, action)
+	update.call(o)
+
+
+func _fans_step(o: ISSMenu.Obj, n: int, last: int) -> void:
+	o.set_w(TIMER, o.w(TIMER) + 1)
+	if o.sw(TIMER) <= n:
+		return
+	o.set_w(TIMER, 0)
+	o.set_w(ANIM_FRAME, o.w(ANIM_FRAME) + 1)
+	if o.sw(ANIM_FRAME) > last:
+		o.set_w(ANIM_FRAME, 0)
+
+
+func match_start_stand_011E74(o: ISSMenu.Obj) -> void:
+	_fans_start(o, match_start_stand_011E74_1, 0, 0)
+
+
+func match_start_stand_011E74_1(o: ISSMenu.Obj) -> void:
+	_fans_step(o, 0xA, 7)
+
+
+func match_start_ready_stance_011EBA(o: ISSMenu.Obj) -> void:
+	_fans_start(o, match_start_ready_stance_011EBA_1, 1, 0x20)
+
+
+func match_start_ready_stance_011EBA_1(o: ISSMenu.Obj) -> void:
+	_fans_step(o, 0xA, 7)
+
+
+func match_start_jog_on_the_spot_011F00(o: ISSMenu.Obj) -> void:
+	_fans_start(o, match_start_jog_on_the_spot_011F00_1, 2, 0)
+
+
+func match_start_jog_on_the_spot_011F00_1(o: ISSMenu.Obj) -> void:
+	_fans_step(o, 8, 2)
+
+
+func match_start_turn_step_011F46(o: ISSMenu.Obj) -> void:
+	_fans_start(o, match_start_turn_step_011F46_1, 3, 0x20)
+
+
+func match_start_turn_step_011F46_1(o: ISSMenu.Obj) -> void:
+	_fans_step(o, 8, 2)
+
+
+## A sprite-list draw (flag_fans_draw, particle_draw): the table's piece
+## for obj_action and obj_anim_frame, its tile after obj_vram's, at the
+## object's screen position.
+func _piece_draw(o: ISSMenu.Obj, table: String) -> void:
+	if o.b(VISIBLE) == 0xFF:
+		return
+	var t := ISSRom.u32(ISSRom.addr(table) + o.w(ACTION) * 4)
+	var p := ISSRom.u32(t + o.w(ANIM_FRAME) * 4)
+	var tile := o.w(0x78) >> 5
+	m.sprite(o.sw(SCREEN_Y) + ISSRom.s16(p), ISSRom.u16(p + 2), tile + ISSRom.u16(p + 4),
+		o.sw(SCREEN_X) + ISSRom.s16(p + 6))
+
+
+func flag_fans_draw(o: ISSMenu.Obj) -> void:
+	_piece_draw(o, "flag_fans_draw_data")
+
+
+func particle_draw(o: ISSMenu.Obj) -> void:
+	_piece_draw(o, "particle_draw_data")
+
+
+# --------------------------------------------------------------------------
 # Drawing (player_draw, obj_set_frame_draw_draw, npc_draw, ball_draw).
 
 ## The figure for an actor: kind "player", "keeper", "referee" or "ball"
@@ -1706,7 +1911,11 @@ func _place(o: Actor) -> void:
 	if o.cram != m.vdp.cram:
 		o.cram = m.vdp.cram.duplicate()
 		if o.node.has_method("set_palette_cram"):
-			o.node.call("set_palette_cram", o.cram, (o.w(ATTR) >> 13) & 3)
+			var line := (o.w(ATTR) >> 13) & 3
+			if o.w(ATTR) & 0x20:
+				# tbl_sprite_attr_right's second row: line 0's pieces on line 1.
+				line = 1
+			o.node.call("set_palette_cram", o.cram, line)
 
 
 func _draw_player(o: ISSMenu.Obj) -> void:
