@@ -41,6 +41,17 @@ func _ready() -> void:
 	_show()
 
 
+## The whole palette from 64 CRAM words (the cinematics' own colours).
+func set_palette_cram(cram: PackedInt32Array, _line := 3) -> void:
+	var img := Image.create(16, 4, false, Image.FORMAT_RGBA8)
+	for i in 64:
+		img.set_pixel(i & 15, i >> 4, MDPalette.cram_to_color(cram[i]))
+	var tex := ImageTexture.create_from_image(img)
+	for s: Sprite2D in [_shadow, _ball]:
+		if s.material != null:
+			(s.material as ShaderMaterial).set_shader_parameter("palette", tex)
+
+
 func _process(_delta: float) -> void:
 	_show()
 

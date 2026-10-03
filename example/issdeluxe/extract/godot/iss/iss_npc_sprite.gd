@@ -17,6 +17,9 @@ static var _base_palette: Image
 @export var frames_per_second: float = 8.0
 @export_range(0, 3) var kit: int = 0
 
+## Driven by set_pose() instead of its own clock.
+var manual := false
+
 var _frame := 0
 var _time := 0.0
 
@@ -45,6 +48,27 @@ func set_kit(variant: int) -> void:
 	(material as ShaderMaterial).set_shader_parameter("palette", ImageTexture.create_from_image(img))
 
 
+## The whole palette from 64 CRAM words (the cinematics' own colours,
+## fades included).
+func set_palette_cram(cram: PackedInt32Array, _line := 2) -> void:
+	if material == null:
+		return
+	var img := Image.create(16, 4, false, Image.FORMAT_RGBA8)
+	for i in 64:
+		img.set_pixel(i & 15, i >> 4, MDPalette.cram_to_color(cram[i]))
+	(material as ShaderMaterial).set_shader_parameter("palette", ImageTexture.create_from_image(img))
+
+
+## Show frame `frame` of `new_action` facing `new_facing` (wrapping).
+func set_pose(new_action: int, frame: int, new_facing: int) -> void:
+	manual = true
+	action = new_action
+	facing = new_facing
+	_frame = frame
+	if is_inside_tree():
+		_show()
+
+
 func play(new_action: int) -> void:
 	if new_action != action:
 		action = new_action
@@ -57,6 +81,8 @@ static func action_names() -> Array:
 
 
 func _process(delta: float) -> void:
+	if manual:
+		return
 	_time += delta
 	if _time >= 1.0 / frames_per_second:
 		_time = 0.0

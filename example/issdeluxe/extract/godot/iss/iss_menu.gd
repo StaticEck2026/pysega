@@ -43,6 +43,9 @@ class Obj:
 	var draw := Callable()
 	var f := PackedByteArray()
 	var alive := true
+	## One of the 16 menu objects (the match's objects are linked into the
+	## same list from their own RAM).
+	var pooled := true
 
 	func _init() -> void:
 		f.resize(ISSMenu.OBJ_SIZE)
@@ -104,7 +107,8 @@ func _init() -> void:
 		ISSScreensPK.new(self), ISSScreensStats.new(self), ISSScreensTraining.new(self),
 		ISSScreensLeague.new(self), ISSScreensCards.new(self), ISSScreensTournament.new(self),
 		ISSScreensInternational.new(self), ISSScreensWorldSeries.new(self), ISSScreensPassword.new(self),
-		ISSScreensScenario.new(self), ISSScreensEnding.new(self)]
+		ISSScreensScenario.new(self), ISSScreensEnding.new(self),
+		ISSScreensCredits.new(self)]
 	for mod in _modules:
 		mod.register(_handlers)
 
@@ -221,10 +225,11 @@ func enter(st: int) -> void:
 
 
 ## vdp_init_game: the registers the menus use (backdrop = line 2 colour 0,
-## shadow/highlight on).
+## shadow/highlight on, full-screen scroll).
 func _vdp_init_game() -> void:
 	vdp.backdrop = 0x20
 	vdp.shadow_highlight = true
+	vdp.rows_b = PackedInt32Array()
 
 
 func _physics_process(_delta: float) -> void:
@@ -341,7 +346,7 @@ func _edges(held: int, pressed: int, counter: int, d: int, any: int) -> void:
 ## the current object a5 (null when the 16 are in use). Callbacks default to
 ## none (-1).
 func obj_alloc() -> Obj:
-	if objs.size() >= NUM_OBJS:
+	if objs.filter(func(o: Obj) -> bool: return o.pooled).size() >= NUM_OBJS:
 		return null
 	var o := Obj.new()
 	objs.push_front(o)
@@ -448,6 +453,59 @@ func _fade_out_step(o: Obj) -> void:
 			c -= 0x200
 		set_w(a, c)
 	_cram_dma()
+
+
+## fade_white_start: a flash: every colour brightens towards white a step
+## a frame (24 frames), then back to g_palette_target; the objects keep
+## running meanwhile.
+func fade_white_start() -> void:
+	var keep := a5
+	var o := obj_alloc()
+	a5 = keep
+	if o == null:
+		return
+	o.update = _fade_white_step
+	ISSRam.copy(S.g_palette_current, S.g_palette_target, 0x80)
+
+
+func _fade_white_step(o: Obj) -> void:
+	for i in 64:
+		var a := S.g_palette_current + 2 * i
+		var c := w(a)
+		if c & 0x0E00 != 0x0E00:
+			c += 0x200
+		elif c & 0x000E != 0x000E:
+			c += 2
+		elif c & 0x00E0 != 0x00E0:
+			c += 0x20
+		set_w(a, c)
+	_cram_dma()
+	add_w(S.g_fade_step, 1)
+	if w(S.g_fade_step) == 0x30:
+		o.update = _fade_white_back_step
+
+
+func _fade_white_back_step(o: Obj) -> void:
+	for i in 64:
+		var t := w(S.g_palette_target + 2 * i)
+		var a := S.g_palette_current + 2 * i
+		var c := w(a)
+		# A colour starts darkening when the step falls to 48 minus its
+		# brightness, one component step a frame.
+		var lum := ((t >> 1) & 7) + ((t >> 5) & 7) + ((t >> 9) & 7)
+		if lum + w(S.g_fade_step) - 0x30 >= 0:
+			continue
+		if (t & 0x0E00) != (c & 0x0E00):
+			c -= 0x200
+		elif (t & 0x000E) != (c & 0x000E):
+			c -= 2
+		elif (t & 0x00E0) != (c & 0x00E0):
+			c -= 0x20
+		set_w(a, c)
+	_cram_dma()
+	add_w(S.g_fade_step, -1)
+	if w(S.g_fade_step) == 0x18:
+		obj_free(o)
 
 
 func fade_in_start() -> void:

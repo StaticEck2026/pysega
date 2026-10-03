@@ -2,7 +2,8 @@ shader_type canvas_item;
 // The Mega Drive VDP's picture for the front end, computed per pixel from
 // the same state the hardware has: 64 KB of VRAM (tiles and the plane
 // nametables), the CRAM colours and the sprite table. Planes B and A
-// (64 x 32 cells, full-screen scroll), 64 sprites in link order, the
+// (64 x 32 cells, full-screen scroll; plane B can scroll by 8-line rows,
+// register 11's cell mode), 64 sprites in link order, the
 // priority rules and shadow/highlight mode (register 12 bit 3): planes are
 // shadowed unless one of them has priority at the pixel, and sprite colours
 // 62 / 63 brighten / darken what is under them instead of being drawn.
@@ -16,6 +17,8 @@ uniform int scroll_ax = 0;
 uniform int scroll_ay = 0;
 uniform int scroll_bx = 0;
 uniform int scroll_by = 0;
+uniform bool row_scroll_b = false;
+uniform int rows_b[28];
 uniform int sprites = 0;
 uniform int backdrop = 32;
 uniform bool shadow_highlight = true;
@@ -82,7 +85,8 @@ vec3 colour(int c) {
 void fragment() {
 	int x = int(floor(UV.x * 256.0));
 	int y = int(floor(UV.y * 224.0));
-	int b = show_b ? plane_px(plane_b, x - scroll_bx, y + scroll_by) : 0;
+	int bx = row_scroll_b ? rows_b[min(y >> 3, 27)] : scroll_bx;
+	int b = show_b ? plane_px(plane_b, x - bx, y + scroll_by) : 0;
 	int a = show_a ? plane_px(plane_a, x - scroll_ax, y + scroll_ay) : 0;
 	int s = sprite_px(x, y);
 	int bc = b & 255; bool bp = (b & 256) != 0;

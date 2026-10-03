@@ -20,6 +20,9 @@ var sat := PackedByteArray()
 var sprite_count := 0
 var scroll_a := Vector2i.ZERO
 var scroll_b := Vector2i.ZERO
+## Plane B's horizontal scroll per 8-line row (register 11 cell mode, the
+## hardware's own values); empty for the full-screen scroll.
+var rows_b := PackedInt32Array()
 var backdrop := 0x20
 var shadow_highlight := true
 
@@ -135,6 +138,9 @@ func flush() -> void:
 	_mat.set_shader_parameter("scroll_ay", scroll_a.y)
 	_mat.set_shader_parameter("scroll_bx", scroll_b.x)
 	_mat.set_shader_parameter("scroll_by", scroll_b.y)
+	_mat.set_shader_parameter("row_scroll_b", not rows_b.is_empty())
+	if not rows_b.is_empty():
+		_mat.set_shader_parameter("rows_b", rows_b)
 	_mat.set_shader_parameter("backdrop", backdrop)
 	_mat.set_shader_parameter("shadow_highlight", shadow_highlight)
 	queue_redraw()
