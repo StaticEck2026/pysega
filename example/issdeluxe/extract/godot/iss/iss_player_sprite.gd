@@ -21,15 +21,27 @@ static var _base_palette: Image
 ## Driven by set_pose() (the match engine) instead of its own clock.
 var manual := false
 
+## The player's own look (ISSPlayerLook): his head by shirt number, his hair
+## style and his team's kit tiles, instead of the exported frames' generic
+## ones. Off until set_look().
+var look := false
+var look_number := 1
+var look_hair := 0
+var look_second_tiles := false
+
 var _frame := 0
 var _time := 0.0
 
 
-func _ready() -> void:
+static func _ensure() -> void:
 	if _anims.is_empty():
 		_anims = JSON.parse_string(FileAccess.get_file_as_string(DIR + "animations.json"))
 		_kits = JSON.parse_string(FileAccess.get_file_as_string(DIR + "kits.json"))["teams"]
 		_base_palette = (load(DIR + "palette_match.pal.png") as Texture2D).get_image()
+
+
+func _ready() -> void:
+	_ensure()
 	centered = false
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://md/md_indexed.gdshader")
@@ -43,11 +55,38 @@ func _ready() -> void:
 func set_kit(team_index: int, use_second: bool) -> void:
 	team = team_index
 	second_kit = use_second
+	set_kit_words(_kits[team]["second_kit" if use_second else "first_kit"])
+
+
+## The whole palette from 64 CRAM words (the front end's figures use the
+## screen's own CRAM, fades included).
+func set_palette_cram(cram: PackedInt32Array) -> void:
+	if material == null:
+		return
+	var img := Image.create(16, 4, false, Image.FORMAT_RGBA8)
+	for i in 64:
+		img.set_pixel(i & 15, i >> 4, MDPalette.cram_to_color(cram[i]))
+	(material as ShaderMaterial).set_shader_parameter("palette", ImageTexture.create_from_image(img))
+
+
+## A kit palette given as 16 CRAM words (the team colours screen's own kit).
+func set_kit_words(kit: Array) -> void:
 	var img := _base_palette.duplicate() as Image
-	var kit: Array = _kits[team]["second_kit" if use_second else "first_kit"]
-	for i in 16:
+	for i in mini(16, kit.size()):
 		img.set_pixel(i, 0, MDPalette.cram_to_color(int(kit[i])))
 	(material as ShaderMaterial).set_shader_parameter("palette", ImageTexture.create_from_image(img))
+
+
+## Draw this player as player_draw does for him: shirt number (1-20, the
+## head), hair style, and the team's first or second kit tiles.
+func set_look(team_index: int, second_tiles: bool, number: int, hair: int) -> void:
+	team = team_index
+	look = true
+	look_second_tiles = second_tiles
+	look_number = number
+	look_hair = hair
+	_ensure()
+	_show()
 
 
 func play(new_action: int) -> void:
@@ -64,6 +103,7 @@ func action_count() -> int:
 ## Show frame `frame` of `new_action` facing `new_facing`; looping actions
 ## wrap, the others hold their last frame.
 func set_pose(new_action: int, frame: int, new_facing: int, loop: bool) -> void:
+	_ensure()
 	manual = true
 	action = new_action
 	facing = new_facing
@@ -92,7 +132,13 @@ func _show() -> void:
 	var seq: Array = _anims["actions"][action]["directions"][dir]
 	if seq.is_empty():
 		return
-	var f: Dictionary = _anims["frames"][seq[_frame % seq.size()]]
+	var addr: String = seq[_frame % seq.size()]
+	if look:
+		var t: Array = ISSPlayerLook.frame(addr, dir >= 5, team, look_second_tiles, look_number, look_hair)
+		texture = t[0]
+		offset = t[1]
+		return
+	var f: Dictionary = _anims["frames"][addr]
 	var r: Dictionary = f["left" if dir >= 5 else "right"]
 	texture = load(r["png"])
 	offset = Vector2(-int(r["origin_x"]), -int(r["origin_y"]))

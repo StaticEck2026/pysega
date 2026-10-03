@@ -168,6 +168,9 @@ func start(home: int, away: int, opts: Dictionary) -> void:
 			s.team = t.team_id
 			s.second_kit = t.second_kit
 			add_child(s)
+			if not p.is_keeper():
+				# His own head (shirt number), hair and the team's kit tiles.
+				s.set_look(t.team_id, t.second_kit, p.number, p.hair)
 			_sprites[p] = s
 	add_child(_ball)
 	_marker.texture = load("res://assets/iss/misc/landing_marker.png")
@@ -363,6 +366,9 @@ func _sync() -> void:
 			s.visible = p.state != ISSFootballer.S.SENT_OFF
 			if not s.visible:
 				continue
+			if not p.is_keeper() and (s.look_number != p.number or s.look_hair != p.hair):
+				# A substitute came on in his place.
+				s.set_look(t.team_id, t.second_kit, p.number, p.hair)
 			if p.is_keeper():
 				var ka := keeper_action(p.action)
 				s.set_pose(ka, p.anim_frame, p.facing, ka in KEEPER_LOOPING)

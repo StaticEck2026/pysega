@@ -283,13 +283,20 @@ static func team_info_init() -> void:
 	for side in 2:
 		_team_formation(side)
 	for side in 2:
-		var v := 999 if ISSRam.w(0x125C) != 0 else ISSRom.u16(ISSRom.addr("tbl_edit_points") + teams[side] * 2)
-		var t: int = [home, away][side]
-		_w(t + 0x14, v)
-		_w(t + 0x16, v)
+		edit_points_reset(side)
 	_energy()
 	_w(0x1544, 0)
 	_w(0x1546, 0)
+
+
+## rules_func_014D3E / 014D64: the side's points for the edit player screen
+## (tbl_edit_points, 999 with code 3), all (tm +$14) and left (+$16).
+static func edit_points_reset(side: int) -> void:
+	var team := ISSRam.w([S.g_team_home, S.g_team_away][side])
+	var v := 999 if ISSRam.w(0x125C) != 0 else ISSRom.u16(ISSRom.addr("tbl_edit_points") + team * 2)
+	var t: int = [S.g_team_home_info, S.g_team_away_info][side]
+	_w(t + 0x14, v)
+	_w(t + 0x16, v)
 
 
 ## rules_input_01487E_1 / _2: a suspended starter (status 4) changes
