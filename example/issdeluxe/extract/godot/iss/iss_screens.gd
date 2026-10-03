@@ -123,3 +123,33 @@ func player_name(side: int, p: int) -> int:
 func player_status(side: int, p: int) -> int:
 	var base: int = S.g_player_status + w(0x1642 if side == 0 else 0x1644) * 20
 	return ISSRam.b(base + ISSRam.b(p + 0x56)) & 7
+
+
+## The controller icon of a competition slot: its pad's number for a
+## human slot (below $1266), else the computer's.
+func slot_icon(slot: int) -> int:
+	var t := tiles() + 0x180
+	return t + slot * 4 if slot < w(0x1266) else t + 0x20
+
+
+## One number of a competition's "human teams" grid: its count in $1266;
+## left / right to the one beside it, down / up through the column. The
+## large cursor at cursor (x0, x1, y), the number's box (x0, x1, y0, y1).
+func humans_item(o: ISSMenu.Obj, n: int, here: Callable, beside: Callable, down: Callable, up: Callable,
+		cursor: Array, box: Array) -> void:
+	set_w(0x1266, n)
+	if pressed(PAD_LEFT | PAD_RIGHT):
+		o.update = beside
+		m.play_sfx(77)
+	if pressed(PAD_DOWN):
+		o.update = down
+		m.play_sfx(77)
+	if pressed(PAD_UP):
+		o.update = up
+		m.play_sfx(77)
+	o.add_w(T, 1)
+	m.cursor_draw_large(0, cursor[0], cursor[1], cursor[2])
+	if o.update == here:
+		m.rect_highlight(box[0], box[1], box[2], box[3])
+	else:
+		m.rect_unhighlight(box[0], box[1], box[2], box[3])

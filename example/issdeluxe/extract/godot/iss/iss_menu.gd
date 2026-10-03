@@ -99,7 +99,8 @@ func _init() -> void:
 		ISSScreensSquad.new(self), ISSScreensControls.new(self), ISSScreensMarking.new(self),
 		ISSScreensFormation.new(self), ISSScreensStrategy.new(self),
 		ISSScreensEdit.new(self), ISSScreensColours.new(self),
-		ISSScreensPK.new(self), ISSScreensStats.new(self), ISSScreensTraining.new(self)]
+		ISSScreensPK.new(self), ISSScreensStats.new(self), ISSScreensTraining.new(self),
+		ISSScreensLeague.new(self), ISSScreensCards.new(self), ISSScreensTournament.new(self)]
 	for mod in _modules:
 		mod.register(_handlers)
 
@@ -702,6 +703,32 @@ func rect_fill_tiles(x0: int, x1: int, y0: int, y1: int, v: int) -> int:
 			ISSRam.set_w(_cell(c * 8, r * 8), v)
 			v += 1
 	return v
+
+
+## engine_text_01F9C8: a result mark (3 x 2 cells, tiles $1E0 + 6v: v 0
+## won, 1 lost, 2 drawn) at (x, y), priority on.
+func result_mark_draw(x: int, y: int, v: int) -> void:
+	var a := _cell(x, y)
+	var t := ((w(S.g_stadium_vram) >> 5) | 0x8000) + 0x1E0 + v * 6
+	for i in 3:
+		ISSRam.set_w(a + 2 * i, t + 2 * i)
+		ISSRam.set_w(a + 0x80 + 2 * i, t + 2 * i + 1)
+
+
+## engine_load_01FA14: the waving flags: every fourth frame one of three
+## strips of 6 tiles (8 frames each, unpacked at $1770) goes to VRAM
+## $3C00, $3CC0 or $3D80, a frame apart.
+func flags_wave() -> void:
+	var fc := w(S.g_frame_counter)
+	var f := ((fc >> 2) & 7) * 0xC0
+	var sv := w(S.g_stadium_vram)
+	if fc & 3 == 0:
+		vram_dma(sv + 0x3C00, l(0x1770) + f, 0xC0)
+		return
+	if (fc + 1) & 3 == 0:
+		vram_dma(sv + 0x3CC0, l(0x1770) + f + 0x600, 0xC0)
+	if (fc + 2) & 3 == 0:
+		vram_dma(sv + 0x3D80, l(0x1770) + f + 0xC00, 0xC0)
 
 
 func _font_base(large: bool) -> int:

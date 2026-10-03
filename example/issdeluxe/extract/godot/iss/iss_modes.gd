@@ -540,14 +540,215 @@ static func shootout_start() -> void:
 	_w(S.g_restart_team, 0)
 
 
+# --------------------------------------------------------------------------
+# Matches between computer teams, the weather, the short league.
+
+## The VDP's HV counter, read as a random number.
+static func _hv() -> int:
+	return randi() & 0xFFFF
+
+
+## match_simulate: a match between computer teams. d = tbl_team_strength
+## of the home team less the away team's, clamped to 0-63 each way; the
+## goals of each side are tbl_sim_goals[(d & ~7) + random 0-7]; the
+## penalties (for a knockout) 3 + another draw each, the home side one more
+## when level.
+static func match_simulate() -> void:
+	var st := ISSRom.addr("tbl_team_strength")
+	var goals := ISSRom.addr("tbl_sim_goals")
+	var d := ISSRom.u8(st + ISSRam.w(S.g_team_home)) - ISSRom.u8(st + ISSRam.w(S.g_team_away))
+	var dh := clampi(d, 0, 63) & ~7
+	var da := clampi(-d, 0, 63) & ~7
+	var h := dh + (_rand() & 7)
+	var a := da + (_rand() & 7)
+	ISSRam.set_b(S.g_score_home + 1, ISSRom.u8(goals + h))
+	ISSRam.set_b(S.g_score_away + 1, ISSRom.u8(goals + a))
+	h = (h & ~7) + (_rand() & 7)
+	a = (a & ~7) + (_rand() & 7)
+	var ph := ISSRom.u8(goals + h) + 3
+	var pa := ISSRom.u8(goals + a) + 3
+	if ph == pa:
+		ph += 1
+	_w(0x153A, ph)
+	_w(0x153C, pa)
+
+
+## weather_random: fine most often (HV counter & $FF from $28), rain from
+## 8, below that the stadium's own (weather_random_data, 8 per stadium).
+static func weather_random() -> void:
+	var v := _hv() & 0xFF
+	if v >= 0x28:
+		_w(S.g_weather, 1)
+	elif v >= 8:
+		_w(S.g_weather, 2)
+	else:
+		_w(S.g_weather, ISSRom.u8(ISSRom.addr("weather_random_data") + ISSRam.w(S.g_stadium) * 8 + v))
+
+
+## The match's conditions as a competition sets them up: a kick-off side
+## at random, the ends, the stadium (at random 0-7), its weather, the
+## referee, the time of day, the game time and clock, the statistics; no
+## pads until the sides are known.
+static func _competition_match() -> void:
+	_w(0x1638, 0)
+	_w(0x1634, _hv() & 1)
+	_w(S.g_left_goal_team, 0)
+	_w(S.g_restart_type, 4)
+	_w(S.g_stadium, _hv() & 7)
+	weather_random()
+	var ref := ISSRam.w(S.g_opt_referee)
+	_w(S.g_officials_kit, (_hv() % 3) if ref == 3 else ref)
+	_w(0x1630, _hv() % 3)
+	_w(S.g_game_time, ISSRam.w(S.g_opt_time))
+	_clock_start()
+	match_stats_clear()
+	_w(0x153E, 0)
+	_w(S.g_pads_home, 0)
+	_w(S.g_pads_away, 0)
+
+
+## The two sides of a fixture: their slots ($1642 / $1644, which also
+## pick the status blocks), the teams in them ($127C + 2 * slot) and a pad
+## for each human slot (below $1266).
+static func _fixture(home_slot: int, away_slot: int) -> void:
+	_w(0x1642, home_slot)
+	if home_slot < ISSRam.w(0x1266):
+		ISSRam.add_w(0x153E, 1)
+		ISSRam.add_w(S.g_pads_home, 1)
+	_w(S.g_team_home, ISSRam.w(0x127C + home_slot * 2))
+	_w(0x1644, away_slot)
+	if away_slot < ISSRam.w(0x1266):
+		ISSRam.add_w(0x153E, 1)
+		ISSRam.add_w(S.g_pads_away, 1)
+	_w(S.g_team_away, ISSRam.w(0x127C + away_slot * 2))
+
+
+## screen_league_fixtures_3: the league's next game (tbl_league_fixtures,
+## game $1270 of 15); computer teams' games are simulated and recorded until
+## one with a human side or the end.
+static func league_next_game() -> void:
+	while true:
+		_competition_match()
+		var f := ISSRom.addr("tbl_league_fixtures") + ISSRam.w(0x1270) * 2
+		_fixture(ISSRom.u8(f), ISSRom.u8(f + 1))
+		team_info_init()
+		if ISSRam.w(0x153E) != 0:
+			return
+		match_simulate()
+		league_result()
+		if ISSRam.w(0x1270) >= 15:
+			return
+
+
+## menu_func_05B150: the league game's result ($129C + 2 * game: 0 home
+## win, 1 away win, 2 draw), on to the next game.
+static func league_result() -> void:
+	var a := 0x129C + ISSRam.w(0x1270) * 2
+	var h := ISSRam.w(S.g_score_home)
+	var aw := ISSRam.w(S.g_score_away)
+	_w(a, 2 if h == aw else (0 if h > aw else 1))
+	ISSRam.add_w(0x1270, 1)
+
+
+## screen_league_table_3: the standings at buf (6 bytes a slot: place,
+## slot, won, lost, drawn, points), sorted by points (a selection sort
+## that keeps the first of equals; equal points share the place above);
+## after the 15th game $1272 = the winner's slot. Returns buf ($1384).
+static func league_standings(buf: int) -> int:
+	_w(0x1384, (buf >> 16) & 0xFFFF)
+	_w(0x1386, buf & 0xFFFF)
+	var t := buf & 0xFFFF
+	for k in 6:
+		ISSRam.set_b(t + k * 6, k + 1)
+		ISSRam.set_b(t + k * 6 + 1, k)
+		for i in range(2, 6):
+			ISSRam.set_b(t + k * 6 + i, 0)
+	var fx := ISSRom.addr("tbl_league_fixtures")
+	for g in ISSRam.w(0x1270):
+		var r := ISSRam.w(0x129C + g * 2)
+		var hs := t + ISSRom.u8(fx + g * 2) * 6
+		var aws := t + ISSRom.u8(fx + g * 2 + 1) * 6
+		match r:
+			2:
+				for e in [hs, aws]:
+					ISSRam.set_b(e + 4, ISSRam.b(e + 4) + 1)
+					ISSRam.set_b(e + 5, ISSRam.b(e + 5) + 1)
+			0:
+				ISSRam.set_b(hs + 2, ISSRam.b(hs + 2) + 1)
+				ISSRam.set_b(hs + 5, ISSRam.b(hs + 5) + 3)
+				ISSRam.set_b(aws + 3, ISSRam.b(aws + 3) + 1)
+			_:
+				ISSRam.set_b(aws + 2, ISSRam.b(aws + 2) + 1)
+				ISSRam.set_b(aws + 5, ISSRam.b(aws + 5) + 3)
+				ISSRam.set_b(hs + 3, ISSRam.b(hs + 3) + 1)
+	for k in 6:
+		var a2 := t + k * 6
+		var a1 := a2
+		for j in range(k, 6):
+			if ISSRam.b(a1 + 5) < ISSRam.b(t + j * 6 + 5):
+				a1 = t + j * 6
+		for i in range(1, 6):
+			var v := ISSRam.b(a1 + i)
+			ISSRam.set_b(a1 + i, ISSRam.b(a2 + i))
+			ISSRam.set_b(a2 + i, v)
+		if k != 0 and ISSRam.b(a2 - 1) == ISSRam.b(a2 + 5):
+			ISSRam.set_b(a2, ISSRam.b(a2 - 6))
+	if ISSRam.w(0x1270) == 15:
+		_w(0x1272, ISSRam.b(t + 1))
+	return buf
+
+
+## screen_tournament_bracket_3: the tournament's next game ($1270 of 7):
+## the quarter-finals pair slots 0-4, 2-6, 1-5, 3-7
+## (screen_tournament_bracket_3_data), the semi-finals and the final the
+## winners ($129C) of the games before, a human side at home; computer
+## teams' games are simulated and recorded until one with a human side or
+## the end.
+static func tournament_next_game() -> void:
+	while true:
+		_competition_match()
+		var g := ISSRam.w(0x1270)
+		var h: int
+		var a: int
+		if g < 4:
+			var p := ISSRom.addr("screen_tournament_bracket_3_data") + g * 2
+			h = ISSRom.u8(p)
+			a = ISSRom.u8(p + 1)
+		else:
+			var r := 0x129C + (g - 4) * 4
+			h = ISSRam.w(r)
+			a = ISSRam.w(r + 2)
+			if h >= ISSRam.w(0x1266):
+				h = ISSRam.w(r + 2)
+				a = ISSRam.w(r)
+		_fixture(h, a)
+		team_info_init()
+		if ISSRam.w(0x153E) != 0:
+			return
+		match_simulate()
+		tournament_result()
+		if ISSRam.w(0x1270) >= 7:
+			return
+
+
+## menu_func_05B58C: the tournament game's winner ($129C + 2 * game, its
+## slot): the score, or when level the penalties; on to the next game.
+static func tournament_result() -> void:
+	var d := ISSRam.sw(S.g_score_home) - ISSRam.sw(S.g_score_away)
+	if d == 0:
+		d = ISSRam.sw(0x153A) - ISSRam.sw(0x153C)
+	_w(0x129C + ISSRam.w(0x1270) * 2, ISSRam.w(0x1642) if d > 0 else ISSRam.w(0x1644))
+	ISSRam.add_w(0x1270, 1)
+
+
 # The competitions' result bookkeeping; ported with their screens.
 
 static func menu_func_05B150() -> void:
-	push_error("ISSModes.menu_func_05B150 is not ported yet")
+	league_result()
 
 
 static func menu_func_05B58C() -> void:
-	push_error("ISSModes.menu_func_05B58C is not ported yet")
+	tournament_result()
 
 
 static func menu_func_05B966() -> void:
