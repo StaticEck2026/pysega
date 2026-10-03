@@ -25,6 +25,8 @@ const STATE_MENU := 0x01FF16
 const STATE_SCREEN := 0x01FFF4
 const STATE_MATCH := 0x0200D2
 const STATE_SHOOTOUT := 0x0201FE
+## main_init: the boot screens, then the title and the main menu.
+const STATE_INIT := 0x000358
 
 const NUM_OBJS := 16
 const OBJ_SIZE := 0x8E
@@ -101,7 +103,7 @@ func _init() -> void:
 		ISSScreensEdit.new(self), ISSScreensColours.new(self),
 		ISSScreensPK.new(self), ISSScreensStats.new(self), ISSScreensTraining.new(self),
 		ISSScreensLeague.new(self), ISSScreensCards.new(self), ISSScreensTournament.new(self),
-		ISSScreensPassword.new(self)]
+		ISSScreensPassword.new(self), ISSScreensScenario.new(self), ISSScreensEnding.new(self)]
 	for mod in _modules:
 		mod.register(_handlers)
 

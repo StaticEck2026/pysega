@@ -78,6 +78,11 @@ func _state(st: int) -> void:
 			_shootout()
 		ISSMenu.STATE_SCREEN:
 			_presentation()
+		ISSMenu.STATE_INIT:
+			# main_init: the boot screens (not drawn yet), then the main menu.
+			_jump(ISSMenu.STATE_INIT)
+			ISSRam.set_w(S.g_next_screen, 0)
+			_menu()
 		_:
 			push_error("ISSGame: state $%06X is not ported" % st)
 			ISSRam.set_w(S.g_next_screen, 0)

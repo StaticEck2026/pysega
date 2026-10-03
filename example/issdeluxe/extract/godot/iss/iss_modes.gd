@@ -741,6 +741,89 @@ static func tournament_result() -> void:
 	ISSRam.add_w(0x1270, 1)
 
 
+## scenario_setup: scenario $1270 from tbl_scenarios (16-byte records:
+## the clock, the teams, the score, the stadium, the referee, the restart
+## and where): the second half, the human's side at home and starting with
+## the restart; the team's captain and penalty taker pointers reset.
+static func scenario_setup() -> void:
+	_clear_status(0x28)
+	match_stats_clear()
+	var r := ISSRom.u32(ISSRom.addr("tbl_scenarios") + ISSRam.w(0x1270) * 4)
+	for i in 4:
+		ISSRam.set_b(S.g_match_clock + i, ISSRom.u8(r + i))
+	ISSRam.set_b(S.g_team_home + 1, ISSRom.u8(r + 4))
+	ISSRam.set_b(S.g_team_away + 1, ISSRom.u8(r + 5))
+	ISSRam.set_b(S.g_score_home + 1, ISSRom.u8(r + 6))
+	ISSRam.set_b(S.g_score_away + 1, ISSRom.u8(r + 7))
+	_w(S.g_weather, 1)
+	_w(0x1630, 0)
+	_w(S.g_game_time, 2)
+	_w(S.g_half, 1)
+	_w(S.g_restart_timer, 0x280)
+	ISSRam.set_b(S.g_stadium + 1, ISSRom.u8(r + 8))
+	ISSRam.set_b(S.g_officials_kit + 1, ISSRom.u8(r + 9))
+	_w(S.g_restart_type, ISSRom.u16(r + 0xA))
+	_w(S.g_restart_team, 0)
+	_w(S.g_restart_x, ISSRom.u16(r + 0xC))
+	_w(S.g_restart_y, ISSRom.u16(r + 0xE))
+	_w(0x17D8, 0)
+	_w(0x1638, 0)
+	_w(0x1634, 0)
+	_w(S.g_left_goal_team, 0)
+	_w(0x1642, 0)
+	_w(0x1644, 1)
+	team_info_init()
+	ISSRam.set_l(0x1896, 0xFF1FDA)
+	ISSRam.set_l(0x189A, 0xFF1FDA)
+	_w(0x153E, 1)
+	_w(S.g_pads_home, 1)
+	_w(S.g_pads_away, 0)
+
+
+## scenario_record_result: one more attempt at the scenario (up to 99,
+## $129D + 2 * scenario), cleared when the human's side won
+## ($129C + 2 * scenario); all twelve cleared ends the mode ($1272 = 0).
+static func scenario_record_result() -> void:
+	var a := 0x129C + ISSRam.w(0x1270) * 2
+	if ISSRam.b(a) == 0:
+		if ISSRam.b(a + 1) < 0x63:
+			ISSRam.set_b(a + 1, ISSRam.b(a + 1) + 1)
+		if ISSRam.sw(S.g_score_home) > ISSRam.sw(S.g_score_away):
+			ISSRam.set_b(a, 1)
+	var cleared := 0
+	for k in 12:
+		if ISSRam.b(0x129C + k * 2) != 0:
+			cleared += 1
+	if cleared == 12:
+		_w(0x1272, 0)
+
+
+## rules_func_015132: the kit's shades on palette line 0: colour 1 black,
+## colour 2 colour 5 a step darker, colour 3 colour 7 two steps lighter (up
+## to 7), colour 4 colour 8 a step darker (per channel).
+static func kit_shades() -> void:
+	var pt := S.g_palette_target
+	_w(pt + 2, 0)
+	var c5 := ISSRam.w(pt + 10)
+	var c7 := ISSRam.w(pt + 14)
+	var c8 := ISSRam.w(pt + 16)
+	var dark := func(c: int) -> int:
+		var v := 0
+		for sh in [1, 5, 9]:
+			var ch: int = (c >> sh) & 7
+			v |= maxi(0, ch - 1) << sh
+		return v
+	var light := func(c: int) -> int:
+		var v := 0
+		for sh in [1, 5, 9]:
+			var ch: int = (c >> sh) & 7
+			v |= (ch + 2 if ch <= 5 else 7) << sh
+		return v
+	_w(pt + 4, dark.call(c5))
+	_w(pt + 6, light.call(c7))
+	_w(pt + 8, dark.call(c8))
+
+
 # The competitions' result bookkeeping; ported with their screens.
 
 static func menu_func_05B150() -> void:
@@ -798,8 +881,10 @@ static func menu_func_05C4FE() -> void:
 	push_error("ISSModes.menu_func_05C4FE is not ported yet")
 
 
+## menu_func_05AEAC: the open game's set-up (the scenarios' and PK's code
+## shortcuts use it too).
 static func menu_func_05AEAC() -> void:
-	push_error("ISSModes.menu_func_05AEAC is not ported yet")
+	open_game_setup()
 
 
 ## menu_input_040F5E: where a pre-match sub-screen returns. Training and
