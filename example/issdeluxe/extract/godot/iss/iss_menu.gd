@@ -98,7 +98,8 @@ func _init() -> void:
 	_modules = [ISSScreensMain.new(self), ISSScreensPrematch.new(self), ISSScreensOptions.new(self),
 		ISSScreensSquad.new(self), ISSScreensControls.new(self), ISSScreensMarking.new(self),
 		ISSScreensFormation.new(self), ISSScreensStrategy.new(self),
-		ISSScreensEdit.new(self), ISSScreensColours.new(self)]
+		ISSScreensEdit.new(self), ISSScreensColours.new(self),
+		ISSScreensPK.new(self)]
 	for mod in _modules:
 		mod.register(_handlers)
 

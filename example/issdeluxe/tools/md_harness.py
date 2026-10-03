@@ -31,7 +31,7 @@ BUTTONS = {'up': 0x1, 'down': 0x2, 'left': 0x4, 'right': 0x8, 'b': 0x10, 'c': 0x
 
 
 # sound_play_music, sound_play_sfx, sound_update (issdeluxe_symbols.txt).
-SOUND_ENTRIES = (0x1FD958, 0x1FD96C, 0x1FD98C)
+SOUND_ENTRIES = (0x1FD958, 0x1FD96C, 0x1FD98C, 0x1FD990)
 
 # The registers a saved state keeps (a pickled Unicorn context does not
 # restore in another process).
