@@ -119,6 +119,9 @@ var m: ISSMenu
 var actors := {}
 var ball: Actor
 var referee: Actor
+## Where the figures go (m.figures, or a clipping Control a screen gives:
+## its position is subtracted).
+var parent: Node = null
 var _reported := {}
 var _draw_frame := -1
 var _draw_order := 0
@@ -477,8 +480,76 @@ func _step_turned(o: Actor, side: bool) -> void:
 		_unported(o, "turning near the ball")
 
 
+## player_start_run: running with the ball (action 6) at the run speed,
+## the ball pushed 8 ahead (ball_kick_soft).
 func player_start_run(o: Actor) -> void:
-	_unported(o, "player_start_run with the ball")
+	o.update = player_func_00608E
+	o.set_b(MOVING, 1)
+	o.set_w(ACTION, 6)
+	o.set_w(ANIM_FRAME, 0)
+	o.set_w(TIMER, 3)
+	o.set_w(DISTANCE, 0)
+	o.set_w(JUGGLE, 0)
+	o.set_l(SPEED, _pal_ram(0x1814))
+	velocity_from_heading(o, o.w(FACING))
+	ball_kick_soft(o, 8)
+	player_func_00608E(o)
+
+
+## Dribbling: a step every 3 frames; the ball pushed on at the end of each
+## stride and on every turn; stopping with it when the d-pad is let go.
+func player_func_00608E(o: Actor) -> void:
+	if not _owns_ball(o):
+		if ISSRam.sw(S.g_restart_type) >= 0:
+			o.update = player_start_run_005D5C
+		else:
+			_unported(o, "player_start_lose_the_ball_009B70")
+		return
+	_move(o)
+	if o.w(INPUT) & 0x130:
+		_unported(o, "dribbling with buttons")
+		return
+	o.add_w(TIMER, -1)
+	if o.w(TIMER) == 0:
+		if o.sw(FOLLOW) >= 0:
+			_unported(o, "dribbling to an object")
+			return
+		var push := false
+		o.set_w(TIMER, 3)
+		o.add_w(ANIM_FRAME, 1)
+		if o.sw(ANIM_FRAME) > 9:
+			o.set_w(ANIM_FRAME, 0)
+			push = true
+		var d := _turn(o)
+		if d != 0:
+			if d <= 8 or d >= 0x38:
+				o.set_w(FACING, (o.w(FACING) + d) & 0x3F)
+				velocity_from_heading(o, o.w(FACING))
+				push = true
+			elif d <= 0x20:
+				o.update = player_start_side_step
+			else:
+				o.update = player_start_turn_step
+		if push:
+			ball_kick_soft(o, 8)
+		if o.sw(DISTANCE) < 0:
+			if o.w(INPUT) & 0xF == 0:
+				o.update = player_stop_ball
+				return
+		else:
+			o.add_w(DISTANCE, -1)
+	if o.b(JUGGLE) & 1 == 0:
+		if o.w(INPUT) & 0x40:
+			_unported(o, "dribbling with the dash button")
+	elif o.w(INPUT) & 0x40 == 0:
+		o.set_b(JUGGLE + 1, 9)
+		o.set_b(JUGGLE, o.b(JUGGLE) + 1)
+	if o.b(JUGGLE + 1) != 0:
+		o.set_b(JUGGLE + 1, o.b(JUGGLE + 1) - 1)
+		if o.b(JUGGLE + 1) == 0:
+			o.set_b(JUGGLE, 0)
+			if o.w(INPUT) & 0x40:
+				_unported(o, "player_start_sprint_00695C")
 
 
 ## player_start_fist_pump_00943E: a goal celebration (action 30, frames
@@ -1142,6 +1213,108 @@ func _ref_action(normal: int, other: int) -> int:
 	return other if ISSRam.w(0x125E) != 0 else normal
 
 
+## obj_start_ready: an official (or, $125E, the dog) standing ready
+## (action 1 / 15, frames 0-3 / 0-1 every 15), turning or setting off as
+## the heading and the d-pad say.
+func obj_start_ready(o: Actor) -> void:
+	_start(o, obj_start_ready_1, _ref_action(1, 0xF), 0xF, o.b(MOVING))
+	obj_start_ready_1(o)
+
+
+func obj_start_ready_1(o: Actor) -> void:
+	var d := _turn(o)
+	if d < 8 or d > 0x38:
+		if o.w(INPUT) & 0xF:
+			o.update = sys_state_00148C
+	elif d < 0x20:
+		o.update = sys_state_0013DA
+	else:
+		o.update = sys_state_001328
+	o.add_w(TIMER, -1)
+	if o.w(TIMER) != 0:
+		return
+	o.set_w(TIMER, 0xF)
+	o.add_w(ANIM_FRAME, 1)
+	if o.sw(ANIM_FRAME) > (1 if ISSRam.w(0x125E) != 0 else 3):
+		o.set_w(ANIM_FRAME, 0)
+
+
+## sys_state_00148C: jogging (action 2; the dog's run, 14) at $17B4.
+func sys_state_00148C(o: Actor) -> void:
+	o.update = sys_state_00148C_1
+	o.set_w(ACTION, _ref_action(2, 0xE))
+	o.set_w(ANIM_FRAME, 0)
+	o.set_w(TIMER, 4)
+	o.set_l(SPEED, _pal_ram(0x17B4))
+	velocity_from_heading(o, o.w(FACING))
+	sys_state_00148C_1(o)
+
+
+func sys_state_00148C_1(o: Actor) -> void:
+	_move(o)
+	if o.w(INPUT) & 0xF == 0:
+		o.update = obj_start_ready
+	o.add_w(TIMER, -1)
+	if o.w(TIMER) != 0:
+		return
+	o.set_w(TIMER, 4)
+	o.add_w(ANIM_FRAME, 1)
+	if o.sw(ANIM_FRAME) > (4 if ISSRam.w(0x125E) != 0 else 9):
+		o.set_w(ANIM_FRAME, 0)
+	if o.w(INPUT) & 0xF == 0:
+		return
+	var d := _turn(o)
+	if d == 0:
+		return
+	if d <= 8 or d >= 0x38:
+		o.set_w(FACING, (o.w(FACING) + d) & 0x3F)
+		velocity_from_heading(o, o.w(FACING))
+	elif d <= 0x20:
+		o.update = sys_state_0013DA
+	else:
+		o.update = sys_state_001328
+
+
+## sys_state_001328 / 0013DA: turning on the spot, 2 a frame anticlockwise
+## / clockwise, until within 8 of the heading.
+func sys_state_001328(o: Actor) -> void:
+	o.update = sys_state_001328_1
+	o.set_w(ACTION, _ref_action(1, 0xF))
+	o.set_w(ANIM_FRAME, 0)
+	_stop(o)
+	sys_state_001328_1(o)
+
+
+func sys_state_001328_1(o: Actor) -> void:
+	o.set_w(FACING, (o.w(FACING) - 2) & 0x3F)
+	_ready_turned(o)
+
+
+func sys_state_0013DA(o: Actor) -> void:
+	o.update = sys_state_0013DA_1
+	o.set_w(ACTION, _ref_action(1, 0xF))
+	o.set_w(ANIM_FRAME, 0)
+	_stop(o)
+	sys_state_0013DA_1(o)
+
+
+func sys_state_0013DA_1(o: Actor) -> void:
+	o.set_w(FACING, (o.w(FACING) + 2) & 0x3F)
+	_ready_turned(o)
+
+
+func _ready_turned(o: Actor) -> void:
+	if o.w(FACING) & 6 != 0:
+		return
+	var d := _turn(o)
+	if d < 8 or d > 0x38:
+		o.update = sys_state_00148C if o.w(INPUT) & 0xF else obj_start_ready
+	elif d < 0x20:
+		o.update = sys_state_0013DA
+	else:
+		o.update = sys_state_001328
+
+
 ## sys_state_001670: the referee standing (action 5, frames 0-3 every 15).
 func sys_state_001670(o: Actor) -> void:
 	_start(o, sys_state_001670_1, _ref_action(5, 0x11), 0xF, o.b(MOVING))
@@ -1371,6 +1544,25 @@ func ball_hold_at_feet(o: Actor, d5: int) -> void:
 	ball.set_b(STATE, 1)
 
 
+## ball_kick_soft: the ball pushed on along the dribbler's facing: his
+## speed plus ball_kick_soft_data, on the ground (state 1) d5 ahead.
+func ball_kick_soft(o: Actor, d5: int) -> void:
+	if not _owns_ball(o):
+		return
+	ISSRam.set_w(S.g_offside_pending, 0xFFFF)
+	ball.set_w(FACING, o.w(FACING))
+	ball.set_w(HEADING, o.w(FACING))
+	ball.set_l(SPEED, (_pal_rom("ball_kick_soft_data") + o.l(SPEED)) & 0xFFFFFFFF)
+	ball.set_l(VEL_Z, 0)
+	ball.set_w(Z, 0)
+	ball.set_b(STATE, 1)
+	ball.update = ball_update
+	ball.think = obj_steer_idle
+	var t := ISSRom.addr("tbl_direction_x") + o.w(FACING) * 2
+	ball.set_w(X, ((d5 * ISSRom.s16(t)) >> 8) + o.w(X))
+	ball.set_w(Y, -((d5 * ISSRom.s16(t + 0x80)) >> 8) + o.w(Y))
+
+
 ## ball_sound_00B8DC: the ball played up from the player's foot: speed and
 ## lift from ball_sound_00B8DC_data by obj_distance, d4 high, d5 ahead
 ## (state 0 beyond 10 pixels, else 1); SFX 88.
@@ -1494,7 +1686,7 @@ func give_figure(o: Actor, kind: String, team := 0) -> void:
 			o.draw = _draw_ball
 	o.node = n
 	n.visible = false
-	m.figures.add_child(n)
+	(parent if parent != null else m.figures).add_child(n)
 	if kind == "player":
 		(n as ISSPlayerSprite).set_look(team, false, maxi(1, o.b(0x63)), o.b(0x64))
 
@@ -1509,6 +1701,8 @@ func _place(o: Actor) -> void:
 	o.node.z_index = 100 - _draw_order
 	o.node.visible = o.b(VISIBLE) != 0xFF
 	o.node.position = Vector2(o.sw(SCREEN_X), o.sw(SCREEN_Y))
+	if parent is Control:
+		o.node.position -= (parent as Control).position
 	if o.cram != m.vdp.cram:
 		o.cram = m.vdp.cram.duplicate()
 		if o.node.has_method("set_palette_cram"):

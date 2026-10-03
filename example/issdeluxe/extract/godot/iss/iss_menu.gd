@@ -229,7 +229,8 @@ func enter(st: int) -> void:
 func _vdp_init_game() -> void:
 	vdp.backdrop = 0x20
 	vdp.shadow_highlight = true
-	vdp.rows_b = PackedInt32Array()
+	vdp.lines_a = PackedInt32Array()
+	vdp.lines_b = PackedInt32Array()
 
 
 func _physics_process(_delta: float) -> void:

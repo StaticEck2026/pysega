@@ -20,9 +20,11 @@ var sat := PackedByteArray()
 var sprite_count := 0
 var scroll_a := Vector2i.ZERO
 var scroll_b := Vector2i.ZERO
-## Plane B's horizontal scroll per 8-line row (register 11 cell mode, the
-## hardware's own values); empty for the full-screen scroll.
-var rows_b := PackedInt32Array()
+## Each line's horizontal scroll of planes A and B (register 11's cell or
+## line mode, the hardware's own values: positive moves the plane right);
+## empty for the full-screen scroll.
+var lines_a := PackedInt32Array()
+var lines_b := PackedInt32Array()
 var backdrop := 0x20
 var shadow_highlight := true
 
@@ -138,9 +140,10 @@ func flush() -> void:
 	_mat.set_shader_parameter("scroll_ay", scroll_a.y)
 	_mat.set_shader_parameter("scroll_bx", scroll_b.x)
 	_mat.set_shader_parameter("scroll_by", scroll_b.y)
-	_mat.set_shader_parameter("row_scroll_b", not rows_b.is_empty())
-	if not rows_b.is_empty():
-		_mat.set_shader_parameter("rows_b", rows_b)
+	_mat.set_shader_parameter("line_scroll", not lines_b.is_empty())
+	if not lines_b.is_empty():
+		_mat.set_shader_parameter("lines_a", lines_a)
+		_mat.set_shader_parameter("lines_b", lines_b)
 	_mat.set_shader_parameter("backdrop", backdrop)
 	_mat.set_shader_parameter("shadow_highlight", shadow_highlight)
 	queue_redraw()
@@ -148,3 +151,15 @@ func flush() -> void:
 
 func _draw() -> void:
 	draw_rect(Rect2(0, 0, 256, 224), Color.WHITE)
+
+
+## The scroll table as the VDP reads it from VRAM (a word for plane A, one
+## for plane B per line, at table in RAM): every line its own (line mode)
+## or every eighth line's for its row (cell mode).
+func set_line_scroll(table: int, cell: bool) -> void:
+	lines_a.resize(224)
+	lines_b.resize(224)
+	for y in 224:
+		var a := table + (y & ~7 if cell else y) * 4
+		lines_a[y] = ISSRam.w(a) & 0x3FF
+		lines_b[y] = ISSRam.w(a + 2) & 0x3FF

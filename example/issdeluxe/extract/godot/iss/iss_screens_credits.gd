@@ -206,17 +206,11 @@ func _photo_tiles() -> void:
 ## screen_credits_2: the row scroll table to the VDP every frame.
 func screen_credits_2(o: ISSMenu.Obj) -> void:
 	o.update = screen_credits_3
-	m.vdp.rows_b = PackedInt32Array()
 	screen_credits_3(o)
 
 
 func screen_credits_3(_o: ISSMenu.Obj) -> void:
-	var t := l(0x1776) & 0xFFFF
-	var rows := PackedInt32Array()
-	rows.resize(28)
-	for r in 28:
-		rows[r] = ISSRam.w(t + 2 + r * 0x20) & 0x3FF
-	m.vdp.rows_b = rows
+	m.vdp.set_line_scroll(l(0x1776) & 0xFFFF, true)
 
 
 ## screen_credits_104: a page of the credits (type 0 large, 2 small, else the
