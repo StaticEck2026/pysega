@@ -95,6 +95,12 @@ func say(id: int) -> void:
 		_speech.append(id)
 
 
+## speech_queue_reset: the commentary queue emptied.
+func clear_speech() -> void:
+	_speech.clear()
+	_speech_wait = 0.0
+
+
 ## The event a commentary line belongs to ("goal", "corner kick", ...), or "".
 func speech_context(id: int) -> String:
 	return _doc["sfx"][id].get("speech", "")

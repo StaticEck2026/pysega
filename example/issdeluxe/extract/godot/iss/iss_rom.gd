@@ -13,6 +13,7 @@ static var _data := PackedByteArray()
 static var _blocks: Array = []   # [addr, offset, length], sorted by addr
 static var _symbols := {}
 static var _res := {}
+static var _res_addrs := {}
 
 
 static func ensure_loaded() -> void:
@@ -87,6 +88,19 @@ static func string(a: int) -> PackedByteArray:
 		out.append(_data[o])
 		o += 1
 	return out
+
+
+## The ROM address of entry e of resource group g (where the game's own
+## pointers to it point; 0 when there is no such entry).
+static func res_addr(g: int, e: int) -> int:
+	if _res_addrs.is_empty():
+		var j: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(DIR + "res/resources.json"))
+		for grp: Dictionary in j["groups"]:
+			var entries: Array = grp["entries"]
+			var addrs: Array = grp.get("addrs", [])
+			for i in mini(entries.size(), addrs.size()):
+				_res_addrs[int(grp["group"]) * 256 + int(entries[i])] = int(addrs[i])
+	return int(_res_addrs.get(g * 256 + e, 0))
 
 
 ## Entry e of resource group g: unpacked when packed, else its raw bytes

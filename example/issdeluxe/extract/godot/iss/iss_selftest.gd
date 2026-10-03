@@ -112,6 +112,7 @@ func _init() -> void:
 	_check_world_series()
 	_check_presentations()
 	_check_goal_presentation()
+	_check_shootout()
 	_check_competitions()
 	_check_strategies_and_subs()
 	_check_long_modes()
@@ -365,7 +366,7 @@ func _check_presentations() -> void:
 		menu.set_physics_process(false)
 		ISSRam.set_l(ISSSym.g_current_state, ISSMenu.STATE_MENU)
 		menu.enter(ISSMenu.STATE_SCREEN)
-		menu.presentation.hv_counter = func() -> int: return 0
+		menu.hv_counter = func() -> int: return 0
 		var frames := 0
 		while frames < 2000 and ISSRam.l(ISSSym.g_current_state) == ISSMenu.STATE_SCREEN:
 			frames += 1
@@ -387,6 +388,55 @@ func _check_presentations() -> void:
 	_check(toss[1] == ISSMenu.STATE_MATCH and toss[2] == 0 and toss[3] == 1, "presentation: the toss %s" % [toss])
 	_check(goal[1] == ISSMenu.STATE_MATCH and goal[0] > 320 and goal[0] < 400, "presentation: a goal %s" % [goal])
 	_check(cup[1] == ISSMenu.STATE_MENU and cup[4] == 0x37, "presentation: the trophy %s" % [cup])
+
+
+## A PK-mode shoot-out between two CPU sides, kick after kick seen from
+## behind the taker (the HUD on the window plane, the taker, the keeper and
+## the ball as sprites): it is decided (five each, or sudden death), every
+## kick ticks or crosses its taker's mark, and it ends in the main menu.
+func _check_shootout() -> void:
+	ISSMenu.power_on()
+	ISSModes.start_pk()
+	ISSModes.pk_setup()
+	ISSRam.set_w(ISSSym.g_pads_home, 0)
+	ISSRam.set_w(ISSSym.g_pads_away, 0)
+	var menu := ISSMenu.new()
+	root.add_child(menu)
+	menu.set_physics_process(false)
+	var reads := [0]
+	menu.hv_counter = func() -> int:
+		var k: int = reads[0]
+		reads[0] = k + 1
+		return ((k * 2654435761) >> 7) & 0xFFFF
+	ISSRam.set_l(ISSSym.g_current_state, ISSMenu.STATE_MENU)
+	menu.enter(ISSMenu.STATE_SHOOTOUT)
+	var kicks := 0
+	var last: ISSShootout = null
+	var sprites := 0
+	var marks := 0
+	var window := 0
+	var frames := 0
+	while frames < 12000 and ISSRam.l(ISSSym.g_current_state) == ISSMenu.STATE_SHOOTOUT:
+		frames += 1
+		menu._physics_process(1.0 / 60.0)
+		if menu.shootout != last:
+			last = menu.shootout
+			kicks += 1
+		if ISSRam.w(ISSSym.g_frame_state) == 2:
+			sprites = maxi(sprites, menu.vdp.sprite_count)
+			window = menu.vdp.window_h
+		var m := 0
+		for i in 10:
+			if ISSRam.w(0x1526 + 2 * i) != 0xFFFF:
+				m += 1
+		marks = maxi(marks, m)
+	var home := ISSRam.w(0x153A)
+	var away := ISSRam.w(0x153C)
+	var ok := ISSRam.l(ISSSym.g_current_state) == ISSMenu.STATE_MENU and ISSRam.w(ISSSym.g_next_screen) == 0 \
+		and home != away and kicks >= 6 and marks >= 6 and sprites >= 10 and window == 0x80
+	_check(ok, "shoot-out: %d kicks, %d-%d in %d frames, %d marks, %d sprites" % [kicks, home, away, frames, marks,
+		sprites])
+	menu.free()
 
 
 ## A front-end match leaves for the big screen after a goal that puts a

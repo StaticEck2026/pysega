@@ -10,12 +10,13 @@ extends Node2D
 ## of the game's routines in the ISSScreens* scripts, which call the helpers
 ## below by their ROM names (text_draw_large, rect_flash, cursor_draw ...).
 ##
-## state_screen's presentations (ISSPresentation) run on the same engine.
+## state_screen's presentations (ISSPresentation) and state_shootout's
+## kicks (ISSShootout) run on the same engine.
 ##
 ## When a fade to black ends (g_frame_state = 0) the game jumps to
 ## g_next_state: another menu screen (g_next_screen) or a presentation is
-## loaded here; any other state (a match, the shoot-out) is handed to the
-## owner through next_state, with the game's RAM as the record of what was
+## loaded here; any other state (a match) is handed to the owner through
+## next_state, with the game's RAM as the record of what was
 ## chosen.
 
 signal next_state(state: int)
@@ -93,6 +94,12 @@ var a5: Obj = null
 var state := 0
 ## state_screen's presentations (made when one starts).
 var presentation: ISSPresentation = null
+## state_shootout's kick (made when one starts).
+var shootout: ISSShootout = null
+## VDP_HVCOUNTER, which the toss, the shoot-out's AIs and animations read
+## for random bits: the beam's position, which nothing in the game controls
+## (a random number here).
+var hv_counter := func() -> int: return randi() & 0xFFFF
 var _handlers := {}
 var _modules: Array = []
 
@@ -208,7 +215,8 @@ func add_w(a: int, v: int) -> void:
 # --------------------------------------------------------------------------
 # States.
 
-## Enter state_menu or state_screen (after g_frame_state reached 0).
+## Enter state_menu, state_screen or state_shootout (after g_frame_state
+## reached 0).
 func enter(st: int) -> void:
 	# The state the game leaves is kept at $14 (state_menu_1 reads it).
 	set_l(0x14, l(S.g_current_state))
@@ -231,16 +239,23 @@ func enter(st: int) -> void:
 				f.queue_free()
 			presentation = ISSPresentation.new(self)
 			presentation.state_screen_1()
+		STATE_SHOOTOUT:
+			for f in figures.get_children():
+				f.queue_free()
+			shootout = ISSShootout.new(self)
+			shootout.state_shootout()
 		_:
 			push_error("ISSMenu: state $%06X is not ported" % st)
 	fade_in_start()
 
 
 ## vdp_init_game: the registers the menus use (backdrop = line 2 colour 0,
-## shadow/highlight on, full-screen scroll).
+## shadow/highlight on, full-screen scroll, no window).
 func _vdp_init_game() -> void:
 	vdp.backdrop = 0x20
 	vdp.shadow_highlight = true
+	vdp.window_h = 0
+	vdp.window_v = 0
 	vdp.lines_a = PackedInt32Array()
 	vdp.lines_b = PackedInt32Array()
 
@@ -252,7 +267,7 @@ func _physics_process(_delta: float) -> void:
 	# main loop: once a fade to black has ended, go to g_next_state.
 	if w(S.g_frame_state) == 0:
 		var nxt := l(S.g_next_state)
-		if nxt == STATE_MENU or nxt == STATE_SCREEN:
+		if nxt == STATE_MENU or nxt == STATE_SCREEN or nxt == STATE_SHOOTOUT:
 			enter(nxt)
 		else:
 			state = 0
@@ -261,7 +276,8 @@ func _physics_process(_delta: float) -> void:
 			next_state.emit(nxt)
 
 
-## One VBlank of state_menu_frame (state_screen_frame: its own frame_1).
+## One VBlank of state_menu_frame (state_screen_frame: its own frame_1;
+## state_shootout_frame: its own routines around the objects').
 ## The game queues its VRAM, CRAM and sprite changes for the next VBlank,
 ## which also writes the scroll it computed: the picture shows a frame's
 ## work one frame later, all of it together. Here they take effect at once,
@@ -269,6 +285,14 @@ func _physics_process(_delta: float) -> void:
 func frame() -> void:
 	_joypad_read_all()
 	vdp.clear_sprites()
+	if state == STATE_SHOOTOUT:
+		shootout.frame_before_objects()
+		_objects_update()
+		shootout.frame_after_objects()
+		_objects_draw_menu()
+		shootout.frame_after_draw()
+		_write_scroll()
+		return
 	_objects_update()
 	if state == STATE_SCREEN:
 		presentation.state_screen_frame_1()

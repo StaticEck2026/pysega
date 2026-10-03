@@ -29,6 +29,7 @@ func exportResources(dir string) {
 		Group   int   `json:"group"`
 		Entries []int `json:"entries"`
 		Sizes   []int `json:"sizes"`
+		Addrs   []int `json:"addrs"`
 	}
 	var groups []groupOut
 	total := 0
@@ -66,6 +67,7 @@ func exportResources(dir string) {
 			must(os.WriteFile(filepath.Join(dir, name), b, 0644))
 			out.Entries = append(out.Entries, e)
 			out.Sizes = append(out.Sizes, len(b))
+			out.Addrs = append(out.Addrs, int(a))
 			total += len(b)
 		}
 		if len(out.Entries) > 0 {
@@ -74,7 +76,8 @@ func exportResources(dir string) {
 	}
 	writeJSON(filepath.Join(dir, "resources.json"), map[string]any{
 		"description": "Resource entries (res_directory): gGG_eEE.bin is packed entry EE of group GG, unpacked; " +
-			"gGG_eEE.raw an entry stored unpacked (read in place by the game), up to the next entry.",
+			"gGG_eEE.raw an entry stored unpacked (read in place by the game), up to the next entry; " +
+			"addrs: each entry's ROM address (where the game's pointers to it point).",
 		"groups": groups,
 	})
 	fmt.Printf("resources: %d groups, %d KB unpacked\n", len(groups), total/1024)

@@ -488,7 +488,7 @@ static func pk_setup() -> void:
 # After the match.
 
 ## Where the game goes when the match is over (screen_match_stats_2 at the end,
-## state_shootout_frame_14 after a shoot-out): the main menu, or the game
+## shootout_decided_1 after a shoot-out): the main menu, or the game
 ## mode's own screen once its tables have the result (the league's
 ## fixtures, the tournament's bracket, the cup's rounds, the World Series,
 ## the championship). Leagues and group rounds have no shoot-outs.

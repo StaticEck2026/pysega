@@ -318,6 +318,10 @@ class VDP:
         return img
 
 
+# Where the status-register stub runs (unmapped on the Mega Drive).
+STUB = 0x900000
+
+
 class MD:
     def __init__(self, rom, pal=True):
         self.pal = pal
@@ -333,6 +337,12 @@ class MD:
         mu.mem_map(0xA00000, 0x4000)
         mu.mmio_map(0xA04000, 0x1000, lambda *a: 0, None, lambda *a: None, None)
         mu.mem_map(0xA05000, 0xB000)
+        # A page for a stub that reads the status register (move.w
+        # sr,(STUB + $100).l): reading unicorn's SR register returns stale
+        # condition codes and resets the live ones to them, so a branch on
+        # flags set before an interrupt (or a state save) could go wrong.
+        mu.mem_map(STUB, 0x1000)
+        mu.mem_write(STUB, bytes.fromhex('40f9') + struct.pack('>I', STUB + 0x100))
         mu.mmio_map(0xA10000, 0x10000, self._io_read, None, self._io_write, None)
         mu.mmio_map(0xC00000, 0x10000, lambda uc, o, s, d: self.vdp.read(o, s), None,
                     lambda uc, o, s, v, d: self.vdp.write(o, s, v), None)
@@ -404,8 +414,13 @@ class MD:
         return ((b & 0xC0) >> 2) | (b & 0x03)
 
     # -- running
+    def sr(self):
+        """The status register with its live condition codes."""
+        self.mu.emu_start(STUB, STUB + 6)
+        return struct.unpack('>H', bytes(self.mu.mem_read(STUB + 0x100, 2)))[0]
+
     def interrupt(self, level, vector):
-        sr = self.mu.reg_read(UC_M68K_REG_SR)
+        sr = self.sr()
         if ((sr >> 8) & 7) >= level:
             return False
         sp = self.mu.reg_read(UC_M68K_REG_A7)
@@ -483,7 +498,7 @@ class MD:
         """Everything needed to come back to this moment (RAM, Z80 RAM, VDP,
         CPU registers)."""
         return dict(ram=self.ram(0, 0x10000), z80=bytes(self.mu.mem_read(0xA00000, 0x4000)),
-                    regs=[self.mu.reg_read(r) for r in CPU_REGS], pc=self.pc, frame=self.frame,
+                    regs=[self.mu.reg_read(r) for r in CPU_REGS[:-1]] + [self.sr()], pc=self.pc, frame=self.frame,
                     vdp=dict(reg=list(self.vdp.reg), vram=bytes(self.vdp.vram), cram=list(self.vdp.cram),
                              vsram=list(self.vdp.vsram), code=self.vdp.code, addr=self.vdp.addr),
                     dac=(self._dac_acc, self._dac_pos), pads=list(self.pads))

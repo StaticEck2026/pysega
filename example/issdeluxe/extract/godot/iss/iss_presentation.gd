@@ -35,9 +35,6 @@ const CHOSEN := 0x8C
 
 var m: ISSMenu
 var objects: ISSObjects
-## VDP_HVCOUNTER as the toss reads it for a random bit: the beam's
-## position, which nothing in the game controls (a random number here).
-var hv_counter := func() -> int: return randi() & 0xFFFF
 
 
 func _init(menu: ISSMenu) -> void:
@@ -574,7 +571,7 @@ func pres_prematch_6(o: ISSMenu.Obj) -> void:
 func pres_prematch_7(o: ISSMenu.Obj) -> void:
 	o.update = pres_prematch_8
 	o.set_w(DISTANCE, 0)
-	o.set_w(CHOSEN, hv_counter.call() & 1)
+	o.set_w(CHOSEN, m.hv_counter.call() & 1)
 	_toss_view()
 	pres_prematch_8(o)
 
@@ -603,7 +600,7 @@ func pres_prematch_9(o: ISSMenu.Obj) -> void:
 	o.set_w(CHOSEN, 0)
 	o.set_w(ANIM_FRAME, 0)
 	o.set_w(TIMER, 0xFFFF)
-	o.set_w(DISTANCE, (hv_counter.call() & 0x1F) + 0x20)
+	o.set_w(DISTANCE, (m.hv_counter.call() & 0x1F) + 0x20)
 	set_w(0x1548, 0 if o.w(TEAM) == 0 else 1)
 	pres_prematch_10(o)
 

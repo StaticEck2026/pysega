@@ -672,6 +672,20 @@ scaled by whole numbers:
   World Series season ends on the trophy. The objects are the match's own
   (`ISSObjects`: players, referee, ball and coin where the game keeps them
   in RAM) and the crowd's flags and confetti.
+* **Penalty shoot-out** (`ISSShootout`, `state_shootout`): each kick seen
+  from behind the taker as the game draws it: the goal and stand on plane
+  B, the HUD on the window plane (the flags, the names of the taker and the
+  keeper with their roles and controller icons, five marks a side), the
+  taker, the keeper and the 16 × 16 ball as sprites streamed into VRAM,
+  snow or rain in front. The taker runs up for a low (pass) or high
+  (lofted) kick, a second press during the run-up scoring its quality
+  (`tbl_kick_quality`), aimed with the d-pad; the keeper steps across,
+  reaches, jumps or dives low by the pad (or `shootout_keeper_ai`); the
+  scoreboard flashes GOAL, the crowd roars or groans. Five kicks a side,
+  then sudden death; a human side picks its next takers on the order screen
+  (`$1A`) between rounds, and the result goes to the mode's own screen
+  (`shootout_decided_1`). PK mode, the shoot-out after extra time and the
+  competitions' knockout games use it.
 * **Endings**: the staff roll after the International Cup or the
   championship (screen `$33`, with its scenes of play), the scenarios'
   ending (`$26`), game over and congratulations.
@@ -748,10 +762,9 @@ scaled by whole numbers:
     banner, the banners and commentary of each restart and the crowd;
   - open games are knockout matches (`g_knockout`): a draw goes to extra
     time (halves one `g_game_time` step shorter; with V-goal the match ends
-    after the extra-time half in which a side leads) and then to a
-    penalty shoot-out, five kicks each and sudden death, with the keeper
-    diving where the defending human's pad points; PK mode on the main
-    menu is a shoot-out on its own;
+    after the extra-time half in which a side leads) and then to the
+    penalty shoot-out (below); PK mode on the main menu is a shoot-out on
+    its own;
 * **Strategies and substitutions**: the team page assigns four of the
   eight strategies (`tbl_team_strategies`) to dash, pass, lofted and shoot;
   in the match the strategy button (D, player 2 B, joypad LB) held with one
@@ -768,10 +781,12 @@ scaled by whole numbers:
   lofted balls, `camera_update`'s lead toward the attacking goal, the HUD
   with the live radar, banners, commentary, crowd and effects.
 
-Not reproduced (yet): the shoot-out's own view from behind the taker (the
-kicks are taken on the pitch), the original's in-match pause menu and
-replay (the port's pause offers continue, substitutions and the match
-menu), and the boot screens before the title.
+Not reproduced (yet): a penalty in a match is still taken on the pitch
+(the original shows its run-up and kick in the shoot-out's view, then
+finishes it on the pitch from the stored aim and dive, restart 7), the
+original's in-match pause menu and replay (the port's pause offers
+continue, substitutions and the match menu), and the boot screens before
+the title.
 `iss_selftest.gd` plays a whole CPU match headless, drives a player
 through the pad input, plays a level knockout match to penalties, runs a
 league, a tournament, the International Cup and both paths of the World
@@ -780,15 +795,20 @@ with a human keeper, checks the free kick wall, plays each challenge to its
 end, clears the dribble and checks the challenge timer and scores,
 strategies and substitutions, runs the three presentations (the toss with
 pad presses, a goal, the trophy) and a goal's hand-over from the match to
-the big screen and back, and starts a match in the game scene.
+the big screen and back, plays a PK-mode shoot-out between two CPU sides to
+its decision, and starts a match in the game scene.
 
-The front end, the presentations and the endings were checked frame by
-frame against the ROM running in `tools/md_harness.py`: the same RAM, the
-same pad presses, and screenshots compared pixel for pixel (see
-[Capturing the ROM's own screens](#capturing-the-roms-own-screens)). The
-game shows a frame's VRAM, CRAM, sprite and scroll changes together one
+The front end, the presentations, the endings and the shoot-out were
+checked frame by frame against the ROM running in `tools/md_harness.py`:
+the same RAM, the same pad presses (and the same HV counter readings, which
+the computer's takers and keepers use as random bits), and screenshots
+compared pixel for pixel (see
+[Capturing the ROM's own screens](#capturing-the-roms-own-screens)); a
+ten-kick shoot-out between CPU sides gives the same kicks and the same 3-4.
+The game shows a frame's VRAM, CRAM, sprite and scroll changes together one
 frame later (its DMA queue runs in the next VBlank); the port shows them
-together at the end of the frame.
+together at the end of the frame. Each kick's set-up takes the ROM about 20
+frames of unpacking before the fade-in; the port's is instant.
 
 ### Rendering the music and FM effects
 
@@ -842,6 +862,14 @@ md.screenshot('team_select.png')
 `goto_screen` leaves the main menu as the game does (C on an item) and
 replaces the next screen number during the fade; screens that read a
 competition's state need it set up in RAM first.
+
+Interrupts are raised by the harness, which stacks the status register
+itself. Unicorn's SR register does not hold the live condition codes, and
+reading it resets them, so the harness reads SR through a two-instruction
+stub (`move.w sr,(addr).l`) run by the emulated CPU: otherwise a VBlank
+landing between a compare and its branch could take the wrong way (the
+unpacker then stopped early, and the shoot-out's team names came out as
+flag tiles).
 
 **Stadium format.** Each stadium group (`res07`–`res14`) holds a metatile map
 (`width, height` in 16 × 16 metatiles, then one word per metatile), a metatile
@@ -941,8 +969,9 @@ training, with the front end, the rules, the AI and the presentation
 rebuilt on the exported data.
 
 Open work, in rough order of value for a port:
-1. In the Godot game: the shoot-out's own view (`state_shootout`), the
-   in-match pause menu and replay, and the boot screens.
+1. In the Godot game: a match penalty through the shoot-out's view
+   (`restart_penalty`, restart 7), the in-match pause menu and replay, and
+   the boot screens.
 2. The field layout of each mode's password and the object behind each
    remaining menu screen.
 3. The exact effects of curl, intelligence, balance and dribble (bytes 4,

@@ -9,6 +9,8 @@ extends Node2D
 
 const PLANE_B := 0x0000
 const PLANE_A := 0x2000
+## The window plane (register 3), 32 x 32 cells in H32, never scrolled.
+const WINDOW := 0x1000
 const MAX_SPRITES := 64
 
 var vram := PackedByteArray()
@@ -27,6 +29,11 @@ var lines_a := PackedInt32Array()
 var lines_b := PackedInt32Array()
 var backdrop := 0x20
 var shadow_highlight := true
+## Registers 17 and 18: the window's horizontal and vertical extent (bit 7
+## right / down of the cell or row in bits 0-4; 0 for none). Where it is
+## the window replaces plane A.
+var window_h := 0
+var window_v := 0
 ## The figures drawn over the picture (the match's players, referee and
 ## ball as ISSMatch draws them) go behind what has priority: with this set
 ## the planes' priority pixels and the priority sprites are drawn again
@@ -167,6 +174,8 @@ func flush() -> void:
 			mat.set_shader_parameter("lines_b", lines_b)
 		mat.set_shader_parameter("backdrop", backdrop)
 		mat.set_shader_parameter("shadow_highlight", shadow_highlight)
+		mat.set_shader_parameter("window_h", window_h)
+		mat.set_shader_parameter("window_v", window_v)
 	queue_redraw()
 
 

@@ -13,6 +13,9 @@ uniform sampler2D cram : filter_nearest;   // RGBA8, 64 x 1
 uniform sampler2D sat : filter_nearest;    // R8, 512 x 1: 64 sprites x 8 bytes
 uniform int plane_a = 8192;
 uniform int plane_b = 0;
+uniform int plane_w = 4096;
+uniform int window_h = 0;
+uniform int window_v = 0;
 uniform int scroll_ax = 0;
 uniform int scroll_ay = 0;
 uniform int scroll_bx = 0;
@@ -59,6 +62,27 @@ int plane_px(int base, int x, int y) {
 	return c | (((e >> 15) & 1) << 8);
 }
 
+// The window plane (32 cells wide in H32), unscrolled.
+int window_px(int x, int y) {
+	int e = vw(plane_w + 2 * (((y >> 3) & 31) * 32 + ((x >> 3) & 31)));
+	int px = x & 7;
+	int py = y & 7;
+	if ((e & 2048) != 0) { px = 7 - px; }
+	if ((e & 4096) != 0) { py = 7 - py; }
+	int v = tile_px(e & 2047, px, py);
+	int c = v == 0 ? 0 : ((e >> 13) & 3) * 16 + v;
+	return c | (((e >> 15) & 1) << 8);
+}
+
+bool in_window(int x, int y) {
+	if (window_h == 0 && window_v == 0) { return false; }
+	int wx = (window_h & 31) * 16;
+	int wy = (window_v & 31) * 8;
+	bool h = (window_h & 128) != 0 ? x >= wx : x < wx;
+	bool v = (window_v & 128) != 0 ? y >= wy : y < wy;
+	return h || v;
+}
+
 int sprite_px(int x, int y) {
 	for (int i = 0; i < 64; i++) {
 		if (i >= sprites) { break; }
@@ -92,7 +116,7 @@ void fragment() {
 	int bx = line_scroll ? lines_b[y] : scroll_bx;
 	int ax = line_scroll ? lines_a[y] : scroll_ax;
 	int b = show_b ? plane_px(plane_b, x - bx, y + scroll_by) : 0;
-	int a = show_a ? plane_px(plane_a, x - ax, y + scroll_ay) : 0;
+	int a = show_a ? (in_window(x, y) ? window_px(x, y) : plane_px(plane_a, x - ax, y + scroll_ay)) : 0;
 	int s = sprite_px(x, y);
 	int bc = b & 255; bool bp = (b & 256) != 0;
 	int ac = a & 255; bool ap = (a & 256) != 0;

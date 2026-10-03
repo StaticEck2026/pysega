@@ -8,9 +8,9 @@ extends Control
 ## state_menu is ISSMenu (the front end's screens); state_match is ISSMatch
 ## playing one half from the RAM the menus leave (ISSMatchSetup.from_ram)
 ## and writing it back when the half ends, a side asks for the match menu,
-## or the match is over; state_shootout is the engine's shoot-out;
-## state_screen's presentations (the toss, a goal, a trophy) are
-## ISSPresentation's, on ISSMenu's engine.
+## or the match is over; state_shootout's kicks (ISSShootout) and
+## state_screen's presentations (the toss, a goal, a trophy;
+## ISSPresentation) run on ISSMenu's engine.
 
 const SCREEN := Vector2i(256, 224)
 const S := preload("res://iss/iss_sym.gd")
@@ -141,27 +141,15 @@ func _match_left(m: ISSMatch) -> void:
 	_menu()
 
 
-## state_shootout: to the end with the engine's shoot-out; the kicks each
-## side scored ($153A / $153C), then where the game mode goes after the
-## match (state_shootout_frame_14).
+## state_shootout: one kick seen from behind the taker (ISSShootout, on
+## the front end's engine); the kicks that follow, the order screen between
+## rounds and the menus after it are that engine's too
+## (shootout_next_1 / _14).
 func _shootout() -> void:
-	var setup := ISSMatchSetup.from_ram()
-	var opts: Dictionary = setup["options"]
-	opts["pk_only"] = true
-	var m := ISSMatch.new()
+	var m := ISSMenu.new()
 	_set_screen(m)
-	m.start(int(setup["home"]), int(setup["away"]), opts)
-	m.match_over.connect(func(_r: Dictionary) -> void: _shootout_over(m))
-
-
-func _shootout_over(m: ISSMatch) -> void:
-	var e := m.engine
-	ISSRam.set_w(0x153A, int(e.pk_scores[0]))
-	ISSRam.set_w(0x153C, int(e.pk_scores[1]))
-	ISSRam.set_w(S.g_shootout_kicks, maxi(int(e.pk_taken[0]), int(e.pk_taken[1])))
-	_jump(ISSMenu.STATE_SHOOTOUT)
-	ISSModes.after_match(true)
-	_menu()
+	m.next_state.connect(_state)
+	m.enter(ISSMenu.STATE_SHOOTOUT)
 
 
 ## state_screen ($1730): 0 the teams on the big screen and the toss before
