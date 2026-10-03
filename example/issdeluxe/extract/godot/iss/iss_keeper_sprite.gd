@@ -51,13 +51,15 @@ func set_kit(team_index: int, use_second: bool) -> void:
 
 
 ## The whole palette from 64 CRAM words (the front end's figures use the
-## screen's own CRAM, fades included).
-func set_palette_cram(cram: PackedInt32Array) -> void:
+## screen's own CRAM, fades included); the kit from line kit_line (an away
+## side's figure has line 1, obj_attr $A0).
+func set_palette_cram(cram: PackedInt32Array, kit_line := 0) -> void:
 	if material == null:
 		return
 	var img := Image.create(16, 4, false, Image.FORMAT_RGBA8)
 	for i in 64:
-		img.set_pixel(i & 15, i >> 4, MDPalette.cram_to_color(cram[i]))
+		var src := i if i >= 16 else kit_line * 16 + i
+		img.set_pixel(i & 15, i >> 4, MDPalette.cram_to_color(cram[src]))
 	(material as ShaderMaterial).set_shader_parameter("palette", ImageTexture.create_from_image(img))
 
 
