@@ -108,6 +108,7 @@ func _init() -> void:
 	_check_knockout()
 	_check_ram_halves()
 	_check_passwords()
+	_check_international()
 	_check_competitions()
 	_check_strategies_and_subs()
 	_check_long_modes()
@@ -278,6 +279,63 @@ func _check_passwords() -> void:
 		if mode != 0xC and ISSRam.w(0x127C) != 17:
 			all = false
 	_check(all, "every mode's password round-trips")
+
+
+## The International Cup's bookkeeping with no human side (every game
+## simulated): the draws, the tables and the finals' bracket.
+func _check_international() -> void:
+	ISSMenu.power_on()
+	ISSModes.start_international()
+	ISSRam.set_w(0x127C, 31)
+	ISSRam.set_w(0x1266, 0)
+	ISSModes.intl_elimination_next_game()
+	var o1 := ISSRam.w(0x127E)
+	var o2 := ISSRam.w(0x1280)
+	_check(ISSRam.w(0x1270) == 3 and ISSRam.w(0x126C) == 10 and [o1, o2] in [[30, 32], [32, 30]],
+		"International Cup: the region's other two teams, three games")
+	ISSMenu.power_on()
+	ISSModes.start_international()
+	ISSRam.set_w(0x127C, 7)
+	ISSRam.set_w(0x1266, 0)
+	ISSModes.intl_elimination_next_game()
+	o1 = ISSRam.w(0x127E)
+	o2 = ISSRam.w(0x1280)
+	var t := ISSModes.intl_elimination_table()
+	var points := 0
+	for k in 3:
+		points += ISSRam.b(t + k * 6 + 5)
+	_check(o1 < 24 and o2 < 24 and o1 != o2 and 7 not in [o1, o2] and points >= 6 and points <= 9
+		and ISSRam.b(t + 5) >= ISSRam.b(t + 11) and ISSRam.w(0x1272) in [0, 1],
+		"International Cup: European opponents, the table")
+	ISSModes.intl_group_start()
+	ISSRam.set_w(0x1266, 0)
+	var group := [ISSRam.w(0x127C), ISSRam.w(0x127E), ISSRam.w(0x1280), ISSRam.w(0x1282)]
+	ISSModes.intl_group_next_game()
+	t = ISSModes.intl_group_table()
+	var first := ISSRam.b(t + 1)
+	var second := ISSRam.b(t + 7)
+	var other := ISSRam.w(0x129A)
+	_check(ISSRam.w(0x1270) == 6 and o1 not in group and o2 not in group and group.size() == 4
+		and (ISSRam.w(0x1272) == 1 or (other in group and other != group[0]))
+		and (ISSRam.w(0x1272) == 0) == (first == 0 or second == 0),
+		"International Cup: the group round")
+	ISSModes.international_finals()
+	ISSRam.set_w(0x1266, 0)
+	var slots := []
+	for k in 16:
+		slots.append(ISSRam.w(0x127C + k * 2))
+	var distinct := true
+	for k in 15:
+		if slots.count(slots[k]) != 1:
+			distinct = false
+	ISSModes.intl_finals_next_game()
+	var bracket := ISSRam.w(0x1270) == 15
+	for g in 15:
+		var win := ISSRam.w(0x129C + g * 2)
+		var pair := [g * 2, g * 2 + 1] if g < 8 else [ISSRam.w(0x129C + (g - 8) * 4), ISSRam.w(0x129E + (g - 8) * 4)]
+		if win not in pair:
+			bracket = false
+	_check(distinct and bracket and ISSRam.w(ISSSym.g_game_mode) == 8, "International Cup: the finals")
 
 
 ## A short half on g_match_clock (seconds).

@@ -498,21 +498,21 @@ static func after_match(shootout: bool) -> void:
 	match ISSRam.w(S.g_game_mode):
 		4:
 			if not shootout:
-				menu_func_05B150()
+				league_result()
 				_w(S.g_next_screen, 0x1D)
 		5:
-			menu_func_05B58C()
+			tournament_result()
 			_w(S.g_next_screen, 0x22)
 		6:
 			if not shootout:
-				menu_func_05B966()
+				intl_elimination_result()
 				_w(S.g_next_screen, 0x29)
 		7:
 			if not shootout:
-				menu_func_05BE12()
+				intl_group_result()
 				_w(S.g_next_screen, 0x2B)
 		8:
-			menu_func_05C2A2()
+			intl_finals_result()
 			_w(S.g_next_screen, 0x2D)
 		9:
 			_w(S.g_next_screen, 0x30)
@@ -588,13 +588,14 @@ static func weather_random() -> void:
 ## The match's conditions as a competition sets them up: a kick-off side
 ## at random, the ends, the stadium (at random 0-7), its weather, the
 ## referee, the time of day, the game time and clock, the statistics; no
-## pads until the sides are known.
-static func _competition_match() -> void:
+## pads until the sides are known. The International Cup's elimination
+## round passes its region's stadium.
+static func _competition_match(stadium: int = -1) -> void:
 	_w(0x1638, 0)
 	_w(0x1634, _hv() & 1)
 	_w(S.g_left_goal_team, 0)
 	_w(S.g_restart_type, 4)
-	_w(S.g_stadium, _hv() & 7)
+	_w(S.g_stadium, _hv() & 7 if stadium < 0 else stadium)
 	weather_random()
 	var ref := ISSRam.w(S.g_opt_referee)
 	_w(S.g_officials_kit, (_hv() % 3) if ref == 3 else ref)
@@ -623,7 +624,7 @@ static func _fixture(home_slot: int, away_slot: int) -> void:
 	_w(S.g_team_away, ISSRam.w(0x127C + away_slot * 2))
 
 
-## screen_league_fixtures_3: the league's next game (tbl_league_fixtures,
+## league_next_game: the league's next game (tbl_league_fixtures,
 ## game $1270 of 15); computer teams' games are simulated and recorded until
 ## one with a human side or the end.
 static func league_next_game() -> void:
@@ -640,7 +641,7 @@ static func league_next_game() -> void:
 			return
 
 
-## menu_func_05B150: the league game's result ($129C + 2 * game: 0 home
+## league_result: the league game's result ($129C + 2 * game: 0 home
 ## win, 1 away win, 2 draw), on to the next game.
 static func league_result() -> void:
 	var a := 0x129C + ISSRam.w(0x1270) * 2
@@ -698,9 +699,9 @@ static func league_standings(buf: int) -> int:
 	return buf
 
 
-## screen_tournament_bracket_3: the tournament's next game ($1270 of 7):
+## tournament_next_game: the tournament's next game ($1270 of 7):
 ## the quarter-finals pair slots 0-4, 2-6, 1-5, 3-7
-## (screen_tournament_bracket_3_data), the semi-finals and the final the
+## (tbl_tournament_first_round), the semi-finals and the final the
 ## winners ($129C) of the games before, a human side at home; computer
 ## teams' games are simulated and recorded until one with a human side or
 ## the end.
@@ -711,7 +712,7 @@ static func tournament_next_game() -> void:
 		var h: int
 		var a: int
 		if g < 4:
-			var p := ISSRom.addr("screen_tournament_bracket_3_data") + g * 2
+			var p := ISSRom.addr("tbl_tournament_first_round") + g * 2
 			h = ISSRom.u8(p)
 			a = ISSRom.u8(p + 1)
 		else:
@@ -731,13 +732,288 @@ static func tournament_next_game() -> void:
 			return
 
 
-## menu_func_05B58C: the tournament game's winner ($129C + 2 * game, its
+## tournament_result: the tournament game's winner ($129C + 2 * game, its
 ## slot): the score, or when level the penalties; on to the next game.
 static func tournament_result() -> void:
 	var d := ISSRam.sw(S.g_score_home) - ISSRam.sw(S.g_score_away)
 	if d == 0:
 		d = ISSRam.sw(0x153A) - ISSRam.sw(0x153C)
 	_w(0x129C + ISSRam.w(0x1270) * 2, ISSRam.w(0x1642) if d > 0 else ISSRam.w(0x1644))
+	ISSRam.add_w(0x1270, 1)
+
+
+# --------------------------------------------------------------------------
+# The International Cup (modes 6-8): the human's team (slot 0, $127C) plays
+# two others of its region ($126C = team / 3: 0-7 Europe, then Asia,
+# Africa, South and North/Central America) once each, the first two going
+# on to a group of four ($126C the group letter), the first two of that to
+# the sixteen-team finals (slot 15 the group's other qualifier). $1270 the
+# games played, $129C each game's result (0 home win, 1 away win, 2 a
+# draw; in the finals the winner's slot), $1272 0 still in, 1 out.
+
+## The random 0..n-1 the cup draws teams with: g_random's step mod n, less
+## one (wrapping), stepped down again while next is false.
+static func _draw(n: int, ok: Callable) -> int:
+	var d := _rand() % n
+	while true:
+		d -= 1
+		if d < 0:
+			d = n - 1
+		if ok.call(d):
+			return d
+	return 0
+
+
+## intl_elimination_next_game: before the first game the region and the two
+## opponents (any other European team for Europe, the region's other two
+## elsewhere); the next game ($1270 of 3, menu_data_05B994) at one of the
+## region's stadiums (tbl_intl_region_stadiums); computer teams'
+## games are simulated and recorded.
+static func intl_elimination_next_game() -> void:
+	while true:
+		var me := ISSRam.w(0x127C)
+		if ISSRam.w(0x1270) == 0:
+			var region := me / 3
+			_w(0x126C, region)
+			if region < 8:
+				_w(0x127E, _draw(24, func(t: int) -> bool: return t != me))
+				var t1 := ISSRam.w(0x127E)
+				_w(0x1280, _draw(24, func(t: int) -> bool: return t != me and t != t1))
+			else:
+				_w(0x127E, region * 3 + _draw(3, func(t: int) -> bool: return region * 3 + t != me))
+				var t1 := ISSRam.w(0x127E)
+				_w(0x1280, region * 3 + _draw(3,
+					func(t: int) -> bool: return region * 3 + t != me and region * 3 + t != t1))
+		var st := ISSRom.u8(ISSRom.addr("tbl_intl_region_stadiums")
+			+ ISSRam.w(0x126C) * 4 + (_rand() & 3))
+		_competition_match(st)
+		var f := ISSRom.addr("tbl_intl_elimination_games") + ISSRam.w(0x1270) * 2
+		_fixture(ISSRom.u8(f), ISSRom.u8(f + 1))
+		team_info_init()
+		if ISSRam.w(0x153E) != 0:
+			return
+		match_simulate()
+		intl_elimination_result()
+		if ISSRam.w(0x1270) >= 3:
+			return
+
+
+## intl_elimination_result: a round-robin game's result ($129C + 2 *
+## game: 0 home win, 1 away win, 2 draw); on to the next game.
+static func intl_elimination_result() -> void:
+	var d := ISSRam.sw(S.g_score_home) - ISSRam.sw(S.g_score_away)
+	_w(0x129C + ISSRam.w(0x1270) * 2, 2 if d == 0 else (0 if d > 0 else 1))
+	ISSRam.add_w(0x1270, 1)
+
+
+## intl_group_result: the same for the group round.
+static func intl_group_result() -> void:
+	intl_elimination_result()
+
+
+## The table of a round robin of n teams after the games so far (pairs:
+## the games' slot pairs, two bytes each) as six-byte rows at the unpack
+## buffer ($1384): place, slot, won, lost, drawn, points; sorted on points
+## (the first of equals first), equal points sharing a place. Returns its
+## address.
+static func intl_table(n: int, pairs: int) -> int:
+	var t := ISSRam.l(S.g_unpack_buffer)
+	ISSRam.set_l(0x1384, t)
+	for k in n:
+		ISSRam.set_b(t + k * 6, k + 1)
+		ISSRam.set_b(t + k * 6 + 1, k)
+		for i in range(2, 6):
+			ISSRam.set_b(t + k * 6 + i, 0)
+	ISSRam.set_l(S.g_unpack_buffer, t + n * 6)
+	var add := func(slot: int, i: int, v: int) -> void:
+		ISSRam.set_b(t + slot * 6 + i, ISSRam.b(t + slot * 6 + i) + v)
+	for g in ISSRam.w(0x1270):
+		var h := ISSRom.u8(pairs + g * 2)
+		var a := ISSRom.u8(pairs + g * 2 + 1)
+		match ISSRam.w(0x129C + g * 2):
+			2:
+				add.call(h, 4, 1)
+				add.call(h, 5, 1)
+				add.call(a, 4, 1)
+				add.call(a, 5, 1)
+			0:
+				add.call(h, 2, 1)
+				add.call(h, 5, 3)
+				add.call(a, 3, 1)
+			_:
+				add.call(a, 2, 1)
+				add.call(a, 5, 3)
+				add.call(h, 3, 1)
+	for k in n:
+		var best := t + k * 6
+		for j in range(k, n):
+			var r := t + j * 6
+			if ISSRam.sb(best + 5) < ISSRam.sb(r + 5):
+				best = r
+		var here := t + k * 6
+		for i in range(1, 6):
+			var v := ISSRam.b(best + i)
+			ISSRam.set_b(best + i, ISSRam.b(here + i))
+			ISSRam.set_b(here + i, v)
+		if k > 0 and ISSRam.b(here - 1) == ISSRam.b(here + 5):
+			ISSRam.set_b(here, ISSRam.b(here - 6))
+	return t
+
+
+## intl_elimination_table: the elimination table; after the
+## third game $1272 is 0 when the human's side (slot 0) is first or
+## second, and $1284 the team that came third.
+static func intl_elimination_table() -> int:
+	var t := intl_table(3, ISSRom.addr("tbl_intl_elimination_games"))
+	if ISSRam.w(0x1270) == 3:
+		_w(0x1272, 0 if ISSRam.b(t + 1) == 0 or ISSRam.b(t + 7) == 0 else 1)
+		_w(0x1284, ISSRam.w(0x127C + ISSRam.b(t + 13) * 2))
+	return t
+
+
+## mode_international_group: the group round (mode 7): three opponents
+## at random (not the human's team nor the two of the elimination round),
+## a random group letter; the opponents' status blocks cleared.
+static func intl_group_start() -> void:
+	_w(S.g_game_mode, 7)
+	_w(S.g_knockout, 0)
+	_w(0x1276, 1)
+	_w(0x1268, 1)
+	_w(0x1264, 1)
+	_w(0x1270, 0)
+	_w(0x1272, 0xFFFF)
+	_w(0x126A, 0)
+	_w(0x127A, 0)
+	_w(0x1266, 1)
+	ISSRam.clear(S.g_player_status + 20, 0x3C)
+	_w(0x153E, 1)
+	_w(S.g_pads_home, 1)
+	_w(S.g_pads_away, 0)
+	_intl_teams(3, [ISSRam.w(0x127E), ISSRam.w(0x1280)])
+	_w(0x126C, _hv() % 6)
+
+
+## Slots 1..n: teams at random (the HV counter mod 36, stepped down by two
+## while taken), none already in the slots before nor in not.
+static func _intl_teams(n: int, not_these: Array) -> void:
+	var taken := not_these.duplicate()
+	for k in n:
+		var d := _hv() % 36
+		while true:
+			d -= 2
+			if d < 0:
+				d += 36
+			var used := d in taken
+			for j in k + 1:
+				if ISSRam.w(0x127C + j * 2) == d:
+					used = true
+			if not used:
+				break
+		_w(0x127E + k * 2, d)
+
+
+## intl_group_next_game: the group's next game ($1270 of 6,
+## menu_data_05BE40); computer teams' games are simulated and recorded.
+static func intl_group_next_game() -> void:
+	while true:
+		_competition_match()
+		var f := ISSRom.addr("tbl_intl_group_games") + ISSRam.w(0x1270) * 2
+		_fixture(ISSRom.u8(f), ISSRom.u8(f + 1))
+		team_info_init()
+		if ISSRam.w(0x153E) != 0:
+			return
+		match_simulate()
+		intl_group_result()
+		if ISSRam.w(0x1270) >= 6:
+			return
+
+
+## intl_group_table: the group's table; after the sixth game
+## $1272 is 0 when the human's side is first or second, and $129A (slot
+## 15 of the finals) the other of the two.
+static func intl_group_table() -> int:
+	var t := intl_table(4, ISSRom.addr("tbl_intl_group_games"))
+	if ISSRam.w(0x1270) == 6:
+		_w(0x1272, 1)
+		var other := 0
+		if ISSRam.b(t + 1) == 0:
+			_w(0x1272, 0)
+			other = ISSRam.b(t + 7)
+		if ISSRam.b(t + 7) == 0:
+			_w(0x1272, 0)
+			other = ISSRam.b(t + 1)
+		_w(0x129A, ISSRam.w(0x127C + other * 2))
+	return t
+
+
+## mode_international_finals: the finals (mode 8, a knockout): fourteen
+## teams at random in slots 1-14 (none of the group's nor the third of the
+## elimination round), the group's other qualifier already in slot 15; the
+## opponent's status block cleared.
+static func international_finals() -> void:
+	_w(S.g_game_mode, 8)
+	_w(S.g_knockout, 1)
+	_w(0x1276, 1)
+	_w(0x1268, 1)
+	_w(0x1270, 0)
+	_w(0x1272, 0xFFFF)
+	_w(0x126A, 0)
+	_w(0x127A, 0)
+	_w(0x1266, 1)
+	ISSRam.clear(S.g_player_status + 20, 20)
+	_w(0x153E, 1)
+	_w(S.g_pads_home, 1)
+	_w(S.g_pads_away, 0)
+	_intl_teams(14, [ISSRam.w(0x127E), ISSRam.w(0x1280), ISSRam.w(0x1282), ISSRam.w(0x1284)])
+
+
+## The finals' game g: the first eight pair slots 0-1, 2-3 ...
+## (tbl_intl_finals_games), the rest the winners ($129C) of two games before.
+static func _intl_finals_slots(g: int) -> Array:
+	if g < 8:
+		var p := ISSRom.addr("tbl_intl_finals_games") + g * 2
+		return [ISSRom.u8(p), ISSRom.u8(p + 1)]
+	var r := 0x129C + (g - 8) * 4
+	return [ISSRam.w(r), ISSRam.w(r + 2)]
+
+
+## intl_finals_next_game: the finals' next game ($1270 of 15): the opponent's
+## status block (always slot 1's) cleared; computer teams' games are
+## simulated and recorded.
+static func intl_finals_next_game() -> void:
+	while true:
+		_competition_match()
+		ISSRam.clear(S.g_player_status + 20, 20)
+		var s := _intl_finals_slots(ISSRam.w(0x1270))
+		var h: int = s[0]
+		var a: int = s[1]
+		_w(0x1642, 0)
+		if h < ISSRam.w(0x1266):
+			ISSRam.add_w(0x153E, 1)
+			ISSRam.add_w(S.g_pads_home, 1)
+		_w(S.g_team_home, ISSRam.w(0x127C + h * 2))
+		_w(0x1644, 1)
+		if a < ISSRam.w(0x1266):
+			ISSRam.add_w(0x153E, 1)
+			ISSRam.add_w(S.g_pads_away, 1)
+		_w(S.g_team_away, ISSRam.w(0x127C + a * 2))
+		team_info_init()
+		if ISSRam.w(0x153E) != 0:
+			return
+		match_simulate()
+		intl_finals_result()
+		if ISSRam.w(0x1270) >= 15:
+			return
+
+
+## intl_finals_result: the finals game's winner ($129C + 2 * game, its
+## slot): the score, or when level the penalties; on to the next game.
+static func intl_finals_result() -> void:
+	var s := _intl_finals_slots(ISSRam.w(0x1270))
+	var d := ISSRam.sw(S.g_score_home) - ISSRam.sw(S.g_score_away)
+	if d == 0:
+		d = ISSRam.sw(0x153A) - ISSRam.sw(0x153C)
+	_w(0x129C + ISSRam.w(0x1270) * 2, s[0] if d > 0 else s[1])
 	ISSRam.add_w(0x1270, 1)
 
 
@@ -826,25 +1102,6 @@ static func kit_shades() -> void:
 
 # The competitions' result bookkeeping; ported with their screens.
 
-static func menu_func_05B150() -> void:
-	league_result()
-
-
-static func menu_func_05B58C() -> void:
-	tournament_result()
-
-
-static func menu_func_05B966() -> void:
-	push_error("ISSModes.menu_func_05B966 is not ported yet")
-
-
-static func menu_func_05BE12() -> void:
-	push_error("ISSModes.menu_func_05BE12 is not ported yet")
-
-
-static func menu_func_05C2A2() -> void:
-	push_error("ISSModes.menu_func_05C2A2 is not ported yet")
-
 
 static func menu_func_05D124() -> void:
 	push_error("ISSModes.menu_func_05D124 is not ported yet")
@@ -864,13 +1121,6 @@ static func match_setup_random() -> void:
 
 # The main menu's code 4 shortcuts (straight to a competition's last round);
 # ported with the competitions.
-
-static func international_finals() -> void:
-	push_error("ISSModes.international_finals is not ported yet")
-
-
-static func menu_input_05C16E() -> void:
-	push_error("ISSModes.menu_input_05C16E is not ported yet")
 
 
 static func menu_func_05C404() -> void:

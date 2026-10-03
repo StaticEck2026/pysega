@@ -103,7 +103,8 @@ func _init() -> void:
 		ISSScreensEdit.new(self), ISSScreensColours.new(self),
 		ISSScreensPK.new(self), ISSScreensStats.new(self), ISSScreensTraining.new(self),
 		ISSScreensLeague.new(self), ISSScreensCards.new(self), ISSScreensTournament.new(self),
-		ISSScreensPassword.new(self), ISSScreensScenario.new(self), ISSScreensEnding.new(self)]
+		ISSScreensInternational.new(self), ISSScreensPassword.new(self), ISSScreensScenario.new(self),
+		ISSScreensEnding.new(self)]
 	for mod in _modules:
 		mod.register(_handlers)
 
@@ -708,7 +709,7 @@ func rect_fill_tiles(x0: int, x1: int, y0: int, y1: int, v: int) -> int:
 	return v
 
 
-## engine_text_01F9C8: a result mark (3 x 2 cells, tiles $1E0 + 6v: v 0
+## result_mark_draw: a result mark (3 x 2 cells, tiles $1E0 + 6v: v 0
 ## won, 1 lost, 2 drawn) at (x, y), priority on.
 func result_mark_draw(x: int, y: int, v: int) -> void:
 	var a := _cell(x, y)
@@ -718,7 +719,7 @@ func result_mark_draw(x: int, y: int, v: int) -> void:
 		ISSRam.set_w(a + 0x80 + 2 * i, t + 2 * i + 1)
 
 
-## engine_load_01FA14: the waving flags: every fourth frame one of three
+## flags_wave: the waving flags: every fourth frame one of three
 ## strips of 6 tiles (8 frames each, unpacked at $1770) goes to VRAM
 ## $3C00, $3CC0 or $3D80, a frame apart.
 func flags_wave() -> void:

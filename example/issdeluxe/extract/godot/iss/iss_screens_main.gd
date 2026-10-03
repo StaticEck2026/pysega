@@ -92,7 +92,7 @@ func _choose() -> void:
 				# Code 4: straight to the finals with a random team.
 				set_w(0x127C, randi() % 36)
 				ISSModes.international_finals()
-				ISSModes.menu_input_05C16E()
+				ISSModes.intl_finals_next_game()
 				set_w(S.g_weather, 1)
 				set_w(0x1630, 0)
 				set_l(S.g_next_state, ISSMenu.STATE_SCREEN)
